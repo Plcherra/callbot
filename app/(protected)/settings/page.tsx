@@ -1,0 +1,41 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/app/lib/supabase/server";
+import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
+import { AppNav } from "@/app/components/dashboard/AppNav";
+import { SettingsTabs } from "@/app/components/settings/SettingsTabs";
+
+export default async function SettingsPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/signup");
+  }
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("subscription_status, stripe_customer_id, business_name, business_address")
+    .eq("id", user.id)
+    .single();
+
+  return (
+    <main className="mx-auto max-w-2xl px-6 py-12">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Settings</h1>
+        <div className="flex items-center gap-2">
+          <AppNav />
+          <SignOutButton />
+        </div>
+      </div>
+
+      <SettingsTabs
+        email={user.email ?? ""}
+        subscriptionStatus={profile?.subscription_status ?? "inactive"}
+        hasStripeCustomer={Boolean(profile?.stripe_customer_id)}
+        businessName={profile?.business_name ?? ""}
+        businessAddress={profile?.business_address ?? ""}
+      />
+    </main>
+  );
+}

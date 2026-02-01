@@ -42,7 +42,7 @@ export default function ContactPage() {
         <CardHeader>
           <CardTitle>Get in touch</CardTitle>
           <CardDescription>
-            Email us at <a href="mailto:support@example.com" className="text-primary underline">support@example.com</a>
+            Email us at <a href="mailto:echodesk2@gmail.com" className="text-primary underline">echodesk2@gmail.com</a>
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -1,0 +1,9 @@
+Resource Type,Permission,Reason / Why you need it (or not)
+Customers,Read + Write,Required to create/retrieve customers on signup/payment
+Payment Intents,Write,Required to create payment intents (Checkout sessions)
+Prices,Read,To reference your $29/mo price ID
+Products,Read,To validate the product exists
+Subscriptions,Read + Write,"To create, update, manage recurring subscriptions"
+Checkout Sessions,Write,To create Checkout sessions (prebuilt form)
+Balance,Read,Optional — to show balance/payouts in dashboard (safe)
+Payouts,Read,Optional — to show payout status (safe)

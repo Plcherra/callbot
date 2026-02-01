@@ -11,6 +11,8 @@ import { BotStatus } from "@/app/components/dashboard/BotStatus";
 import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
+import { syncSubscriptionFromSession } from "@/app/actions/syncSubscription";
+import { DashboardRefresh } from "@/app/components/dashboard/DashboardRefresh";
 
 type SearchParams = { session_id?: string };
 
@@ -28,11 +30,19 @@ export default async function DashboardPage({
   }
 
   const params = await searchParams;
-  const showPaymentSuccess = Boolean(params.session_id);
+  const sessionId = params.session_id;
+
+  // Fallback: if user just returned from Checkout with session_id, sync status from Stripe so they see "Active" immediately
+  if (sessionId) {
+    const { synced } = await syncSubscriptionFromSession(sessionId, user.id);
+    if (synced) {
+      redirect("/dashboard");
+    }
+  }
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, phone, calendar_id, bot_active")
+    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active")
     .eq("id", user.id)
     .single();
 
@@ -62,13 +72,14 @@ export default async function DashboardPage({
           Connect calendar to start. Upgrade to Pro for the full AI bot.
         </p>
 
-        {showPaymentSuccess && (
-          <Alert variant="success" className="mt-6">
-            <AlertTitle>Payment complete</AlertTitle>
+        {sessionId && (
+          <Alert className="mt-6">
+            <AlertTitle>Payment received</AlertTitle>
             <AlertDescription>
-              Your subscription is activating. Refresh the page in a moment to
-              see the full dashboard and connect Google Calendar.
+              Payment may take a moment to process. Click Refresh below or wait
+              about 30 seconds and refresh the page.
             </AlertDescription>
+            <DashboardRefresh className="mt-3" />
           </Alert>
         )}
 
@@ -82,7 +93,10 @@ export default async function DashboardPage({
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <Badge variant="success">Active – $29/mo</Badge>
+        </div>
         <div className="flex items-center gap-2">
           <AppNav />
           <SignOutButton />

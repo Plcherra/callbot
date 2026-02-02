@@ -2,6 +2,7 @@
 
 import { createClient } from "@/app/lib/supabase/server";
 import { createAssistant } from "@/app/lib/vapi";
+import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 
 const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID;
 
@@ -39,7 +40,17 @@ export async function createReceptionist(data: {
   const e164 =
     phone.length === 10 ? `+1${phone}` : phone.startsWith("1") ? `+${phone}` : `+${phone}`;
 
-  const systemPrompt = `You are an AI receptionist named ${name}. You answer calls professionally and help callers book appointments. The business phone number is ${e164}. You have access to the business Google Calendar (calendar ID: ${calendarId}) to check availability and create events. Be friendly, concise, and confirm the appointment details before ending the call.`;
+  const systemPrompt = buildReceptionistPrompt({
+    name,
+    phoneNumber: e164,
+    calendarId,
+    staff: [],
+    services: [],
+    locations: [],
+    promos: [],
+    reminderRules: [],
+    paymentSettings: undefined,
+  });
 
   try {
     const assistant = await createAssistant({

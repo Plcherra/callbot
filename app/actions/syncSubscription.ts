@@ -11,6 +11,7 @@ export async function syncSubscriptionFromSession(
   sessionId: string,
   currentUserId: string
 ): Promise<{ synced: boolean; error?: string }> {
+  console.log("Processing session_id:", sessionId);
   try {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(sessionId, {

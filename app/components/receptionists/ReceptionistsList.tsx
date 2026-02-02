@@ -35,20 +35,27 @@ export function ReceptionistsList({ receptionists, testCallNumber }: Props) {
         {receptionists.map((r) => (
           <Card key={r.id}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{r.name}</CardTitle>
+              <CardTitle className="text-base">
+                <Link href={`/receptionists/${r.id}`} className="hover:underline">
+                  {r.name}
+                </Link>
+              </CardTitle>
               <p className="text-sm text-muted-foreground">{r.phone_number}</p>
             </CardHeader>
             <CardContent className="space-y-2">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={r.status === "active" ? "success" : "secondary"}>
                   {r.status === "active" ? "Active" : "Paused"}
                 </Badge>
-              </div>
-              {testCallNumber && r.vapi_assistant_id && (
                 <Button asChild variant="outline" size="sm">
-                  <a href={`tel:${testCallNumber}`}>Test call</a>
+                  <Link href={`/receptionists/${r.id}/settings`}>Settings</Link>
                 </Button>
-              )}
+                {testCallNumber && r.vapi_assistant_id && (
+                  <Button asChild variant="outline" size="sm">
+                    <a href={`tel:${testCallNumber}`}>Test call</a>
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}

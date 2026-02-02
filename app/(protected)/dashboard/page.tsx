@@ -11,6 +11,7 @@ import { BotStatus } from "@/app/components/dashboard/BotStatus";
 import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
+import { Skeleton } from "@/app/components/ui/skeleton";
 import { syncSubscriptionFromSession } from "@/app/actions/syncSubscription";
 import { DashboardRefresh } from "@/app/components/dashboard/DashboardRefresh";
 
@@ -74,16 +75,19 @@ export default async function DashboardPage({
 
         {sessionId && (
           <Alert className="mt-6">
-            <AlertTitle>Payment received</AlertTitle>
+            <AlertTitle>Payment received – activating your subscription...</AlertTitle>
             <AlertDescription>
-              Payment may take a moment to process. Click Refresh below or wait
-              about 30 seconds and refresh the page.
+              If your plan isn&apos;t active yet, click Refresh below or wait a
+              moment and refresh the page.
             </AlertDescription>
             <DashboardRefresh className="mt-3" />
           </Alert>
         )}
 
         <div className="mt-8">
+          {sessionId && (
+            <Skeleton className="mb-4 h-24 w-full rounded-lg" />
+          )}
           <UpgradeCard userId={user.id} />
         </div>
       </main>

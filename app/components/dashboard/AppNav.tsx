@@ -9,6 +9,7 @@ const links = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/receptionists", label: "My Receptionists" },
   { href: "/settings", label: "Settings" },
+  { href: "/help", label: "Help" },
 ];
 
 export function AppNav() {

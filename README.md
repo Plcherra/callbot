@@ -27,7 +27,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 - **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Stripe**: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
-- **Vapi.ai**: `VAPI_API_KEY`; optional: `VAPI_PHONE_NUMBER_ID`, `VAPI_TEST_CALL_NUMBER`, `NEXT_PUBLIC_VAPI_TEST_CALL_NUMBER`
+- **Vapi.ai**: `VAPI_API_KEY` (phone numbers are provisioned per receptionist; see [docs/NUMBERS.md](docs/NUMBERS.md) — 10 free US numbers per account)
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (e.g. `http://localhost:3000/api/google/callback`)
 - **App**: `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 
@@ -45,7 +45,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 ### 4. Vapi.ai
 
 1. Get your API key and set `VAPI_API_KEY`.
-2. (Optional) Configure a phone number and set `VAPI_PHONE_NUMBER_ID` and `VAPI_TEST_CALL_NUMBER`.
+2. Phone numbers are created automatically per receptionist (Vapi free telephony). See [docs/NUMBERS.md](docs/NUMBERS.md) for the 10-number limit and options.
 
 ### 5. Google OAuth
 

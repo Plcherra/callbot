@@ -1,40 +1,133 @@
 import { NextRequest, NextResponse } from "next/server";
-import { exchangeCodeForTokens } from "@/app/actions/google";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { google } from "googleapis";
 
-const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI!;
-const clientId = process.env.GOOGLE_CLIENT_ID!;
-const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+// Validate environment variables at module load time
+const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
+const clientId = process.env.GOOGLE_CLIENT_ID;
+const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
+if (!redirectUri || !clientId || !clientSecret) {
+  console.error(
+    "Missing Google OAuth environment variables. Check: NEXT_PUBLIC_GOOGLE_REDIRECT_URI, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET"
+  );
+}
+
 export async function GET(req: NextRequest) {
+  // Validate environment variables
+  if (!redirectUri || !clientId || !clientSecret) {
+    console.error("Google OAuth configuration missing");
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=Server configuration error`
+    );
+  }
+
   const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get("code");
   const state = searchParams.get("state"); // userId
+  const error = searchParams.get("error");
 
-  if (!code || !state) {
-    return NextResponse.redirect(`${appUrl}/dashboard?error=missing_params`);
+  // Handle OAuth errors from Google
+  if (error) {
+    console.error("Google OAuth error:", error);
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `OAuth error: ${error}`
+      )}`
+    );
+  }
+
+  // Validate required parameters
+  if (!code) {
+    console.error("Missing authorization code in callback");
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        "Missing authorization code"
+      )}`
+    );
+  }
+
+  if (!state) {
+    console.error("Missing state parameter in callback");
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        "Missing state parameter"
+      )}`
+    );
+  }
+
+  // Validate state (userId) exists in database
+  const supabase = createServiceRoleClient();
+  const { data: user, error: userError } = await supabase
+    .from("users")
+    .select("id")
+    .eq("id", state)
+    .single();
+
+  if (userError || !user) {
+    console.error("Invalid state/userId:", state, userError);
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        "Invalid user"
+      )}`
+    );
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code);
-    if (!tokens.refresh_token) {
-      return NextResponse.redirect(`${appUrl}/dashboard?error=no_refresh_token`);
-    }
-
+    // Create OAuth2 client
     const oauth2Client = new google.auth.OAuth2(
       clientId,
       clientSecret,
       redirectUri
     );
-    oauth2Client.setCredentials(tokens);
-    const oauth2 = await google.oauth2({ version: "v2", auth: oauth2Client });
-    const { data: userInfo } = await oauth2.userinfo.get();
-    const calendarId = userInfo.email ?? "primary";
 
-    const supabase = createServiceRoleClient();
-    const { error } = await supabase
+    // Exchange authorization code for tokens
+    console.log("Exchanging code for tokens...");
+    const { tokens } = await oauth2Client.getToken(code);
+
+    if (!tokens) {
+      console.error("Failed to get tokens from Google");
+      return NextResponse.redirect(
+        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+          "Failed to get tokens"
+        )}`
+      );
+    }
+
+    // Refresh token is required for offline access
+    if (!tokens.refresh_token) {
+      console.error("No refresh token received. User may need to grant offline access.");
+      return NextResponse.redirect(
+        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+          "No refresh token received. Please try connecting again and ensure you grant all permissions."
+        )}`
+      );
+    }
+
+    // Set credentials to get user info
+    oauth2Client.setCredentials(tokens);
+
+    // Get user info to determine calendar ID
+    console.log("Fetching user info from Google...");
+    const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+    const { data: userInfo, error: userInfoError } = await oauth2.userinfo.get();
+
+    if (userInfoError || !userInfo) {
+      console.error("Failed to get user info:", userInfoError);
+      return NextResponse.redirect(
+        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+          "Failed to get user information"
+        )}`
+      );
+    }
+
+    const calendarId = userInfo.email ?? "primary";
+    console.log("Calendar ID:", calendarId);
+
+    // Save tokens to database
+    console.log("Saving tokens to database for user:", state);
+    const { error: updateError } = await supabase
       .from("users")
       .update({
         calendar_id: calendarId,
@@ -43,14 +136,35 @@ export async function GET(req: NextRequest) {
       })
       .eq("id", state);
 
-    if (error) {
-      console.error("Google callback update error:", error);
-      return NextResponse.redirect(`${appUrl}/dashboard?error=db_error`);
+    if (updateError) {
+      console.error("Database update error:", updateError);
+      return NextResponse.redirect(
+        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+          "Failed to save calendar connection"
+        )}`
+      );
     }
 
+    console.log("Successfully connected Google Calendar for user:", state);
     return NextResponse.redirect(`${appUrl}/dashboard?calendar=connected`);
   } catch (err) {
-    console.error("Google callback error:", err);
-    return NextResponse.redirect(`${appUrl}/dashboard?error=oauth_failed`);
+    // Log detailed error information
+    const errorMessage =
+      err instanceof Error ? err.message : "Unknown error occurred";
+    const errorStack = err instanceof Error ? err.stack : undefined;
+
+    console.error("Google callback error:", {
+      message: errorMessage,
+      stack: errorStack,
+      code,
+      state,
+    });
+
+    // Return user-friendly error message
+    return NextResponse.redirect(
+      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `Connection failed: ${errorMessage}`
+      )}`
+    );
   }
 }

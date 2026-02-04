@@ -6,6 +6,7 @@ import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
 import { AppNav } from "@/app/components/dashboard/AppNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
+import { getCurrentPeriod } from "@/app/lib/usage";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -19,12 +20,31 @@ export default async function ReceptionistDetailPage({ params }: Props) {
   const { id } = await params;
   const { data: receptionist } = await supabase
     .from("receptionists")
-    .select("id, name, phone_number, calendar_id, status, vapi_assistant_id")
+    .select("id, name, phone_number, calendar_id, status, vapi_assistant_id, inbound_phone_number")
     .eq("id", id)
     .eq("user_id", user.id)
     .single();
 
   if (!receptionist) notFound();
+
+  const { period_start: usagePeriodStart } = getCurrentPeriod();
+  const { data: userRow } = await supabase
+    .from("users")
+    .select("billing_plan_metadata")
+    .eq("id", user.id)
+    .single();
+  const { data: snapshot } = await supabase
+    .from("usage_snapshots")
+    .select("total_seconds, overage_minutes")
+    .eq("receptionist_id", receptionist.id)
+    .eq("period_start", usagePeriodStart)
+    .maybeSingle();
+  const usageMinutes = snapshot
+    ? Math.ceil((snapshot.total_seconds ?? 0) / 60)
+    : 0;
+  const metadata = userRow?.billing_plan_metadata as { included_minutes?: number } | null | undefined;
+  const includedMinutes = typeof metadata?.included_minutes === "number" ? metadata.included_minutes : null;
+  const overageMinutes = snapshot?.overage_minutes ?? 0;
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
@@ -47,7 +67,10 @@ export default async function ReceptionistDetailPage({ params }: Props) {
         </Badge>
       </div>
       <p className="mt-1 text-muted-foreground">
-        AI receptionist · {receptionist.phone_number}
+        AI receptionist
+        {receptionist.inbound_phone_number
+          ? ` · Your number: ${receptionist.inbound_phone_number}`
+          : ` · ${receptionist.phone_number}`}
       </p>
 
       <Card className="mt-8">
@@ -55,9 +78,16 @@ export default async function ReceptionistDetailPage({ params }: Props) {
           <CardTitle className="text-base">Overview</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
-          <p>
-            <span className="font-medium">Phone:</span> {receptionist.phone_number}
-          </p>
+          {receptionist.inbound_phone_number ? (
+            <p>
+              <span className="font-medium">Your number:</span>{" "}
+              {receptionist.inbound_phone_number}
+            </p>
+          ) : (
+            <p>
+              <span className="font-medium">Phone:</span> {receptionist.phone_number}
+            </p>
+          )}
           {receptionist.calendar_id && (
             <p>
               <span className="font-medium">Calendar:</span> {receptionist.calendar_id}
@@ -68,6 +98,17 @@ export default async function ReceptionistDetailPage({ params }: Props) {
               <span className="font-medium">Assistant:</span> Connected
             </p>
           )}
+          <p>
+            <span className="font-medium">Minutes this period:</span>{" "}
+            {includedMinutes != null
+              ? `${usageMinutes} / ${includedMinutes}`
+              : `${usageMinutes}`}
+            {overageMinutes > 0 && (
+              <span className="ml-1 text-amber-600 dark:text-amber-400">
+                ({overageMinutes} overage)
+              </span>
+            )}
+          </p>
         </CardContent>
       </Card>
 

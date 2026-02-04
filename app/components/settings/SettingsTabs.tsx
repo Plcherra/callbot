@@ -8,6 +8,8 @@ import { Input } from "@/app/components/ui/input";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { updateBusiness, createBillingPortalSession } from "@/app/actions/settings";
 import { createClient } from "@/app/lib/supabase/client";
+import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
+import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
 
 type Props = {
   email: string;
@@ -15,6 +17,9 @@ type Props = {
   hasStripeCustomer: boolean;
   businessName: string;
   businessAddress: string;
+  calendarId: string | null;
+  phone: string | null;
+  userId: string;
 };
 
 export function SettingsTabs({
@@ -23,6 +28,9 @@ export function SettingsTabs({
   hasStripeCustomer,
   businessName,
   businessAddress,
+  calendarId,
+  phone,
+  userId,
 }: Props) {
   const [businessNameVal, setBusinessNameVal] = useState(businessName);
   const [businessAddressVal, setBusinessAddressVal] = useState(businessAddress);
@@ -89,8 +97,9 @@ export function SettingsTabs({
 
   return (
     <Tabs defaultValue="profile" className="mt-8">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="profile">Profile</TabsTrigger>
+        <TabsTrigger value="integrations">Integrations</TabsTrigger>
         <TabsTrigger value="billing">Billing</TabsTrigger>
         <TabsTrigger value="business">Business</TabsTrigger>
       </TabsList>
@@ -142,6 +151,24 @@ export function SettingsTabs({
                 {passwordSaving ? "Updating…" : "Change password"}
               </Button>
             </form>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="integrations">
+        <Card>
+          <CardHeader>
+            <CardTitle>Integrations</CardTitle>
+            <CardDescription>
+              These settings are used as defaults when creating new receptionists.
+              You can override them per receptionist.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <CalendarConnect calendarId={calendarId} userId={userId} />
+            <div className="rounded-lg border p-4">
+              <PhoneInput initialPhone={phone} />
+            </div>
           </CardContent>
         </Card>
       </TabsContent>

@@ -8,12 +8,15 @@ import { Input } from "@/app/components/ui/input";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { createReceptionist } from "@/app/actions/createReceptionist";
 
-type Props = { defaultCalendarId: string };
+type Props = {
+  defaultCalendarId: string;
+  defaultPhone: string | null;
+};
 
-export function AddReceptionistForm({ defaultCalendarId }: Props) {
+export function AddReceptionistForm({ defaultCalendarId, defaultPhone }: Props) {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState(defaultPhone ?? "");
   const [calendarId, setCalendarId] = useState(defaultCalendarId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +32,7 @@ export function AddReceptionistForm({ defaultCalendarId }: Props) {
     if (result.success) {
       setSuccess(true);
       setName("");
-      setPhone("");
+      setPhone(defaultPhone ?? "");
       setCalendarId(defaultCalendarId);
       router.refresh();
     } else {
@@ -44,6 +47,11 @@ export function AddReceptionistForm({ defaultCalendarId }: Props) {
         <CardDescription>
           Create a new AI assistant. Name, phone, and calendar ID are required.
         </CardDescription>
+        {(defaultCalendarId || defaultPhone) && (
+          <p className="text-sm text-muted-foreground">
+            Using defaults from Settings. You can change these for this receptionist.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">

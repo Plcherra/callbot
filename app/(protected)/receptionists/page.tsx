@@ -18,7 +18,7 @@ export default async function ReceptionistsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, calendar_id")
+    .select("subscription_status, calendar_id, phone")
     .eq("id", user.id)
     .single();
 
@@ -26,7 +26,7 @@ export default async function ReceptionistsPage() {
 
   const { data: receptionists } = await supabase
     .from("receptionists")
-    .select("id, name, phone_number, vapi_assistant_id, status")
+    .select("id, name, phone_number, vapi_assistant_id, inbound_phone_number, status")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
@@ -55,11 +55,11 @@ export default async function ReceptionistsPage() {
         </div>
       ) : (
         <>
-          <AddReceptionistForm defaultCalendarId={profile?.calendar_id ?? ""} />
-          <ReceptionistsList
-            receptionists={receptionists ?? []}
-            testCallNumber={process.env.VAPI_TEST_CALL_NUMBER ?? null}
+          <AddReceptionistForm
+            defaultCalendarId={profile?.calendar_id ?? ""}
+            defaultPhone={profile?.phone ?? null}
           />
+          <ReceptionistsList receptionists={receptionists ?? []} />
         </>
       )}
     </main>

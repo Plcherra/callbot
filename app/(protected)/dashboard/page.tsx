@@ -5,17 +5,20 @@ import { Button } from "@/app/components/ui/button";
 import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
 import { AppNav } from "@/app/components/dashboard/AppNav";
 import { UpgradeCard } from "@/app/components/dashboard/UpgradeCard";
-import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
-import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
-import { BotStatus } from "@/app/components/dashboard/BotStatus";
 import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { Card, CardContent } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
 import { Skeleton } from "@/app/components/ui/skeleton";
 import { syncSubscriptionFromSession } from "@/app/actions/syncSubscription";
 import { DashboardRefresh } from "@/app/components/dashboard/DashboardRefresh";
+import { getCurrentPeriod } from "@/app/lib/usage";
 
-type SearchParams = { session_id?: string };
+type SearchParams = {
+  session_id?: string;
+  calendar?: string;
+  error?: string;
+  message?: string;
+};
 
 export default async function DashboardPage({
   searchParams,
@@ -32,6 +35,8 @@ export default async function DashboardPage({
 
   const params = await searchParams;
   const sessionId = params.session_id;
+  const calendarStatus = params.calendar;
+  const errorMessage = params.message;
 
   // Fallback: if user just returned from Checkout with session_id, sync status from Stripe so they see "Active" immediately
   if (sessionId) {
@@ -43,7 +48,7 @@ export default async function DashboardPage({
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active")
+    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan_metadata, onboarding_completed_at")
     .eq("id", user.id)
     .single();
 
@@ -58,6 +63,36 @@ export default async function DashboardPage({
         .order("created_at", { ascending: false })
         .limit(6)
     : { data: [] };
+
+  const { count: totalReceptionists } = isActive
+    ? await supabase
+        .from("receptionists")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+    : { count: 0 };
+
+  const { count: activeReceptionists } = isActive
+    ? await supabase
+        .from("receptionists")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("status", "active")
+    : { count: 0 };
+
+  const { period_start: usagePeriodStart } = getCurrentPeriod();
+  const { data: usageRows } = isActive
+    ? await supabase
+        .from("usage_snapshots")
+        .select("total_seconds, overage_minutes")
+        .eq("user_id", user.id)
+        .eq("period_start", usagePeriodStart)
+    : { data: [] };
+  const totalUsageSeconds = usageRows?.reduce((s, r) => s + (r.total_seconds ?? 0), 0) ?? 0;
+  const totalUsageMinutes = Math.ceil(totalUsageSeconds / 60);
+  const metadata = profile?.billing_plan_metadata as { included_minutes?: number } | null | undefined;
+  const includedMinutes = typeof metadata?.included_minutes === "number" ? metadata.included_minutes : null;
+  const overageMinutes = usageRows?.reduce((s, r) => s + (r.overage_minutes ?? 0), 0) ?? 0;
+  const isOverCap = includedMinutes != null && totalUsageMinutes >= includedMinutes;
 
   if (!isActive) {
     return (
@@ -107,17 +142,119 @@ export default async function DashboardPage({
         </div>
       </div>
       <p className="mt-1 text-muted-foreground">
-        Set up your AI receptionist and manage assistants.
+        Overview of your AI receptionists and quick actions.
       </p>
 
-      {/* Receptionists section */}
+      {!profile?.onboarding_completed_at && (
+        <Alert className="mt-6 border-blue-500 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+          <AlertTitle className="text-blue-800 dark:text-blue-200">
+            Finish setup
+          </AlertTitle>
+          <AlertDescription className="text-blue-700 dark:text-blue-300">
+            Connect calendar, add phone, and create your first receptionist.{" "}
+            <Link href="/onboarding" className="underline">
+              Go to onboarding
+            </Link>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Calendar connection status messages (from OAuth redirect) */}
+      {calendarStatus === "connected" && (
+        <Alert className="mt-6 border-green-500 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <AlertTitle className="text-green-800 dark:text-green-200">
+            ✓ Google Calendar Connected
+          </AlertTitle>
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Your Google Calendar has been successfully connected. Set defaults in{" "}
+            <Link href="/settings" className="underline">
+              Settings → Integrations
+            </Link>
+            .
+          </AlertDescription>
+        </Alert>
+      )}
+      {(calendarStatus === "error" || params.error) && (
+        <Alert className="mt-6 border-red-500 bg-red-50 dark:border-red-800 dark:bg-red-950/30">
+          <AlertTitle className="text-red-800 dark:text-red-200">
+            Calendar Connection Failed
+          </AlertTitle>
+          <AlertDescription className="text-red-700 dark:text-red-300">
+            {errorMessage
+              ? decodeURIComponent(errorMessage)
+              : "Failed to connect Google Calendar. Please try again in Settings → Integrations."}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Statistics cards */}
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground">
+              Total Receptionists
+            </p>
+            <p className="mt-1 text-2xl font-bold">{totalReceptionists ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground">
+              Active Receptionists
+            </p>
+            <p className="mt-1 text-2xl font-bold">{activeReceptionists ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground">
+              Calendar
+            </p>
+            <p className="mt-1">
+              {profile?.calendar_id ? (
+                <Badge variant="success">Connected</Badge>
+              ) : (
+                <Badge variant="secondary">Not connected</Badge>
+              )}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground">
+              Default phone
+            </p>
+            <p className="mt-1 text-sm">
+              {profile?.phone ? (
+                <span className="font-medium">{profile.phone}</span>
+              ) : (
+                <span className="text-muted-foreground">Not set</span>
+              )}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm font-medium text-muted-foreground">
+              Minutes this period
+            </p>
+            <p className="mt-1 text-2xl font-bold">
+              {includedMinutes != null
+                ? `${totalUsageMinutes} / ${includedMinutes}`
+                : `${totalUsageMinutes}`}
+            </p>
+            {isOverCap && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                Over included minutes; overage may be billed.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Recent receptionists */}
       <div className="mt-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">My Receptionists</h2>
-          <Button asChild size="sm">
-            <Link href="/receptionists">+ Add Receptionist</Link>
-          </Button>
-        </div>
+        <h2 className="text-lg font-semibold">Recent Receptionists</h2>
         {receptionists && receptionists.length > 0 ? (
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {receptionists.map((r) => (
@@ -141,17 +278,6 @@ export default async function DashboardPage({
             .
           </p>
         )}
-      </div>
-
-      <div className="mt-8 space-y-6">
-        <CalendarConnect
-          calendarId={profile?.calendar_id ?? null}
-          userId={user.id}
-        />
-        <div className="rounded-lg border p-4">
-          <PhoneInput initialPhone={profile?.phone ?? null} />
-        </div>
-        <BotStatus botActive={profile?.bot_active ?? false} />
       </div>
     </main>
   );

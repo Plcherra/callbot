@@ -3,8 +3,6 @@
 import { createClient } from "@/app/lib/supabase/server";
 import { createAssistant } from "@/app/lib/vapi";
 
-const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID;
-
 export async function activateBot(): Promise<
   { success: true; testNumber?: string } | { success: false; error: string }
 > {
@@ -51,7 +49,6 @@ export async function activateBot(): Promise<
       firstMessage:
         "Hello! Thanks for calling. I'm your AI receptionist. How can I help you today?",
       systemPrompt,
-      ...(VAPI_PHONE_NUMBER_ID && { phoneNumberId: VAPI_PHONE_NUMBER_ID }),
     });
 
     const { error: updateError } = await supabase

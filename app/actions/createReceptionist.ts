@@ -1,15 +1,20 @@
 "use server";
 
 import { createClient } from "@/app/lib/supabase/server";
-import { createAssistant } from "@/app/lib/vapi";
+import {
+  createAssistant,
+  createPhoneNumber,
+  updatePhoneNumber,
+  deleteAssistant,
+  deletePhoneNumber,
+} from "@/app/lib/vapi";
 import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
-
-const VAPI_PHONE_NUMBER_ID = process.env.VAPI_PHONE_NUMBER_ID;
 
 export async function createReceptionist(data: {
   name: string;
   phone_number: string;
   calendar_id: string;
+  area_code?: string;
 }): Promise<{ success: true; id?: string } | { success: false; error: string }> {
   const supabase = await createClient();
   const {
@@ -52,6 +57,9 @@ export async function createReceptionist(data: {
     paymentSettings: undefined,
   });
 
+  let assistantId: string | null = null;
+  let phoneNumberId: string | null = null;
+
   try {
     const assistant = await createAssistant({
       name: name,
@@ -59,8 +67,18 @@ export async function createReceptionist(data: {
       voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
       firstMessage: `Hello! Thanks for calling. I'm ${name}, your AI receptionist. How can I help you today?`,
       systemPrompt,
-      ...(VAPI_PHONE_NUMBER_ID && { phoneNumberId: VAPI_PHONE_NUMBER_ID }),
     });
+    assistantId = assistant.id;
+
+    const phoneNumber = await createPhoneNumber({
+      areaCode: data.area_code?.trim() || undefined,
+    });
+    phoneNumberId = phoneNumber.id;
+
+    await updatePhoneNumber(phoneNumber.id, assistant.id);
+
+    const inboundNumber =
+      typeof phoneNumber.number === "string" ? phoneNumber.number : undefined;
 
     const { data: row, error } = await supabase
       .from("receptionists")
@@ -69,6 +87,8 @@ export async function createReceptionist(data: {
         name,
         phone_number: e164,
         vapi_assistant_id: assistant.id,
+        vapi_phone_number_id: phoneNumber.id,
+        inbound_phone_number: inboundNumber ?? null,
         calendar_id: calendarId,
         status: "active",
       })
@@ -76,12 +96,59 @@ export async function createReceptionist(data: {
       .single();
 
     if (error) {
+      if (phoneNumberId) {
+        try {
+          await deletePhoneNumber(phoneNumberId);
+        } catch {
+          // best-effort cleanup
+        }
+      }
+      if (assistantId) {
+        try {
+          await deleteAssistant(assistantId);
+        } catch {
+          // best-effort cleanup
+        }
+      }
       return { success: false, error: error.message };
     }
+
+    await supabase
+      .from("users")
+      .update({
+        onboarding_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", user.id)
+      .is("onboarding_completed_at", null);
 
     return { success: true, id: row?.id };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Vapi API error";
+    if (phoneNumberId) {
+      try {
+        await deletePhoneNumber(phoneNumberId);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+    if (assistantId) {
+      try {
+        await deleteAssistant(assistantId);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+    if (
+      typeof message === "string" &&
+      (message.includes("10") || message.toLowerCase().includes("limit"))
+    ) {
+      return {
+        success: false,
+        error:
+          "Phone number limit reached (10 free numbers per account). Please contact support to add more numbers.",
+      };
+    }
     return { success: false, error: message };
   }
 }

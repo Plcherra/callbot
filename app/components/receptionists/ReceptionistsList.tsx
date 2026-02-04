@@ -10,15 +10,15 @@ type Receptionist = {
   name: string;
   phone_number: string;
   vapi_assistant_id: string | null;
+  inbound_phone_number: string | null;
   status: string;
 };
 
 type Props = {
   receptionists: Receptionist[];
-  testCallNumber: string | null;
 };
 
-export function ReceptionistsList({ receptionists, testCallNumber }: Props) {
+export function ReceptionistsList({ receptionists }: Props) {
   if (receptionists.length === 0) {
     return (
       <div className="mt-8 rounded-lg border border-dashed p-8 text-center text-muted-foreground">
@@ -40,7 +40,13 @@ export function ReceptionistsList({ receptionists, testCallNumber }: Props) {
                   {r.name}
                 </Link>
               </CardTitle>
-              <p className="text-sm text-muted-foreground">{r.phone_number}</p>
+              {r.inbound_phone_number ? (
+                <p className="text-sm text-muted-foreground">
+                  Your number: {r.inbound_phone_number}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">{r.phone_number}</p>
+              )}
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
@@ -50,9 +56,9 @@ export function ReceptionistsList({ receptionists, testCallNumber }: Props) {
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/receptionists/${r.id}/settings`}>Settings</Link>
                 </Button>
-                {testCallNumber && r.vapi_assistant_id && (
+                {r.inbound_phone_number && r.vapi_assistant_id && (
                   <Button asChild variant="outline" size="sm">
-                    <a href={`tel:${testCallNumber}`}>Test call</a>
+                    <a href={`tel:${r.inbound_phone_number}`}>Test call</a>
                   </Button>
                 )}
               </div>

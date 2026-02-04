@@ -33,6 +33,46 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceRoleClient();
 
+  const priceToPlan: Record<
+    string,
+    { billing_plan: string; billing_plan_metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } }
+  > = {};
+  const starterPriceId = process.env.STRIPE_PRICE_ID;
+  if (starterPriceId) {
+    priceToPlan[starterPriceId] = {
+      billing_plan: "subscription_starter",
+      billing_plan_metadata: { included_minutes: 300 },
+    };
+  }
+  const perMinutePriceId = process.env.STRIPE_PER_MINUTE_PRICE_ID;
+  if (perMinutePriceId) {
+    priceToPlan[perMinutePriceId] = {
+      billing_plan: "per_minute",
+      billing_plan_metadata: { monthly_fee_cents: 500, per_minute_cents: 35 },
+    };
+  }
+
+  function planFromSubscription(subscription: Stripe.Subscription): {
+    billing_plan: string;
+    billing_plan_metadata: Record<string, unknown>;
+  } | null {
+    const items = subscription.items?.data ?? [];
+    const priceId = items[0]?.price?.id ?? (items[0]?.price as string);
+    if (typeof priceId !== "string") return null;
+    const plan = priceToPlan[priceId];
+    if (plan) return plan;
+    const price = items[0]?.price as Stripe.Price | undefined;
+    const meta = price?.metadata;
+    if (meta?.plan) {
+      const included = meta.included_minutes != null ? parseInt(String(meta.included_minutes), 10) : undefined;
+      return {
+        billing_plan: String(meta.plan),
+        billing_plan_metadata: included != null && !Number.isNaN(included) ? { included_minutes: included } : {},
+      };
+    }
+    return null;
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
@@ -68,18 +108,31 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      const updates: Record<string, unknown> = {
+        id: userId,
+        email: email ?? undefined,
+        stripe_customer_id: customerId,
+        subscription_status: "active",
+        updated_at: new Date().toISOString(),
+      };
+      const sessionSubId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+      if (sessionSubId) {
+        updates.stripe_subscription_id = sessionSubId;
+        try {
+          const stripe = getStripe();
+          const subscription = await stripe.subscriptions.retrieve(sessionSubId, { expand: ["items.data.price"] });
+          const plan = planFromSubscription(subscription);
+          if (plan) {
+            updates.billing_plan = plan.billing_plan;
+            updates.billing_plan_metadata = plan.billing_plan_metadata;
+          }
+        } catch (e) {
+          console.error("[Stripe webhook] checkout.session.completed: failed to fetch subscription", e);
+        }
+      }
       const { error } = await supabase
         .from("users")
-        .upsert(
-          {
-            id: userId,
-            email: email ?? undefined,
-            stripe_customer_id: customerId,
-            subscription_status: "active",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+        .upsert(updates as Record<string, string | null>, { onConflict: "id" });
 
       if (error) {
         console.error("[Stripe webhook] checkout.session.completed upsert error:", error);
@@ -102,14 +155,18 @@ export async function POST(req: NextRequest) {
         .single();
 
       if (user) {
-        await supabase
-          .from("users")
-          .update({
-            subscription_status: status,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", user.id);
-        console.log("[Stripe webhook] customer.subscription.*: user", user.id, "status", status);
+        const plan = planFromSubscription(subscription);
+        const update: Record<string, unknown> = {
+          subscription_status: status,
+          stripe_subscription_id: subscription.id,
+          updated_at: new Date().toISOString(),
+        };
+        if (plan) {
+          update.billing_plan = plan.billing_plan;
+          update.billing_plan_metadata = plan.billing_plan_metadata;
+        }
+        await supabase.from("users").update(update as Record<string, string | null>).eq("id", user.id);
+        console.log("[Stripe webhook] customer.subscription.*: user", user.id, "status", status, "plan", plan?.billing_plan ?? "none");
       }
       break;
     }
@@ -129,6 +186,9 @@ export async function POST(req: NextRequest) {
           .from("users")
           .update({
             subscription_status: "canceled",
+            billing_plan: null,
+            billing_plan_metadata: null,
+            stripe_subscription_id: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", user.id);

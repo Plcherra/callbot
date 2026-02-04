@@ -15,7 +15,7 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, business_name, business_address")
+    .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone")
     .eq("id", user.id)
     .single();
 
@@ -35,6 +35,9 @@ export default async function SettingsPage() {
         hasStripeCustomer={Boolean(profile?.stripe_customer_id)}
         businessName={profile?.business_name ?? ""}
         businessAddress={profile?.business_address ?? ""}
+        calendarId={profile?.calendar_id ?? null}
+        phone={profile?.phone ?? null}
+        userId={user.id}
       />
     </main>
   );

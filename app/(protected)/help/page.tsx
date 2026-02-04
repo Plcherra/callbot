@@ -65,10 +65,12 @@ export default async function HelpPage() {
             <CardTitle className="text-base">Billing and plans</CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            Subscription plans include a set number of minutes per month.
-            Usage is tracked per receptionist; you can see &quot;Minutes this
-            period&quot; on the dashboard and on each receptionist. Overage
-            may be billed. Manage your subscription in{" "}
+            We offer subscription plans (fixed monthly price with included minutes)
+            and per-minute plans (monthly base fee plus usage). Subscription plans
+            include a set number of minutes per month; per-minute plans are billed
+            on usage. Usage is tracked per receptionist; you can see &quot;Minutes
+            this period&quot; on the dashboard and on each receptionist. Overage
+            may be billed on subscription plans. Manage your subscription in{" "}
             <Link href="/settings" className="text-primary underline">
               Settings → Billing
             </Link>

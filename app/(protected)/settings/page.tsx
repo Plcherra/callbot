@@ -15,7 +15,7 @@ export default async function SettingsPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone")
+    .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
     .eq("id", user.id)
     .single();
 
@@ -38,6 +38,8 @@ export default async function SettingsPage() {
         calendarId={profile?.calendar_id ?? null}
         phone={profile?.phone ?? null}
         userId={user.id}
+        billingPlan={profile?.billing_plan ?? null}
+        billingPlanMetadata={profile?.billing_plan_metadata as { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } | null ?? null}
       />
     </main>
   );

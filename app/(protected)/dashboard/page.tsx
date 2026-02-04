@@ -12,6 +12,7 @@ import { Skeleton } from "@/app/components/ui/skeleton";
 import { syncSubscriptionFromSession } from "@/app/actions/syncSubscription";
 import { DashboardRefresh } from "@/app/components/dashboard/DashboardRefresh";
 import { getCurrentPeriod } from "@/app/lib/usage";
+import { getPlanDisplayLabel, getPlanPriceLabel } from "@/app/lib/plans";
 
 type SearchParams = {
   session_id?: string;
@@ -48,7 +49,7 @@ export default async function DashboardPage({
 
   const { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan_metadata, onboarding_completed_at")
+    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
     .eq("id", user.id)
     .single();
 
@@ -89,8 +90,8 @@ export default async function DashboardPage({
     : { data: [] };
   const totalUsageSeconds = usageRows?.reduce((s, r) => s + (r.total_seconds ?? 0), 0) ?? 0;
   const totalUsageMinutes = Math.ceil(totalUsageSeconds / 60);
-  const metadata = profile?.billing_plan_metadata as { included_minutes?: number } | null | undefined;
-  const includedMinutes = typeof metadata?.included_minutes === "number" ? metadata.included_minutes : null;
+  const billingMetadata = profile?.billing_plan_metadata as { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } | null | undefined;
+  const includedMinutes = typeof billingMetadata?.included_minutes === "number" ? billingMetadata.included_minutes : null;
   const overageMinutes = usageRows?.reduce((s, r) => s + (r.overage_minutes ?? 0), 0) ?? 0;
   const isOverCap = includedMinutes != null && totalUsageMinutes >= includedMinutes;
 
@@ -105,7 +106,7 @@ export default async function DashboardPage({
           </div>
         </div>
         <p className="mt-1 text-muted-foreground">
-          Connect calendar to start. Upgrade to Pro for the full AI bot.
+          Connect calendar to start. Upgrade to Pro for your AI assistant.
         </p>
 
         {sessionId && (
@@ -134,7 +135,12 @@ export default async function DashboardPage({
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <Badge variant="success">Active – $29/mo</Badge>
+          <Badge variant="success">
+            Active – {getPlanDisplayLabel(profile?.billing_plan ?? null, billingMetadata ?? null)}
+            {getPlanPriceLabel(profile?.billing_plan ?? null, billingMetadata ?? null)
+              ? ` (${getPlanPriceLabel(profile?.billing_plan ?? null, billingMetadata ?? null)})`
+              : ""}
+          </Badge>
         </div>
         <div className="flex items-center gap-2">
           <AppNav />

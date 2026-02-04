@@ -10,6 +10,13 @@ import { updateBusiness, createBillingPortalSession } from "@/app/actions/settin
 import { createClient } from "@/app/lib/supabase/client";
 import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
 import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
+import { getPlanDisplayLabel, getPlanPriceLabel } from "@/app/lib/plans";
+
+type BillingPlanMetadata = {
+  included_minutes?: number;
+  monthly_fee_cents?: number;
+  per_minute_cents?: number;
+} | null;
 
 type Props = {
   email: string;
@@ -20,6 +27,8 @@ type Props = {
   calendarId: string | null;
   phone: string | null;
   userId: string;
+  billingPlan?: string | null;
+  billingPlanMetadata?: BillingPlanMetadata;
 };
 
 export function SettingsTabs({
@@ -31,6 +40,8 @@ export function SettingsTabs({
   calendarId,
   phone,
   userId,
+  billingPlan = null,
+  billingPlanMetadata = null,
 }: Props) {
   const [businessNameVal, setBusinessNameVal] = useState(businessName);
   const [businessAddressVal, setBusinessAddressVal] = useState(businessAddress);
@@ -183,7 +194,9 @@ export function SettingsTabs({
             <div>
               <label className="text-sm font-medium">Current plan</label>
               <p className="mt-1 text-sm text-muted-foreground">
-                {subscriptionStatus === "active" ? "Pro ($29/mo)" : "Free"}
+                {subscriptionStatus === "active"
+                  ? `${getPlanDisplayLabel(billingPlan ?? null, billingPlanMetadata ?? null)}${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null) ? ` – ${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null)}` : ""}`
+                  : "Free"}
               </p>
             </div>
             {billingError && (
@@ -197,7 +210,7 @@ export function SettingsTabs({
               </Button>
             ) : (
               <p className="text-sm text-muted-foreground">
-                Upgrade to Pro to manage billing and subscription.
+                Upgrade to a paid plan to manage billing and subscription.
               </p>
             )}
           </CardContent>

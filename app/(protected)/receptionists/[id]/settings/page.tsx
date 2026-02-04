@@ -67,6 +67,9 @@ export default async function ReceptionistSettingsPage({ params }: Props) {
         initialPromos={promos as PromoRow[]}
         initialReminderRules={reminderRules as ReminderRuleRow[]}
         initialPaymentSettings={receptionist.payment_settings ?? undefined}
+        initialWebsiteUrl={receptionist.website_url ?? null}
+        initialWebsiteContentUpdatedAt={receptionist.website_content_updated_at ?? null}
+        initialExtraInstructions={receptionist.extra_instructions ?? null}
       />
     </main>
   );

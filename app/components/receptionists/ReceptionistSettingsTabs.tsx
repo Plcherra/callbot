@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -37,7 +37,8 @@ import {
   deleteReminderRule,
   type ReminderRuleRow,
 } from "@/app/actions/reminderRules";
-import { updatePaymentSettings, type PaymentSettings } from "@/app/actions/receptionistSettings";
+import { updatePaymentSettings, updateExtraInstructions, type PaymentSettings } from "@/app/actions/receptionistSettings";
+import { fetchAndSaveWebsiteContent } from "@/app/actions/websiteContent";
 import { getPromptPreview, applyPromptToVapi } from "@/app/actions/applyReceptionistPrompt";
 
 type Props = {
@@ -49,6 +50,9 @@ type Props = {
   initialPromos: PromoRow[];
   initialReminderRules: ReminderRuleRow[];
   initialPaymentSettings?: PaymentSettings;
+  initialWebsiteUrl?: string | null;
+  initialWebsiteContentUpdatedAt?: string | null;
+  initialExtraInstructions?: string | null;
 };
 
 export function ReceptionistSettingsTabs({
@@ -59,6 +63,9 @@ export function ReceptionistSettingsTabs({
   initialPromos,
   initialReminderRules,
   initialPaymentSettings,
+  initialWebsiteUrl,
+  initialWebsiteContentUpdatedAt,
+  initialExtraInstructions,
 }: Props) {
   const router = useRouter();
   const [staff, setStaff] = useState(initialStaff);
@@ -69,7 +76,20 @@ export function ReceptionistSettingsTabs({
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>(
     initialPaymentSettings ?? {}
   );
+  const [websiteUrl, setWebsiteUrl] = useState(initialWebsiteUrl ?? "");
+  const [websiteContentUpdatedAt, setWebsiteContentUpdatedAt] = useState<string | null>(
+    initialWebsiteContentUpdatedAt ?? null
+  );
+  const [extraInstructions, setExtraInstructions] = useState(initialExtraInstructions ?? "");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  useEffect(() => {
+    setWebsiteUrl(initialWebsiteUrl ?? "");
+    setWebsiteContentUpdatedAt(initialWebsiteContentUpdatedAt ?? null);
+  }, [initialWebsiteUrl, initialWebsiteContentUpdatedAt]);
+  useEffect(() => {
+    setExtraInstructions(initialExtraInstructions ?? "");
+  }, [initialExtraInstructions]);
 
   async function refreshAll() {
     const [s, sv, l, p, r] = await Promise.all([
@@ -89,6 +109,22 @@ export function ReceptionistSettingsTabs({
 
   return (
     <div className="mt-8 space-y-8">
+      <WebsiteCard
+        receptionistId={receptionistId}
+        websiteUrl={websiteUrl}
+        setWebsiteUrl={setWebsiteUrl}
+        websiteContentUpdatedAt={websiteContentUpdatedAt}
+        setWebsiteContentUpdatedAt={setWebsiteContentUpdatedAt}
+        onMessage={setMessage}
+        onRefresh={router.refresh}
+      />
+      <ExtraInstructionsCard
+        receptionistId={receptionistId}
+        extraInstructions={extraInstructions}
+        setExtraInstructions={setExtraInstructions}
+        onMessage={setMessage}
+        onRefresh={router.refresh}
+      />
       <PromptPreviewCard
         receptionistId={receptionistId}
         onMessage={setMessage}
@@ -261,6 +297,126 @@ export function ReceptionistSettingsTabs({
   );
 }
 
+function WebsiteCard({
+  receptionistId,
+  websiteUrl,
+  setWebsiteUrl,
+  websiteContentUpdatedAt,
+  setWebsiteContentUpdatedAt,
+  onMessage,
+  onRefresh,
+}: {
+  receptionistId: string;
+  websiteUrl: string;
+  setWebsiteUrl: (v: string) => void;
+  websiteContentUpdatedAt: string | null;
+  setWebsiteContentUpdatedAt: (v: string | null) => void;
+  onMessage: (m: { type: "success" | "error"; text: string } | null) => void;
+  onRefresh: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  async function handleFetch() {
+    if (!websiteUrl?.trim()) {
+      onMessage({ type: "error", text: "Please enter a website URL." });
+      return;
+    }
+    setLoading(true);
+    onMessage(null);
+    const res = await fetchAndSaveWebsiteContent(receptionistId, websiteUrl.trim());
+    setLoading(false);
+    if ("error" in res) {
+      onMessage({ type: "error", text: res.error });
+      return;
+    }
+    setWebsiteContentUpdatedAt(new Date().toISOString());
+    onMessage({ type: "success", text: "Website content saved. Save to assistant to apply." });
+    onRefresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Business website</CardTitle>
+        <CardDescription>
+          Add your business website URL to pull in information your assistant can use when answering calls.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <Input
+            type="url"
+            placeholder="https://yoursite.com"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            className="max-w-md"
+          />
+          <Button type="button" onClick={handleFetch} disabled={loading}>
+            {loading ? "Fetching…" : "Fetch from website"}
+          </Button>
+        </div>
+        {websiteContentUpdatedAt && (
+          <p className="text-sm text-muted-foreground">
+            Last fetched: {new Date(websiteContentUpdatedAt).toLocaleString()}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExtraInstructionsCard({
+  receptionistId,
+  extraInstructions,
+  setExtraInstructions,
+  onMessage,
+  onRefresh,
+}: {
+  receptionistId: string;
+  extraInstructions: string;
+  setExtraInstructions: (v: string) => void;
+  onMessage: (m: { type: "success" | "error"; text: string } | null) => void;
+  onRefresh: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    onMessage(null);
+    const res = await updateExtraInstructions(receptionistId, extraInstructions || null);
+    setSaving(false);
+    if ("error" in res) {
+      onMessage({ type: "error", text: res.error });
+      return;
+    }
+    onMessage({ type: "success", text: "Saved." });
+    onRefresh();
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Extra instructions (optional)</CardTitle>
+        <CardDescription>
+          Anything else the assistant should know? e.g. opening hours, cancellation policy.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <textarea
+          value={extraInstructions}
+          onChange={(e) => setExtraInstructions(e.target.value)}
+          placeholder="e.g. We're closed on Sundays. Cancellations must be 24h in advance."
+          rows={4}
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        />
+        <Button type="button" onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function PromptPreviewCard({
   receptionistId,
   onMessage,
@@ -298,16 +454,18 @@ function PromptPreviewCard({
       onMessage({ type: "error", text: res.error });
       return;
     }
-    onMessage({ type: "success", text: "Prompt applied to Vapi assistant." });
+    onMessage({ type: "success", text: "Instructions updated." });
     onRefresh();
   }
+
+  const [showPreviewDetails, setShowPreviewDetails] = useState(false);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>What the bot will know</CardTitle>
+        <CardTitle>What the assistant will know</CardTitle>
         <CardDescription>
-          Regenerate prompt from your staff, services, locations, payment, rules, and promos. Then apply it to your Vapi assistant.
+          Update what your assistant knows from staff, services, locations, and more. Then save to your assistant.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -317,25 +475,37 @@ function PromptPreviewCard({
             checked={compact}
             onChange={(e) => setCompact(e.target.checked)}
           />
-          <span className="text-sm">Compact mode (fewer services/staff in prompt)</span>
+          <span className="text-sm">Compact mode (include fewer services/staff in instructions)</span>
         </label>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={loadPreview} disabled={loadingPreview}>
-            {loadingPreview ? "Loading…" : "Preview prompt"}
+            {loadingPreview ? "Loading…" : "Preview"}
           </Button>
           <Button type="button" onClick={handleApply} disabled={applying}>
-            {applying ? "Applying…" : "Apply to Vapi"}
+            {applying ? "Saving…" : "Save to assistant"}
           </Button>
         </div>
         {preview && (
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">
-              ~{Math.ceil(charCount / 4)} tokens · {charCount} characters
-            </p>
-            <pre className="max-h-48 overflow-auto rounded border bg-muted/50 p-3 text-xs whitespace-pre-wrap">
-              {preview.slice(0, 2000)}
-              {preview.length > 2000 ? "\n\n… [truncated for display]" : ""}
-            </pre>
+          <div className="space-y-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowPreviewDetails((v) => !v)}
+            >
+              {showPreviewDetails ? "Hide technical details" : "Show technical details"}
+            </Button>
+            {showPreviewDetails && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  ~{Math.ceil(charCount / 4)} tokens · {charCount} characters
+                </p>
+                <pre className="max-h-48 overflow-auto rounded border bg-muted/50 p-3 text-xs whitespace-pre-wrap">
+                  {preview.slice(0, 2000)}
+                  {preview.length > 2000 ? "\n\n… [truncated for display]" : ""}
+                </pre>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -652,7 +822,7 @@ function PaymentTab({
       <CardHeader>
         <CardTitle>Payment</CardTitle>
         <CardDescription>
-          Deposit, methods, and refund policy. The bot will tell callers you&apos;ll send a secure
+          Deposit, methods, and refund policy. The assistant will tell callers you&apos;ll send a secure
           payment link after booking.
         </CardDescription>
       </CardHeader>

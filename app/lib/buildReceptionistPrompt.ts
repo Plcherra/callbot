@@ -33,6 +33,8 @@ export type BuildPromptParams = {
     payment_methods?: string[];
     refund_policy?: string;
   } | null;
+  websiteContent?: string | null;
+  extraInstructions?: string | null;
   compact?: boolean;
 };
 
@@ -47,12 +49,18 @@ export function buildReceptionistPrompt(params: BuildPromptParams): string {
     promos,
     reminderRules,
     paymentSettings,
+    websiteContent,
+    extraInstructions,
     compact = false,
   } = params;
 
   let base = `You are an AI receptionist named ${name}. You answer calls professionally and help callers book appointments. The business phone number is ${phoneNumber}. You have access to the business Google Calendar (calendar ID: ${calendarId}) to check availability and create events. Be friendly, concise, and confirm the appointment details before ending the call.`;
 
   const sections: string[] = [];
+
+  if (websiteContent?.trim()) {
+    sections.push(`About the business (from your website):\n${websiteContent.trim()}`);
+  }
 
   if (staff.length > 0) {
     const list = (compact ? staff.slice(0, COMPACT_STAFF_LIMIT) : staff)
@@ -119,6 +127,10 @@ export function buildReceptionistPrompt(params: BuildPromptParams): string {
       )
       .join("; ");
     sections.push(`Current promos: ${list}.`);
+  }
+
+  if (extraInstructions?.trim()) {
+    sections.push(`Additional instructions from you:\n${extraInstructions.trim()}`);
   }
 
   const full = sections.length > 0 ? `${base}\n\n${sections.join("\n\n")}` : base;

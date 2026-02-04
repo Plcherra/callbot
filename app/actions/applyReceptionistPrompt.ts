@@ -49,6 +49,8 @@ export async function getPromptPreview(
     promos,
     reminderRules,
     paymentSettings: rec.payment_settings ?? undefined,
+    websiteContent: rec.website_content ?? undefined,
+    extraInstructions: rec.extra_instructions ?? undefined,
     compact: options?.compact ?? false,
   });
 

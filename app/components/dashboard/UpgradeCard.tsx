@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/app/components/ui/card";
 import { createCheckoutSession } from "@/app/actions/upgrade";
+import { subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
 
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
@@ -19,14 +20,14 @@ const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
 type Props = { userId: string };
 
 export function UpgradeCard({ userId }: Props) {
-  const [loading, setLoading] = useState(false);
+  const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleUpgrade() {
-    setLoading(true);
+  async function handleUpgrade(planId: PlanId) {
+    setLoadingPlanId(planId);
     setError(null);
-    const result = await createCheckoutSession();
-    setLoading(false);
+    const result = await createCheckoutSession(planId);
+    setLoadingPlanId(null);
     if ("error" in result) {
       setError(result.error);
       return;
@@ -42,28 +43,73 @@ export function UpgradeCard({ userId }: Props) {
       />
       <Card className="border-primary/20">
         <CardHeader>
-          <CardTitle>Upgrade to Pro – $29/mo</CardTitle>
+          <CardTitle>Choose a plan</CardTitle>
           <CardDescription>
-            Connect calendar to start. Upgrade to Pro for the full AI
-            receptionist (calls, booking, Google Calendar).
+            Connect calendar to start. Pick a subscription or pay-as-you-go tier.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           {error && (
             <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}
             </p>
           )}
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handleUpgrade}
-            disabled={loading || !PUBLISHABLE_KEY}
-          >
-            {loading ? "Redirecting…" : "Upgrade to Pro – $29/mo"}
-          </Button>
+
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-2">Subscription (included minutes)</h3>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {subscriptionPlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="flex flex-col rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between gap-2"
+                >
+                  <div>
+                    <p className="font-medium">{plan.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {plan.includedMinutes} min · ${(plan.priceCents / 100).toFixed(0)}/mo
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleUpgrade(plan.id)}
+                    disabled={loadingPlanId !== null}
+                  >
+                    {loadingPlanId === plan.id ? "Redirecting…" : "Select"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-muted-foreground mb-2">Pay as you go</h3>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {perMinutePlans.map((plan) => (
+                <div
+                  key={plan.id}
+                  className="flex flex-col rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between gap-2"
+                >
+                  <div>
+                    <p className="font-medium text-sm">{plan.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      ${(plan.monthlyFeeCents / 100).toFixed(0)} + ${(plan.perMinuteCents / 100).toFixed(2)}/min
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleUpgrade(plan.id)}
+                    disabled={loadingPlanId !== null}
+                  >
+                    {loadingPlanId === plan.id ? "Redirecting…" : "Select"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {PUBLISHABLE_KEY && BUY_BUTTON_ID && (
-            <div className="flex justify-center [&_stripe-buy-button]:min-h-[40px]">
+            <div className="flex justify-center [&_stripe-buy-button]:min-h-[40px] pt-2">
               <stripe-buy-button
                 buy-button-id={BUY_BUTTON_ID}
                 publishable-key={PUBLISHABLE_KEY}
@@ -73,7 +119,7 @@ export function UpgradeCard({ userId }: Props) {
           )}
         </CardContent>
         <CardFooter className="text-muted-foreground text-sm">
-          After payment you can connect Google Calendar and activate your bot.
+          After payment you can connect Google Calendar and activate your AI assistant.
         </CardFooter>
       </Card>
     </>

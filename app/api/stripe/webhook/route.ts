@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/app/lib/stripe";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
+import { getPriceToPlanMap } from "@/app/lib/plans";
 
 export async function POST(req: NextRequest) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -32,25 +33,7 @@ export async function POST(req: NextRequest) {
   console.log("[Stripe webhook] Event received:", event.type, event.id);
 
   const supabase = createServiceRoleClient();
-
-  const priceToPlan: Record<
-    string,
-    { billing_plan: string; billing_plan_metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } }
-  > = {};
-  const starterPriceId = process.env.STRIPE_PRICE_ID;
-  if (starterPriceId) {
-    priceToPlan[starterPriceId] = {
-      billing_plan: "subscription_starter",
-      billing_plan_metadata: { included_minutes: 300 },
-    };
-  }
-  const perMinutePriceId = process.env.STRIPE_PER_MINUTE_PRICE_ID;
-  if (perMinutePriceId) {
-    priceToPlan[perMinutePriceId] = {
-      billing_plan: "per_minute",
-      billing_plan_metadata: { monthly_fee_cents: 500, per_minute_cents: 35 },
-    };
-  }
+  const priceToPlan = getPriceToPlanMap();
 
   function planFromSubscription(subscription: Stripe.Subscription): {
     billing_plan: string;
@@ -64,11 +47,21 @@ export async function POST(req: NextRequest) {
     const price = items[0]?.price as Stripe.Price | undefined;
     const meta = price?.metadata;
     if (meta?.plan) {
-      const included = meta.included_minutes != null ? parseInt(String(meta.included_minutes), 10) : undefined;
-      return {
-        billing_plan: String(meta.plan),
-        billing_plan_metadata: included != null && !Number.isNaN(included) ? { included_minutes: included } : {},
-      };
+      const billing_plan = String(meta.plan);
+      const billing_plan_metadata: Record<string, unknown> = {};
+      if (meta.included_minutes != null) {
+        const included = parseInt(String(meta.included_minutes), 10);
+        if (!Number.isNaN(included)) billing_plan_metadata.included_minutes = included;
+      }
+      if (meta.monthly_fee_cents != null) {
+        const fee = parseInt(String(meta.monthly_fee_cents), 10);
+        if (!Number.isNaN(fee)) billing_plan_metadata.monthly_fee_cents = fee;
+      }
+      if (meta.per_minute_cents != null) {
+        const rate = parseInt(String(meta.per_minute_cents), 10);
+        if (!Number.isNaN(rate)) billing_plan_metadata.per_minute_cents = rate;
+      }
+      return { billing_plan, billing_plan_metadata };
     }
     return null;
   }

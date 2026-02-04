@@ -5,7 +5,7 @@ import {
 
 const testimonials = [
   {
-    quote: "We went from missing half our after-hours calls to zero. The bot books directly into our calendar.",
+    quote: "We went from missing half our after-hours calls to zero. The assistant books directly into our calendar.",
     author: "Maria L.",
     role: "Salon owner",
   },

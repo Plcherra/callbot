@@ -31,7 +31,7 @@ export function BotStatus({ botActive }: Props) {
       <div className="rounded-lg border border-green-200 bg-green-50 p-6 dark:border-green-800 dark:bg-green-950/30">
         <div className="flex items-center gap-2">
           <Badge variant="success">Active</Badge>
-          <span className="font-medium">Bot Status: Active</span>
+          <span className="font-medium">Assistant: Active</span>
         </div>
         {(testNumber || process.env.NEXT_PUBLIC_VAPI_TEST_CALL_NUMBER) && (
           <p className="mt-2 text-sm">
@@ -39,7 +39,7 @@ export function BotStatus({ botActive }: Props) {
           </p>
         )}
         <p className="mt-1 text-sm text-muted-foreground">
-          Your bot is live! Callers will reach your AI receptionist.
+          Your assistant is live! Callers will reach your AI receptionist.
         </p>
       </div>
     );
@@ -59,7 +59,7 @@ export function BotStatus({ botActive }: Props) {
         onClick={handleActivate}
         disabled={loading}
       >
-        {loading ? "Activating…" : "Activate My Bot"}
+        {loading ? "Activating…" : "Activate assistant"}
       </Button>
     </div>
   );

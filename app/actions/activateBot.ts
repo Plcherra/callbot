@@ -43,7 +43,7 @@ export async function activateBot(): Promise<
 
   try {
     const assistant = await createAssistant({
-      name: "Receptionist Bot",
+      name: "Receptionist Assistant",
       model: { provider: "openai", model: "gpt-4o-mini" },
       voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
       firstMessage:

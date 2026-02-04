@@ -29,7 +29,7 @@ export default function TermsPage() {
 
           <h3 className="font-semibold">Subscription</h3>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Pro plan: <strong>$29/month</strong>, recurring.</li>
+            <li>Paid plans: see <Link href="/#pricing" className="text-primary underline">Pricing</Link> (subscription plans with included minutes, or per-minute plans with base fee + usage).</li>
             <li>You can cancel anytime via the Stripe billing portal.</li>
             <li>No refunds after 7 days of initial subscription.</li>
             <li>We may change pricing with 30 days notice.</li>

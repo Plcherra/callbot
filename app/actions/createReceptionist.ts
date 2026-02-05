@@ -7,6 +7,7 @@ import {
   updatePhoneNumber,
   deleteAssistant,
   deletePhoneNumber,
+  createGoogleCalendarTools,
 } from "@/app/lib/vapi";
 import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 
@@ -61,12 +62,33 @@ export async function createReceptionist(data: {
   let phoneNumberId: string | null = null;
 
   try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const webhookUrl = `${appUrl.replace(/\/$/, "")}/api/vapi/webhook`;
+
+    let toolIds: string[];
+    try {
+      toolIds = await createGoogleCalendarTools(calendarId);
+    } catch (toolErr) {
+      const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+      return {
+        success: false,
+        error:
+          "Could not create calendar tools. Connect Google Calendar in Vapi Dashboard (Integrations → Tools → Google Calendar), then try again. " +
+          (msg ? `Details: ${msg}` : ""),
+      };
+    }
+
     const assistant = await createAssistant({
       name: name,
-      model: { provider: "openai", model: "gpt-4o-mini" },
+      model: {
+        provider: "openai",
+        model: "gpt-4o-mini",
+        toolIds,
+      },
       voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
       firstMessage: `Hello! Thanks for calling. I'm ${name}, your AI receptionist. How can I help you today?`,
       systemPrompt,
+      serverUrl: webhookUrl,
     });
     assistantId = assistant.id;
 

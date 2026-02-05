@@ -6,6 +6,7 @@ export type VapiAssistantConfig = {
     provider: string;
     model: string;
     messages?: Array<{ role: string; content: string }>;
+    toolIds?: string[];
   };
   voice: { provider: string; voiceId: string };
   firstMessage?: string;
@@ -16,6 +17,7 @@ export type VapiAssistantConfig = {
     description: string;
     parameters?: Record<string, unknown>;
   }>;
+  serverUrl?: string;
 };
 
 export type VapiAssistant = {
@@ -55,6 +57,9 @@ function transformConfig(config: VapiAssistantConfig): Record<string, unknown> {
     provider: model.provider,
     model: model.model,
   };
+  if (model.toolIds?.length) {
+    modelConfig.toolIds = model.toolIds;
+  }
 
   // If systemPrompt is provided, convert it to model.messages format
   if (systemPrompt) {
@@ -69,10 +74,14 @@ function transformConfig(config: VapiAssistantConfig): Record<string, unknown> {
     modelConfig.messages = model.messages;
   }
 
-  return {
+  const payload: Record<string, unknown> = {
     ...rest,
     model: modelConfig,
   };
+  if (config.serverUrl) {
+    payload.server = { url: config.serverUrl };
+  }
+  return payload;
 }
 
 export async function createAssistant(
@@ -177,4 +186,47 @@ export async function updatePhoneNumber(
 
 export async function deletePhoneNumber(phoneNumberId: string): Promise<void> {
   await vapiFetch(`/phone-number/${phoneNumberId}`, { method: "DELETE" });
+}
+
+export type VapiTool = { id: string; type: string; [key: string]: unknown };
+
+/**
+ * Create a tool via Vapi API. Used for Google Calendar and other tool types.
+ */
+export async function createTool(body: Record<string, unknown>): Promise<VapiTool> {
+  return vapiFetch<VapiTool>("/tool", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+const DEFAULT_CALENDAR_TIMEZONE = "America/New_York";
+
+/**
+ * Create Google Calendar check-availability and create-event tools for the given calendar.
+ * Returns [availabilityToolId, createEventToolId]. Requires Google Calendar connected in Vapi Dashboard.
+ */
+export async function createGoogleCalendarTools(
+  calendarId: string,
+  timeZone?: string
+): Promise<[string, string]> {
+  const tz = timeZone?.trim() || process.env.VAPI_CALENDAR_TIMEZONE || DEFAULT_CALENDAR_TIMEZONE;
+
+  const availability = await createTool({
+    type: "google.calendar.availability.check",
+    name: "checkCalendarAvailability",
+    description: "Use this tool to check calendar availability before booking. Call it to see available slots.",
+    calendarId: calendarId.trim(),
+    timeZone: tz,
+  });
+
+  const createEvent = await createTool({
+    type: "google.calendar.event.create",
+    name: "createCalendarEvent",
+    description: "Use this tool to schedule appointments and create calendar events. Use after checking availability.",
+    calendarId: calendarId.trim(),
+    timeZone: tz,
+  });
+
+  return [availability.id, createEvent.id];
 }

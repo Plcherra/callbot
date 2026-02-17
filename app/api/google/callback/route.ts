@@ -111,10 +111,10 @@ export async function GET(req: NextRequest) {
     // Get user info to determine calendar ID
     console.log("Fetching user info from Google...");
     const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
-    const { data: userInfo, error: userInfoError } = await oauth2.userinfo.get();
+    const { data: userInfo } = await oauth2.userinfo.get();
 
-    if (userInfoError || !userInfo) {
-      console.error("Failed to get user info:", userInfoError);
+    if (!userInfo) {
+      console.error("Failed to get user info");
       return NextResponse.redirect(
         `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
           "Failed to get user information"

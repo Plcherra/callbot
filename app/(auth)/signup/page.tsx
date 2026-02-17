@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/app/lib/supabase/client";
@@ -19,7 +19,7 @@ import { Alert, AlertDescription } from "@/app/components/ui/alert";
 
 const VALID_PLANS: PlanId[] = ["starter", "pro", "business", "enterprise", "per_minute_1", "per_minute_2", "per_minute_3"];
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const planParam = searchParams.get("plan");
@@ -164,5 +164,23 @@ export default function SignupPage() {
         </form>
       </Card>
     </main>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <main className="flex min-h-screen items-center justify-center px-6 py-12">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Create your account</CardTitle>
+            <CardDescription>Loading…</CardDescription>
+          </CardHeader>
+          <CardContent className="h-64 animate-pulse rounded-md bg-muted" />
+        </Card>
+      </main>
+    }>
+      <SignupForm />
+    </Suspense>
   );
 }

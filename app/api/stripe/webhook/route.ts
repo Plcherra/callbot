@@ -40,12 +40,12 @@ export async function POST(req: NextRequest) {
     billing_plan_metadata: Record<string, unknown>;
   } | null {
     const items = subscription.items?.data ?? [];
-    const priceId = items[0]?.price?.id ?? (items[0]?.price as string);
+    const price = items[0]?.price;
+    const priceId = typeof price === "string" ? price : price?.id;
     if (typeof priceId !== "string") return null;
     const plan = priceToPlan[priceId];
     if (plan) return plan;
-    const price = items[0]?.price as Stripe.Price | undefined;
-    const meta = price?.metadata;
+    const meta = typeof price === "object" ? price?.metadata : undefined;
     if (meta?.plan) {
       const billing_plan = String(meta.plan);
       const billing_plan_metadata: Record<string, unknown> = {};

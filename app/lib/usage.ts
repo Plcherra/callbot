@@ -82,7 +82,7 @@ export async function aggregateUsageForReceptionist(
       overage_minutes,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: ["receptionist_id", "period_start"] }
+    { onConflict: "receptionist_id,period_start" }
   );
 
   if (error) {

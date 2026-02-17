@@ -54,7 +54,9 @@ export function buildReceptionistPrompt(params: BuildPromptParams): string {
     compact = false,
   } = params;
 
-  let base = `You are an AI receptionist named ${name}. You answer calls professionally and help callers book appointments. The business phone number is ${phoneNumber}. You have access to the business Google Calendar (calendar ID: ${calendarId}) to check availability and create events. Be friendly, concise, and confirm the appointment details before ending the call.`;
+  const recordingNotice =
+    "This call may be recorded for quality and training purposes. By continuing, you consent to recording. ";
+  let base = `${recordingNotice}You are an AI receptionist named ${name}. You answer calls professionally and help callers book appointments. The business phone number is ${phoneNumber}. You have access to the business Google Calendar (calendar ID: ${calendarId}) to check availability and create events. Be friendly, concise, and confirm the appointment details before ending the call.`;
 
   const sections: string[] = [];
 

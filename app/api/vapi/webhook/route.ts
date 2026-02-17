@@ -121,12 +121,18 @@ export async function POST(req: NextRequest) {
     started_at = new Date(ended_at.getTime());
   }
 
+  const transcript =
+    typeof message.artifact?.transcript === "string"
+      ? message.artifact.transcript.trim() || null
+      : null;
+
   const row = {
     receptionist_id: receptionistId,
     vapi_call_id: vapiCallId ?? null,
     started_at: started_at.toISOString(),
     ended_at: ended_at.toISOString(),
     duration_seconds,
+    transcript: transcript ?? null,
   };
 
   const { error } = await supabase.from("call_usage").insert(row);

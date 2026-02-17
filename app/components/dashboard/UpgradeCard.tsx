@@ -11,15 +11,26 @@ import {
   CardHeader,
   CardTitle,
 } from "@/app/components/ui/card";
+import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { createCheckoutSession } from "@/app/actions/upgrade";
 import { subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
 
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
 
-type Props = { userId: string };
+const PLAN_NAMES: Record<PlanId, string> = {
+  starter: "Starter",
+  pro: "Pro",
+  business: "Business",
+  enterprise: "Enterprise",
+  per_minute_1: "Pay as you go (Tier 1)",
+  per_minute_2: "Pay as you go (Tier 2)",
+  per_minute_3: "Pay as you go (Tier 3)",
+};
 
-export function UpgradeCard({ userId }: Props) {
+type Props = { userId: string; selectedPlanId?: string };
+
+export function UpgradeCard({ userId, selectedPlanId }: Props) {
   const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +60,13 @@ export function UpgradeCard({ userId }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {selectedPlanId && PLAN_NAMES[selectedPlanId as PlanId] && (
+            <Alert className="border-primary/50 bg-primary/5">
+              <AlertDescription>
+                You selected the <strong>{PLAN_NAMES[selectedPlanId as PlanId]}</strong> plan. Click Select below to continue to checkout.
+              </AlertDescription>
+            </Alert>
+          )}
           {error && (
             <p className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
               {error}

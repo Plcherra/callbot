@@ -83,9 +83,11 @@ export async function applyPromptToVapi(
     await updateAssistant(vapiAssistantId, {
       systemPrompt: preview.prompt,
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Vapi API error";
-    return { error: message };
+  } catch {
+    return {
+      error:
+        "Could not update the AI prompt. Please try again or contact support.",
+    };
   }
 
   const supabase = await createClient();

@@ -68,13 +68,11 @@ export async function createReceptionist(data: {
     let toolIds: string[];
     try {
       toolIds = await createGoogleCalendarTools(calendarId);
-    } catch (toolErr) {
-      const msg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+    } catch {
       return {
         success: false,
         error:
-          "Could not create calendar tools. Connect Google Calendar in Vapi Dashboard (Integrations → Tools → Google Calendar), then try again. " +
-          (msg ? `Details: ${msg}` : ""),
+          "Could not create calendar tools. Connect Google Calendar in Vapi Dashboard (Integrations → Tools → Google Calendar), then try again.",
       };
     }
 
@@ -146,7 +144,7 @@ export async function createReceptionist(data: {
 
     return { success: true, id: row?.id };
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Vapi API error";
+    const message = err instanceof Error ? err.message : "";
     if (phoneNumberId) {
       try {
         await deletePhoneNumber(phoneNumberId);
@@ -171,6 +169,10 @@ export async function createReceptionist(data: {
           "Phone number limit reached (10 free numbers per account). Please contact support to add more numbers.",
       };
     }
-    return { success: false, error: message };
+    return {
+      success: false,
+      error:
+        "Could not activate your AI receptionist. Please try again or contact support.",
+    };
   }
 }

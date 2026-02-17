@@ -28,11 +28,17 @@ export default async function OnboardingPage() {
 
   const hasCalendar = Boolean(profile?.calendar_id?.trim());
   const hasPhone = Boolean(profile?.phone?.trim());
-  const { count: receptionistCount } = await supabase
+  const { data: receptionists } = await supabase
     .from("receptionists")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", user.id);
-  const hasReceptionist = (receptionistCount ?? 0) > 0;
+    .select("inbound_phone_number")
+    .eq("user_id", user.id)
+    .limit(1);
+  const hasReceptionist = (receptionists?.length ?? 0) > 0;
+  const testCallNumber =
+    receptionists?.[0]?.inbound_phone_number?.trim() ||
+    process.env.VAPI_TEST_CALL_NUMBER ||
+    process.env.NEXT_PUBLIC_VAPI_TEST_CALL_NUMBER ||
+    null;
 
   async function markComplete() {
     "use server";
@@ -51,6 +57,33 @@ export default async function OnboardingPage() {
       </div>
       <p className="mt-1 text-muted-foreground">
         Complete these steps to get the most out of your AI receptionist.
+      </p>
+
+      {/* Progress stepper: 1 → 2 → 3 → 4 → 5 */}
+      <div className="mt-8 flex min-w-0 items-center justify-between gap-0.5 text-center sm:gap-1" aria-label="Setup progress">
+        {[
+          { done: hasCalendar, label: "Calendar" },
+          { done: hasPhone, label: "Phone" },
+          { done: hasReceptionist, label: "Receptionist" },
+          { done: hasReceptionist && testCallNumber, label: "Test call" },
+          { done: hasReceptionist, label: "Go live" },
+        ].map((step, i) => (
+          <div key={i} className="flex flex-1 items-center">
+            <div
+              className={`mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium ${
+                step.done
+                  ? "bg-green-600 text-white dark:bg-green-500"
+                  : "border border-muted-foreground/40 bg-muted/50 text-muted-foreground"
+              }`}
+            >
+              {step.done ? "✓" : i + 1}
+            </div>
+            {i < 4 && <div className="h-0.5 flex-1 bg-muted" />}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-center text-xs text-muted-foreground">
+        1. Connect Calendar · 2. Add Phone · 3. Create Receptionist · 4. Test Call · 5. Go Live
       </p>
 
       <Card className="mt-8">
@@ -100,6 +133,39 @@ export default async function OnboardingPage() {
             ) : (
               <Button asChild variant="outline" size="sm">
                 <Link href="/receptionists">Receptionists → Add</Link>
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">4. Test call</p>
+              <p className="text-sm text-muted-foreground">
+                Call your AI receptionist to hear it in action.
+              </p>
+            </div>
+            {testCallNumber ? (
+              <div className="text-right">
+                <p className="text-sm font-mono font-medium">{testCallNumber}</p>
+                <a href={`tel:${testCallNumber}`} className="text-xs text-primary underline">
+                  Tap to call
+                </a>
+              </div>
+            ) : hasReceptionist ? (
+              <span className="text-sm text-muted-foreground">Number will appear after creation</span>
+            ) : (
+              <span className="text-sm text-muted-foreground">Create a receptionist first</span>
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-medium">5. Go live</p>
+              <p className="text-sm text-muted-foreground">
+                You&apos;re ready. Head to the dashboard to manage receptionists.
+              </p>
+            </div>
+            {hasReceptionist && (
+              <Button asChild size="sm">
+                <Link href="/dashboard">Go to dashboard</Link>
               </Button>
             )}
           </div>

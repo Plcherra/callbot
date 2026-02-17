@@ -26,10 +26,27 @@ export type VapiAssistant = {
   [key: string]: unknown;
 };
 
+const isDev = process.env.NODE_ENV === "development";
+
 async function vapiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
+  if (isDev && options.body) {
+    try {
+      const payload = JSON.parse(options.body as string) as Record<string, unknown>;
+      const hasSystemPrompt = "systemPrompt" in payload;
+      console.log("[Vapi] Request", path, {
+        hasSystemPrompt: hasSystemPrompt ? "INVALID (should be false)" : "ok",
+        hasModelMessages: Boolean(payload.model && typeof payload.model === "object" && "messages" in (payload.model as object)),
+      });
+      if (hasSystemPrompt) {
+        console.warn("[Vapi] Payload should not contain top-level systemPrompt; use model.messages instead.");
+      }
+    } catch {
+      // ignore parse errors for non-JSON body
+    }
+  }
   const res = await fetch(`${VAPI_BASE}${path}`, {
     ...options,
     headers: {

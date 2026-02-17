@@ -33,6 +33,13 @@ export default async function ReceptionistDetailPage({ params }: Props) {
     .select("billing_plan_metadata")
     .eq("id", user.id)
     .single();
+  const { data: callHistory } = await supabase
+    .from("call_usage")
+    .select("id, started_at, ended_at, duration_seconds, transcript")
+    .eq("receptionist_id", receptionist.id)
+    .order("started_at", { ascending: false })
+    .limit(20);
+
   const { data: snapshot } = await supabase
     .from("usage_snapshots")
     .select("total_seconds, overage_minutes")
@@ -49,8 +56,8 @@ export default async function ReceptionistDetailPage({ params }: Props) {
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Button asChild variant="ghost" size="sm" className="shrink-0">
             <Link href="/receptionists">← Receptionists</Link>
           </Button>
         </div>
@@ -111,6 +118,48 @@ export default async function ReceptionistDetailPage({ params }: Props) {
           </p>
         </CardContent>
       </Card>
+
+      {callHistory && callHistory.length > 0 && (
+        <Card className="mt-8">
+          <CardHeader>
+            <CardTitle className="text-base">Call history</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Recent calls. Transcripts appear when provided by the voice provider.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-3">
+              {callHistory.map((call) => (
+                <li
+                  key={call.id}
+                  className="rounded-lg border p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-muted-foreground">
+                      {new Date(call.started_at).toLocaleString()}
+                    </span>
+                    <span className="font-medium">
+                      {call.duration_seconds != null
+                        ? `${Math.floor(call.duration_seconds / 60)}m ${call.duration_seconds % 60}s`
+                        : "—"}
+                    </span>
+                  </div>
+                  {call.transcript?.trim() && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                        View transcript
+                      </summary>
+                      <pre className="mt-2 whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
+                        {call.transcript}
+                      </pre>
+                    </details>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="mt-6">
         <Button asChild>

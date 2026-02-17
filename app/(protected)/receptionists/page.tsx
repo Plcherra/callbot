@@ -32,7 +32,7 @@ export default async function ReceptionistsPage() {
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <h1 className="text-2xl font-bold">My Receptionists</h1>
         <div className="flex items-center gap-2">
           <AppNav />

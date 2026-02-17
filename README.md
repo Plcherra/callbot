@@ -68,6 +68,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+For production error monitoring (e.g. Sentry), see [docs/ERROR_MONITORING.md](docs/ERROR_MONITORING.md).
+
 ## Test flow
 
 1. **Free signup**: Go to `/signup`, enter email/password (or “Continue with Google”) → redirect to `/dashboard`.

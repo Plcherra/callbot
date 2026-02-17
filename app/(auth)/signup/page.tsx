@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/app/lib/supabase/client";
+import type { PlanId } from "@/app/lib/plans";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import {
@@ -16,8 +17,14 @@ import {
 } from "@/app/components/ui/card";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 
+const VALID_PLANS: PlanId[] = ["starter", "pro", "business", "enterprise", "per_minute_1", "per_minute_2", "per_minute_3"];
+
 export default function SignupPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const planParam = searchParams.get("plan");
+  const plan = planParam && VALID_PLANS.includes(planParam as PlanId) ? (planParam as PlanId) : null;
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -44,7 +51,8 @@ export default function SignupPage() {
         setLoading(false);
         return;
       }
-      router.push("/dashboard");
+      const dashboardUrl = plan ? `/dashboard?plan=${encodeURIComponent(plan)}` : "/dashboard";
+      router.push(dashboardUrl);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -58,10 +66,11 @@ export default function SignupPage() {
     setLoading(true);
     try {
       const supabase = createClient();
+      const dashboardPath = plan ? `/dashboard?plan=${encodeURIComponent(plan)}` : "/dashboard";
       const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/dashboard`,
+          redirectTo: `${window.location.origin}${dashboardPath}`,
         },
       });
       if (oauthError) {
@@ -80,8 +89,9 @@ export default function SignupPage() {
         <CardHeader>
           <CardTitle>Create your account</CardTitle>
           <CardDescription>
-            Sign up for free. Upgrade to Pro later to unlock the full AI
-            receptionist.
+            {plan
+              ? "Sign up and you’ll be taken to choose your plan."
+              : "Sign up for free. Upgrade to a plan later to unlock the full AI receptionist."}
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>

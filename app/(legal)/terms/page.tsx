@@ -35,11 +35,17 @@ export default function TermsPage() {
             <li>We may change pricing with 30 days notice.</li>
           </ul>
 
+          <h3 className="font-semibold">Call recording and compliance</h3>
+          <p>
+            Calls may be recorded. You are responsible for ensuring that your use of call recording complies with all applicable laws, including the TCPA (Telephone Consumer Protection Act), state consent requirements, and any industry-specific rules. We provide notice to callers that calls may be recorded; you must not use the service in a way that violates recording or telephony laws.
+          </p>
+
           <h3 className="font-semibold">Your responsibilities</h3>
           <ul className="list-disc pl-6 space-y-1">
             <li>Provide accurate business information (phone, calendar).</li>
             <li>Use the service lawfully; do not abuse or spam.</li>
             <li>Secure your account credentials.</li>
+            <li>Comply with laws governing call recording and telephony (e.g., TCPA, consent).</li>
           </ul>
 
           <h3 className="font-semibold">Limitations</h3>

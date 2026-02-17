@@ -19,6 +19,7 @@ type SearchParams = {
   calendar?: string;
   error?: string;
   message?: string;
+  plan?: string;
 };
 
 export default async function DashboardPage({
@@ -124,7 +125,7 @@ export default async function DashboardPage({
           {sessionId && (
             <Skeleton className="mb-4 h-24 w-full rounded-lg" />
           )}
-          <UpgradeCard userId={user.id} />
+          <UpgradeCard userId={user.id} selectedPlanId={params.plan ?? undefined} />
         </div>
       </main>
     );

@@ -8,7 +8,7 @@ export function Footer() {
           <div>
             <h3 className="font-semibold">AI Receptionist</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Never miss a booking. $29/mo.
+              Never miss a booking. From $49/mo.
             </p>
           </div>
           <div>

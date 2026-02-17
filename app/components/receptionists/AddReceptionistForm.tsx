@@ -45,7 +45,7 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone }: Props) 
       <CardHeader>
         <CardTitle>+ Add Receptionist</CardTitle>
         <CardDescription>
-          Create a new AI assistant. Name, phone, and calendar ID are required.
+          Create a new AI assistant. Name, phone, and calendar ID are required. Calls are recorded; ensure compliance with local recording laws (e.g., TCPA, consent).
         </CardDescription>
         {(defaultCalendarId || defaultPhone) && (
           <p className="text-sm text-muted-foreground">

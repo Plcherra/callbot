@@ -61,7 +61,7 @@ export default async function DashboardPage({
     if (synced) {
       const { data: refreshed } = await supabase
         .from("users")
-        .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
+        .select("subscription_status, stripe_customer_id, stripe_subscription_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
         .eq("id", user.id)
         .single();
       profile = refreshed ?? profile;

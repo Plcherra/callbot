@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
@@ -12,6 +13,7 @@ import { createClient } from "@/app/lib/supabase/client";
 import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
 import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
 import { getPlanDisplayLabel, getPlanPriceLabel, subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
+import { syncBillingPlanFromStripe } from "@/app/actions/syncSubscription";
 
 type BillingPlanMetadata = {
   included_minutes?: number;
@@ -57,6 +59,8 @@ export function SettingsTabs({
   const [billingError, setBillingError] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [syncPlanLoading, setSyncPlanLoading] = useState(false);
+  const router = useRouter();
 
   async function handleSaveBusiness(e: React.FormEvent) {
     e.preventDefault();
@@ -236,11 +240,30 @@ export function SettingsTabs({
           <CardContent className="space-y-6">
             <div>
               <label className="text-sm font-medium">Current plan</label>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {subscriptionStatus === "active"
-                  ? `${getPlanDisplayLabel(billingPlan ?? null, billingPlanMetadata ?? null)}${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null) ? ` – ${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null)}` : ""}`
-                  : "Free"}
-              </p>
+              <div className="mt-1 flex items-center gap-2">
+                <p className="text-sm text-muted-foreground">
+                  {subscriptionStatus === "active"
+                    ? `${getPlanDisplayLabel(billingPlan ?? null, billingPlanMetadata ?? null)}${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null) ? ` – ${getPlanPriceLabel(billingPlan ?? null, billingPlanMetadata ?? null)}` : ""}`
+                    : "Free"}
+                </p>
+                {subscriptionStatus === "active" && !billingPlan && hasStripeCustomer && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={syncPlanLoading}
+                    onClick={async () => {
+                      setSyncPlanLoading(true);
+                      setBillingError(null);
+                      const { synced } = await syncBillingPlanFromStripe(userId);
+                      setSyncPlanLoading(false);
+                      if (synced) router.refresh();
+                      else setBillingError("Could not sync plan. Ensure STRIPE_PRICE_DEV_TEST is set in Vercel.");
+                    }}
+                  >
+                    {syncPlanLoading ? "Syncing…" : "Sync plan"}
+                  </Button>
+                )}
+              </div>
             </div>
             {billingError && (
               <Alert variant="destructive">

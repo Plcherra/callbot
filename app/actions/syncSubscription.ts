@@ -110,34 +110,54 @@ function planFromSubscription(subscription: Stripe.Subscription): {
 /**
  * Re-sync billing_plan from Stripe when user has active subscription but billing_plan is missing.
  * Fixes users who subscribed before we added plan sync to syncSubscriptionFromSession.
+ * Uses stripe_subscription_id if set, otherwise lists subscriptions by stripe_customer_id.
  */
 export async function syncBillingPlanFromStripe(userId: string): Promise<{ synced: boolean }> {
   const supabase = createServiceRoleClient();
   const { data: user } = await supabase
     .from("users")
-    .select("stripe_subscription_id, billing_plan")
+    .select("stripe_subscription_id, stripe_customer_id, billing_plan")
     .eq("id", userId)
     .single();
 
-  if (!user?.stripe_subscription_id || user.billing_plan) {
-    return { synced: false };
-  }
+  if (user?.billing_plan) return { synced: false };
+  if (!user?.stripe_customer_id && !user?.stripe_subscription_id) return { synced: false };
 
   try {
     const stripe = getStripe();
-    const subscription = await stripe.subscriptions.retrieve(user.stripe_subscription_id, {
-      expand: ["items.data.price"],
-    });
+    let subscription: Stripe.Subscription | null = null;
+
+    if (user.stripe_subscription_id) {
+      subscription = await stripe.subscriptions.retrieve(user.stripe_subscription_id, {
+        expand: ["items.data.price"],
+      });
+    } else {
+      // Fallback: list subscriptions by customer
+      const subs = await stripe.subscriptions.list({
+        customer: user.stripe_customer_id as string,
+        status: "active",
+        limit: 1,
+        expand: ["data.items.data.price"],
+      });
+      subscription = subs.data[0] ?? null;
+    }
+
+    if (!subscription) return { synced: false };
     const plan = planFromSubscription(subscription);
     if (!plan) return { synced: false };
 
+    const updates: Record<string, unknown> = {
+      billing_plan: plan.billing_plan,
+      billing_plan_metadata: plan.billing_plan_metadata,
+      updated_at: new Date().toISOString(),
+    };
+    if (!user.stripe_subscription_id) {
+      updates.stripe_subscription_id = subscription.id;
+    }
+
     const { error } = await supabase
       .from("users")
-      .update({
-        billing_plan: plan.billing_plan,
-        billing_plan_metadata: plan.billing_plan_metadata,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updates as Record<string, string | null>)
       .eq("id", userId);
 
     return { synced: !error };

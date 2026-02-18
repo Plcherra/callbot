@@ -13,11 +13,25 @@ export default async function SettingsPage() {
     redirect("/signup");
   }
 
-  const { data: profile } = await supabase
+  let { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
+    .select("subscription_status, stripe_customer_id, stripe_subscription_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
     .eq("id", user.id)
     .single();
+
+  // Re-sync billing_plan if active but missing
+  if (profile?.subscription_status === "active" && !profile?.billing_plan && (profile?.stripe_subscription_id || profile?.stripe_customer_id)) {
+    const { syncBillingPlanFromStripe } = await import("@/app/actions/syncSubscription");
+    const { synced } = await syncBillingPlanFromStripe(user.id);
+    if (synced) {
+      const { data: refreshed } = await supabase
+        .from("users")
+        .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
+        .eq("id", user.id)
+        .single();
+      profile = refreshed ?? profile;
+    }
+  }
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">

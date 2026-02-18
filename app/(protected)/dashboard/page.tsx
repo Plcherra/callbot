@@ -55,7 +55,7 @@ export default async function DashboardPage({
     .single();
 
   // Re-sync billing_plan if active but missing (e.g. subscribed before we added plan sync)
-  if (profile?.subscription_status === "active" && profile?.stripe_subscription_id && !profile?.billing_plan) {
+  if (profile?.subscription_status === "active" && !profile?.billing_plan && (profile?.stripe_subscription_id || profile?.stripe_customer_id)) {
     const { syncBillingPlanFromStripe } = await import("@/app/actions/syncSubscription");
     const { synced } = await syncBillingPlanFromStripe(user.id);
     if (synced) {

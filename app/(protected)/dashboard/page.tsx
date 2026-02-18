@@ -48,11 +48,25 @@ export default async function DashboardPage({
     }
   }
 
-  const { data: profile } = await supabase
+  let { data: profile } = await supabase
     .from("users")
-    .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
+    .select("subscription_status, stripe_customer_id, stripe_subscription_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
     .eq("id", user.id)
     .single();
+
+  // Re-sync billing_plan if active but missing (e.g. subscribed before we added plan sync)
+  if (profile?.subscription_status === "active" && profile?.stripe_subscription_id && !profile?.billing_plan) {
+    const { syncBillingPlanFromStripe } = await import("@/app/actions/syncSubscription");
+    const { synced } = await syncBillingPlanFromStripe(user.id);
+    if (synced) {
+      const { data: refreshed } = await supabase
+        .from("users")
+        .select("subscription_status, stripe_customer_id, phone, calendar_id, bot_active, billing_plan, billing_plan_metadata, onboarding_completed_at")
+        .eq("id", user.id)
+        .single();
+      profile = refreshed ?? profile;
+    }
+  }
 
   const isActive = profile?.subscription_status === "active";
 
@@ -217,13 +231,13 @@ export default async function DashboardPage({
             <p className="text-sm font-medium text-muted-foreground">
               Calendar
             </p>
-            <p className="mt-1">
+            <div className="mt-1">
               {profile?.calendar_id ? (
                 <Badge variant="success">Connected</Badge>
               ) : (
                 <Badge variant="secondary">Not connected</Badge>
               )}
-            </p>
+            </div>
           </CardContent>
         </Card>
         <Card>

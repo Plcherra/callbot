@@ -28,6 +28,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 - **Stripe**: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, and price IDs:
   - Subscription: `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_PRICE_ENTERPRISE`
   - Per-minute: `STRIPE_PRICE_PER_MINUTE_1`, `STRIPE_PRICE_PER_MINUTE_2`, `STRIPE_PRICE_PER_MINUTE_3`
+  - DEV test: `STRIPE_PRICE_DEV_TEST` ($1/mo for testing)
   - Legacy single plan: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
 - **Vapi.ai**: `VAPI_API_KEY` (phone numbers are provisioned per receptionist; see [docs/NUMBERS.md](docs/NUMBERS.md) — 10 free US numbers per account)

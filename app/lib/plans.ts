@@ -4,6 +4,7 @@
  */
 
 const SUBSCRIPTION_PLANS = [
+  { id: "dev_test", name: "DEV Test", envKey: "STRIPE_PRICE_DEV_TEST", priceCents: 100, includedMinutes: 60, billingPlanId: "subscription_dev_test" as const },
   { id: "starter", name: "Starter", envKey: "STRIPE_PRICE_STARTER", priceCents: 6900, includedMinutes: 300, billingPlanId: "subscription_starter" as const },
   { id: "pro", name: "Pro", envKey: "STRIPE_PRICE_PRO", priceCents: 14900, includedMinutes: 800, billingPlanId: "subscription_pro" as const },
   { id: "business", name: "Business", envKey: "STRIPE_PRICE_BUSINESS", priceCents: 24900, includedMinutes: 1500, billingPlanId: "subscription_business" as const },
@@ -103,7 +104,7 @@ export function getPlanPriceLabel(
   return "";
 }
 
-/** Build price-to-plan map for webhook (all 7 prices + legacy STRIPE_PRICE_ID as starter). */
+/** Build price-to-plan map for webhook (all plans + legacy STRIPE_PRICE_ID as starter). */
 export function getPriceToPlanMap(): Record<
   string,
   { billing_plan: string; billing_plan_metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } }

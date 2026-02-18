@@ -19,6 +19,7 @@ const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
 
 const PLAN_NAMES: Record<PlanId, string> = {
+  dev_test: "DEV Test",
   starter: "Starter",
   pro: "Pro",
   business: "Business",

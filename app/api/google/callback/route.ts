@@ -25,14 +25,20 @@ export async function GET(req: NextRequest) {
 
   const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get("code");
-  const state = searchParams.get("state"); // userId
+  const rawState = searchParams.get("state"); // userId or "userId:returnTo"
   const error = searchParams.get("error");
+
+  const stateParts = rawState?.split(":");
+  const state = stateParts?.[0] ?? rawState; // userId
+  const returnTo = stateParts?.length === 2 ? stateParts[1] : "dashboard";
+
+  const errorRedirectPath = returnTo === "onboarding" ? "/onboarding" : "/dashboard";
 
   // Handle OAuth errors from Google
   if (error) {
     console.error("Google OAuth error:", error);
     return NextResponse.redirect(
-      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
         `OAuth error: ${error}`
       )}`
     );
@@ -42,7 +48,7 @@ export async function GET(req: NextRequest) {
   if (!code) {
     console.error("Missing authorization code in callback");
     return NextResponse.redirect(
-      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
         "Missing authorization code"
       )}`
     );
@@ -51,7 +57,7 @@ export async function GET(req: NextRequest) {
   if (!state) {
     console.error("Missing state parameter in callback");
     return NextResponse.redirect(
-      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
         "Missing state parameter"
       )}`
     );
@@ -68,7 +74,7 @@ export async function GET(req: NextRequest) {
   if (userError || !user) {
     console.error("Invalid state/userId:", state, userError);
     return NextResponse.redirect(
-      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
         "Invalid user"
       )}`
     );
@@ -89,7 +95,7 @@ export async function GET(req: NextRequest) {
     if (!tokens) {
       console.error("Failed to get tokens from Google");
       return NextResponse.redirect(
-        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
           "Failed to get tokens"
         )}`
       );
@@ -99,7 +105,7 @@ export async function GET(req: NextRequest) {
     if (!tokens.refresh_token) {
       console.error("No refresh token received. User may need to grant offline access.");
       return NextResponse.redirect(
-        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
           "No refresh token received. Please try connecting again and ensure you grant all permissions."
         )}`
       );
@@ -116,7 +122,7 @@ export async function GET(req: NextRequest) {
     if (!userInfo) {
       console.error("Failed to get user info");
       return NextResponse.redirect(
-        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
           "Failed to get user information"
         )}`
       );
@@ -139,14 +145,15 @@ export async function GET(req: NextRequest) {
     if (updateError) {
       console.error("Database update error:", updateError);
       return NextResponse.redirect(
-        `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
           "Failed to save calendar connection"
         )}`
       );
     }
 
     console.log("Successfully connected Google Calendar for user:", state);
-    return NextResponse.redirect(`${appUrl}/dashboard?calendar=connected`);
+    const redirectPath = returnTo === "onboarding" ? "/onboarding" : "/dashboard";
+    return NextResponse.redirect(`${appUrl}${redirectPath}?calendar=connected`);
   } catch (err) {
     // Log detailed error information
     const errorMessage =
@@ -162,7 +169,7 @@ export async function GET(req: NextRequest) {
 
     // Return user-friendly error message
     return NextResponse.redirect(
-      `${appUrl}/dashboard?calendar=error&message=${encodeURIComponent(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
         `Connection failed: ${errorMessage}`
       )}`
     );

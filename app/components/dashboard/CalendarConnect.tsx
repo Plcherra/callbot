@@ -3,11 +3,11 @@
 import { Button } from "@/app/components/ui/button";
 import { getGoogleAuthUrl } from "@/app/actions/google";
 
-type Props = { calendarId: string | null; userId: string };
+type Props = { calendarId: string | null; userId: string; returnTo?: string };
 
-export function CalendarConnect({ calendarId, userId }: Props) {
+export function CalendarConnect({ calendarId, userId, returnTo }: Props) {
   async function connect() {
-    const url = await getGoogleAuthUrl(userId);
+    const url = await getGoogleAuthUrl(userId, returnTo);
     window.location.href = url;
   }
 

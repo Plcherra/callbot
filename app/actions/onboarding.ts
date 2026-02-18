@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { createClient } from "@/app/lib/supabase/server";
 
 export async function completeOnboarding(): Promise<{ success: boolean; error?: string }> {
@@ -23,4 +24,9 @@ export async function completeOnboarding(): Promise<{ success: boolean; error?: 
     return { success: false, error: error.message };
   }
   return { success: true };
+}
+
+export async function completeOnboardingAndRedirect() {
+  await completeOnboarding();
+  redirect("/dashboard");
 }

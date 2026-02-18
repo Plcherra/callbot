@@ -42,9 +42,9 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 ### 3. Stripe
 
-1. **Subscription prices**: Create 4 recurring products/prices (e.g. $49/mo, $99/mo, $169/mo, $329/mo) and set `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_PRICE_ENTERPRISE`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for pro/business/enterprise).
+1. **Subscription prices**: Create 4 recurring products/prices (e.g. $69/mo, $149/mo, $249/mo, $499/mo) and set `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_PRICE_ENTERPRISE`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for pro/business/enterprise).
 2. **Per-minute prices**: Create 3 recurring base prices ($5/mo, $7/mo, $10/mo) and set `STRIPE_PRICE_PER_MINUTE_1`, `STRIPE_PRICE_PER_MINUTE_2`, `STRIPE_PRICE_PER_MINUTE_3`. Usage is billed separately via the billing cron. Optionally set Price metadata: `plan=per_minute`, `monthly_fee_cents`, `per_minute_cents`.
-3. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $49) when the dedicated Starter env is not set.
+3. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $69) when the dedicated Starter env is not set.
 4. **Optional Buy Button**: Create a Payment Link for a plan → **Buy button** → copy `buy-button-id` into `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID`. Set the Payment Link success URL to your `/dashboard`.
 
 ### 4. Vapi.ai

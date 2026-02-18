@@ -1,11 +1,13 @@
 import { Hero } from "@/app/components/landing/Hero";
 import { Pricing } from "@/app/components/landing/Pricing";
+import { PricingTeaser } from "@/app/components/landing/PricingTeaser";
 import { Testimonials } from "@/app/components/landing/Testimonials";
 
 export default function HomePage() {
   return (
     <main>
       <Hero />
+      <PricingTeaser />
       {/* Demo video: set NEXT_PUBLIC_DEMO_VIDEO_ID to your YouTube video ID (e.g. abc123) for https://www.youtube.com/embed/abc123 */}
       <section className="px-6 py-16">
         <div className="mx-auto max-w-4xl">

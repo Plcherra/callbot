@@ -1,13 +1,13 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/app/lib/supabase/server";
-import { Button } from "@/app/components/ui/button";
 import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
 import { AppNav } from "@/app/components/dashboard/AppNav";
-import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
-import { completeOnboarding } from "@/app/actions/onboarding";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
+import { OnboardingStepper } from "@/app/components/onboarding/OnboardingStepper";
 
-export default async function OnboardingPage() {
+type Props = { searchParams: Promise<{ calendar?: string; error?: string; message?: string }> };
+
+export default async function OnboardingPage({ searchParams }: Props) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -18,7 +18,7 @@ export default async function OnboardingPage() {
 
   const { data: profile } = await supabase
     .from("users")
-    .select("onboarding_completed_at, calendar_id, phone")
+    .select("onboarding_completed_at, calendar_id, phone, subscription_status")
     .eq("id", user.id)
     .single();
 
@@ -28,6 +28,8 @@ export default async function OnboardingPage() {
 
   const hasCalendar = Boolean(profile?.calendar_id?.trim());
   const hasPhone = Boolean(profile?.phone?.trim());
+  const isSubscribed = profile?.subscription_status === "active";
+
   const { data: receptionists } = await supabase
     .from("receptionists")
     .select("inbound_phone_number")
@@ -40,11 +42,9 @@ export default async function OnboardingPage() {
     process.env.NEXT_PUBLIC_VAPI_TEST_CALL_NUMBER ||
     null;
 
-  async function markComplete() {
-    "use server";
-    await completeOnboarding();
-    redirect("/dashboard");
-  }
+  const params = await searchParams;
+  const calendarStatus = params.calendar;
+  const errorMessage = params.message;
 
   return (
     <main className="mx-auto max-w-xl px-6 py-12">
@@ -59,124 +59,39 @@ export default async function OnboardingPage() {
         Complete these steps to get the most out of your AI receptionist.
       </p>
 
-      {/* Progress stepper: 1 → 2 → 3 → 4 → 5 */}
-      <div className="mt-8 flex min-w-0 items-center justify-between gap-0.5 text-center sm:gap-1" aria-label="Setup progress">
-        {[
-          { done: hasCalendar, label: "Calendar" },
-          { done: hasPhone, label: "Phone" },
-          { done: hasReceptionist, label: "Receptionist" },
-          { done: hasReceptionist && testCallNumber, label: "Test call" },
-          { done: hasReceptionist, label: "Go live" },
-        ].map((step, i) => (
-          <div key={i} className="flex flex-1 items-center">
-            <div
-              className={`mx-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium ${
-                step.done
-                  ? "bg-green-600 text-white dark:bg-green-500"
-                  : "border border-muted-foreground/40 bg-muted/50 text-muted-foreground"
-              }`}
-            >
-              {step.done ? "✓" : i + 1}
-            </div>
-            {i < 4 && <div className="h-0.5 flex-1 bg-muted" />}
-          </div>
-        ))}
-      </div>
-      <p className="mt-2 text-center text-xs text-muted-foreground">
-        1. Connect Calendar · 2. Add Phone · 3. Create Receptionist · 4. Test Call · 5. Go Live
-      </p>
+      {calendarStatus === "connected" && (
+        <Alert className="mt-6 border-green-500 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <AlertTitle className="text-green-800 dark:text-green-200">
+            Google Calendar connected
+          </AlertTitle>
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Continue with the next step below.
+          </AlertDescription>
+        </Alert>
+      )}
+      {(calendarStatus === "error" || params.error) && (
+        <Alert className="mt-6 border-red-500 bg-red-50 dark:border-red-800 dark:bg-red-950/30">
+          <AlertTitle className="text-red-800 dark:text-red-200">
+            Calendar connection failed
+          </AlertTitle>
+          <AlertDescription className="text-red-700 dark:text-red-300">
+            {errorMessage
+              ? decodeURIComponent(errorMessage)
+              : "Please try again below."}
+          </AlertDescription>
+        </Alert>
+      )}
 
-      <Card className="mt-8">
-        <CardHeader>
-          <CardTitle className="text-base">Setup steps</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">1. Connect Google Calendar</p>
-              <p className="text-sm text-muted-foreground">
-                Required for booking and availability.
-              </p>
-            </div>
-            {hasCalendar ? (
-              <span className="text-sm text-green-600 dark:text-green-400">Done</span>
-            ) : (
-              <Button asChild variant="outline" size="sm">
-                <Link href="/settings">Settings → Integrations</Link>
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">2. Add default phone</p>
-              <p className="text-sm text-muted-foreground">
-                Used when creating new receptionists.
-              </p>
-            </div>
-            {hasPhone ? (
-              <span className="text-sm text-green-600 dark:text-green-400">Done</span>
-            ) : (
-              <Button asChild variant="outline" size="sm">
-                <Link href="/settings">Settings → Integrations</Link>
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">3. Create your first receptionist</p>
-              <p className="text-sm text-muted-foreground">
-                Each receptionist gets a dedicated phone number.
-              </p>
-            </div>
-            {hasReceptionist ? (
-              <span className="text-sm text-green-600 dark:text-green-400">Done</span>
-            ) : (
-              <Button asChild variant="outline" size="sm">
-                <Link href="/receptionists">Receptionists → Add</Link>
-              </Button>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">4. Test call</p>
-              <p className="text-sm text-muted-foreground">
-                Call your AI receptionist to hear it in action.
-              </p>
-            </div>
-            {testCallNumber ? (
-              <div className="text-right">
-                <p className="text-sm font-mono font-medium">{testCallNumber}</p>
-                <a href={`tel:${testCallNumber}`} className="text-xs text-primary underline">
-                  Tap to call
-                </a>
-              </div>
-            ) : hasReceptionist ? (
-              <span className="text-sm text-muted-foreground">Number will appear after creation</span>
-            ) : (
-              <span className="text-sm text-muted-foreground">Create a receptionist first</span>
-            )}
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="font-medium">5. Go live</p>
-              <p className="text-sm text-muted-foreground">
-                You&apos;re ready. Head to the dashboard to manage receptionists.
-              </p>
-            </div>
-            {hasReceptionist && (
-              <Button asChild size="sm">
-                <Link href="/dashboard">Go to dashboard</Link>
-              </Button>
-            )}
-          </div>
-
-          <form action={markComplete} className="pt-4">
-            <Button type="submit" variant="secondary">
-              I&apos;ll do this later
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <OnboardingStepper
+        hasCalendar={hasCalendar}
+        hasPhone={hasPhone}
+        hasReceptionist={hasReceptionist}
+        testCallNumber={testCallNumber}
+        userId={user.id}
+        calendarId={profile?.calendar_id ?? ""}
+        phone={profile?.phone ?? null}
+        isSubscribed={isSubscribed}
+      />
     </main>
   );
 }

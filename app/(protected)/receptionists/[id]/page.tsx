@@ -6,11 +6,15 @@ import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
 import { AppNav } from "@/app/components/dashboard/AppNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Badge } from "@/app/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { getCurrentPeriod } from "@/app/lib/usage";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ created?: string }>;
+};
 
-export default async function ReceptionistDetailPage({ params }: Props) {
+export default async function ReceptionistDetailPage({ params, searchParams }: Props) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -26,6 +30,8 @@ export default async function ReceptionistDetailPage({ params }: Props) {
     .single();
 
   if (!receptionist) notFound();
+
+  const { created } = await searchParams;
 
   const { period_start: usagePeriodStart } = getCurrentPeriod();
   const { data: userRow } = await supabase
@@ -79,6 +85,29 @@ export default async function ReceptionistDetailPage({ params }: Props) {
           ? ` · Your number: ${receptionist.inbound_phone_number}`
           : ` · ${receptionist.phone_number}`}
       </p>
+
+      {created === "1" && receptionist.vapi_assistant_id && receptionist.inbound_phone_number && (
+        <Alert className="mt-6 border-green-500 bg-green-50 dark:border-green-800 dark:bg-green-950/30">
+          <AlertTitle className="text-green-800 dark:text-green-200">Your AI is live—call now to test!</AlertTitle>
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Your receptionist was just created. Call the number below to hear it in action.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {receptionist.vapi_assistant_id && receptionist.inbound_phone_number && (
+        <div className="mt-8 rounded-lg border border-green-200 bg-green-50 p-6 text-center dark:border-green-900 dark:bg-green-950/30">
+          <h3 className="text-lg font-semibold">Your AI Receptionist is Live!</h3>
+          <p className="mt-2">Call this number to test it right now:</p>
+          <p className="mt-4 text-2xl font-bold">{receptionist.inbound_phone_number}</p>
+          <Button className="mt-6" asChild>
+            <a href={`tel:${receptionist.inbound_phone_number}`}>Call Now</a>
+          </Button>
+          <p className="mt-4 text-sm text-muted-foreground">
+            First 2 minutes are free on the Free plan. Try asking it to book an appointment.
+          </p>
+        </div>
+      )}
 
       <Card className="mt-8">
         <CardHeader>

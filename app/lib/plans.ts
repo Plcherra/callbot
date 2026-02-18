@@ -4,10 +4,10 @@
  */
 
 const SUBSCRIPTION_PLANS = [
-  { id: "starter", name: "Starter", envKey: "STRIPE_PRICE_STARTER", priceCents: 4900, includedMinutes: 300, billingPlanId: "subscription_starter" as const },
-  { id: "pro", name: "Pro", envKey: "STRIPE_PRICE_PRO", priceCents: 9900, includedMinutes: 800, billingPlanId: "subscription_pro" as const },
-  { id: "business", name: "Business", envKey: "STRIPE_PRICE_BUSINESS", priceCents: 16900, includedMinutes: 1500, billingPlanId: "subscription_business" as const },
-  { id: "enterprise", name: "Enterprise", envKey: "STRIPE_PRICE_ENTERPRISE", priceCents: 32900, includedMinutes: 3000, billingPlanId: "subscription_enterprise" as const },
+  { id: "starter", name: "Starter", envKey: "STRIPE_PRICE_STARTER", priceCents: 6900, includedMinutes: 300, billingPlanId: "subscription_starter" as const },
+  { id: "pro", name: "Pro", envKey: "STRIPE_PRICE_PRO", priceCents: 14900, includedMinutes: 800, billingPlanId: "subscription_pro" as const },
+  { id: "business", name: "Business", envKey: "STRIPE_PRICE_BUSINESS", priceCents: 24900, includedMinutes: 1500, billingPlanId: "subscription_business" as const },
+  { id: "enterprise", name: "Enterprise", envKey: "STRIPE_PRICE_ENTERPRISE", priceCents: 49900, includedMinutes: 3000, billingPlanId: "subscription_enterprise" as const },
 ] as const;
 
 const PER_MINUTE_PLANS = [

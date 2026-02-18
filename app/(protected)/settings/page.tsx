@@ -26,7 +26,7 @@ export default async function SettingsPage() {
     if (synced) {
       const { data: refreshed } = await supabase
         .from("users")
-        .select("subscription_status, stripe_customer_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
+        .select("subscription_status, stripe_customer_id, stripe_subscription_id, business_name, business_address, calendar_id, phone, billing_plan, billing_plan_metadata")
         .eq("id", user.id)
         .single();
       profile = refreshed ?? profile;

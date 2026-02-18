@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "AI Receptionist – Never Miss a Booking",
-  description: "AI-powered receptionist for salons, barbers, spas, and handymen. $29/mo.",
+  description: "AI-powered receptionist for salons, barbers, spas, and handymen. From $69/mo.",
 };
 
 export default function RootLayout({

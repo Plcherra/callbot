@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
-import { updateBusiness, createBillingPortalSession } from "@/app/actions/settings";
+import { updateBusiness, createBillingPortalSession, deleteAccount } from "@/app/actions/settings";
 import { createCheckoutSession } from "@/app/actions/upgrade";
 import { createClient } from "@/app/lib/supabase/client";
 import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
@@ -55,6 +55,8 @@ export function SettingsTabs({
   const [portalLoading, setPortalLoading] = useState(false);
   const [changePlanLoadingId, setChangePlanLoadingId] = useState<PlanId | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function handleSaveBusiness(e: React.FormEvent) {
     e.preventDefault();
@@ -126,13 +128,31 @@ export function SettingsTabs({
     return label === planLabel || billingPlan === planId || billingPlan.replace("subscription_", "") === planId;
   };
 
+  async function handleDeleteAccount() {
+    if (!window.confirm("Delete your account? This will remove all your data (receptionists, settings, etc.). You can sign up again with the same email. This cannot be undone.")) {
+      return;
+    }
+    setDeleteError(null);
+    setDeleteLoading(true);
+    const result = await deleteAccount();
+    setDeleteLoading(false);
+    if (result.success) {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      window.location.href = "/signup";
+    } else {
+      setDeleteError(result.error ?? "Failed to delete account.");
+    }
+  }
+
   return (
     <Tabs defaultValue="profile" className="mt-8">
-      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+      <TabsList className="grid w-full grid-cols-2 sm:grid-cols-5">
         <TabsTrigger value="profile">Profile</TabsTrigger>
         <TabsTrigger value="integrations">Integrations</TabsTrigger>
         <TabsTrigger value="billing">Billing</TabsTrigger>
         <TabsTrigger value="business">Business</TabsTrigger>
+        <TabsTrigger value="account">Account</TabsTrigger>
       </TabsList>
 
       <TabsContent value="profile">
@@ -344,6 +364,31 @@ export function SettingsTabs({
                 {businessSaving ? "Saving…" : "Save"}
               </Button>
             </form>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      <TabsContent value="account">
+        <Card className="border-destructive/50">
+          <CardHeader>
+            <CardTitle>Delete account</CardTitle>
+            <CardDescription>
+              Permanently delete your account and all associated data. Receptionists, settings, and usage history will be removed. Stripe test subscriptions stay in Stripe (manage in Dashboard). You can sign up again with the same email.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {deleteError && (
+              <Alert variant="destructive">
+                <AlertDescription>{deleteError}</AlertDescription>
+              </Alert>
+            )}
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAccount}
+              disabled={deleteLoading}
+            >
+              {deleteLoading ? "Deleting…" : "Delete account"}
+            </Button>
           </CardContent>
         </Card>
       </TabsContent>

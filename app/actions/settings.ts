@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/app/lib/supabase/server";
+import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { getStripe } from "@/app/lib/stripe";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -57,5 +58,28 @@ export async function createBillingPortalSession(): Promise<
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stripe error";
     return { error: message };
+  }
+}
+
+/**
+ * Delete the current user's account and all associated data.
+ * Deletes auth.users row, which cascades to public.users, receptionists, etc.
+ * Stripe customer/subscriptions are not deleted (test data can be managed in Stripe Dashboard).
+ */
+export async function deleteAccount(): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Not authenticated." };
+
+  try {
+    const admin = createServiceRoleClient();
+    const { error } = await admin.auth.admin.deleteUser(user.id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to delete account";
+    return { success: false, error: message };
   }
 }

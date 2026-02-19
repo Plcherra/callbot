@@ -170,8 +170,15 @@ export type VapiPhoneNumber = {
 };
 
 /**
- * Create a free Vapi US phone number. Limit 10 per account.
- * See https://docs.vapi.ai/api-reference/phone-numbers/create and https://docs.vapi.ai/free-telephony
+ * Fetch a phone number by ID.
+ */
+export async function getPhoneNumber(id: string): Promise<VapiPhoneNumber> {
+  return vapiFetch<VapiPhoneNumber>(`/phone-number/${id}`);
+}
+
+/**
+ * Create a Vapi-provisioned phone number. For provider "vapi", only
+ * numberDesiredAreaCode is supported; do not send country (Vapi rejects it).
  */
 export async function createPhoneNumber(options?: {
   areaCode?: string;
@@ -180,12 +187,31 @@ export async function createPhoneNumber(options?: {
     provider: "vapi",
   };
   if (options?.areaCode) {
-    body.areaCode = options.areaCode;
+    body.numberDesiredAreaCode = options.areaCode;
   }
   return vapiFetch<VapiPhoneNumber>("/phone-number", {
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Wait for a Vapi phone number to be provisioned (number field populated).
+ * Polls up to maxWaitMs, every intervalMs. Returns the number when ready, or the last state.
+ */
+export async function waitForPhoneNumberProvisioned(
+  phoneNumberId: string,
+  options?: { maxWaitMs?: number; intervalMs?: number }
+): Promise<VapiPhoneNumber> {
+  const maxWaitMs = options?.maxWaitMs ?? 90_000; // 90 seconds
+  const intervalMs = options?.intervalMs ?? 3_000; // 3 seconds
+  const start = Date.now();
+  let last: VapiPhoneNumber = await getPhoneNumber(phoneNumberId);
+  while (!last.number && Date.now() - start < maxWaitMs) {
+    await new Promise((r) => setTimeout(r, intervalMs));
+    last = await getPhoneNumber(phoneNumberId);
+  }
+  return last;
 }
 
 /**

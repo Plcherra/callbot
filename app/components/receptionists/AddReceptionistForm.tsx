@@ -25,11 +25,17 @@ type Props = {
   redirectToDetailOnSuccess?: boolean;
 };
 
+const PHONE_COUNTRIES = [
+  { value: "US", label: "United States (+1)" },
+  { value: "CA", label: "Canada (+1)" },
+] as const;
+
 export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectToDetailOnSuccess = true }: Props) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState(defaultPhone ?? "");
   const [calendarId, setCalendarId] = useState(defaultCalendarId);
+  const [country, setCountry] = useState<"US" | "CA">("US");
   const [consentChecked, setConsentChecked] = useState(false);
   const [consentError, setConsentError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -48,7 +54,12 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectT
     }
 
     setLoading(true);
-    const result = await createReceptionist({ name, phone_number: phone, calendar_id: calendarId });
+    const result = await createReceptionist({
+      name,
+      phone_number: phone,
+      calendar_id: calendarId,
+      country,
+    });
     setLoading(false);
     if (result.success && result.id && redirectToDetailOnSuccess) {
       router.push(`/receptionists/${result.id}?created=1`);
@@ -57,6 +68,7 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectT
       setName("");
       setPhone(defaultPhone ?? "");
       setCalendarId(defaultCalendarId);
+      setCountry("US");
       setConsentChecked(false);
       router.refresh();
     } else {
@@ -92,6 +104,26 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectT
             />
           </div>
           <div className="space-y-2">
+            <label htmlFor="rec-country" className="text-sm font-medium">
+              Country
+            </label>
+            <select
+              id="rec-country"
+              value={country}
+              onChange={(e) => setCountry(e.target.value as "US" | "CA")}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {PHONE_COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Where the receptionist phone number will be provisioned.
+            </p>
+          </div>
+          <div className="space-y-2">
             <label htmlFor="rec-phone" className="text-sm font-medium">
               Phone number
             </label>
@@ -103,6 +135,9 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectT
               placeholder="+15551234567"
               required
             />
+            <p className="text-xs text-muted-foreground">
+              Your business number. We&apos;ll provision a new number in the same area code for callers to reach this receptionist.
+            </p>
           </div>
           <div className="space-y-2">
             <label htmlFor="rec-calendar" className="text-sm font-medium">

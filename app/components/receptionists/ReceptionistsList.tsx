@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
 import { Badge } from "@/app/components/ui/badge";
+import { DeleteReceptionistButton } from "@/app/components/receptionists/DeleteReceptionistButton";
 
 type Receptionist = {
   id: string;
@@ -61,6 +62,13 @@ export function ReceptionistsList({ receptionists }: Props) {
                     <a href={`tel:${r.inbound_phone_number}`}>Test call</a>
                   </Button>
                 )}
+                <DeleteReceptionistButton
+                  receptionistId={r.id}
+                  receptionistName={r.name}
+                  variant="destructive"
+                  size="sm"
+                  iconOnly
+                />
               </div>
             </CardContent>
           </Card>

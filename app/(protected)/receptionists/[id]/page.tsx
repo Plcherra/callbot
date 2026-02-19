@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/ca
 import { Badge } from "@/app/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { getCurrentPeriod } from "@/app/lib/usage";
+import { DeleteReceptionistButton } from "@/app/components/receptionists/DeleteReceptionistButton";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -190,12 +191,16 @@ export default async function ReceptionistDetailPage({ params, searchParams }: P
         </Card>
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <Button asChild>
           <Link href={`/receptionists/${receptionist.id}/settings`}>
             Manage settings
           </Link>
         </Button>
+        <DeleteReceptionistButton
+          receptionistId={receptionist.id}
+          receptionistName={receptionist.name}
+        />
       </div>
     </main>
   );

@@ -32,6 +32,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
   - Legacy single plan: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
 - **Vapi.ai**: `VAPI_API_KEY` (phone numbers are provisioned per receptionist; see [docs/NUMBERS.md](docs/NUMBERS.md) — 10 free US numbers per account)
+  - Multi-tenant calendar: `VAPI_TOOL_CHECK_AVAILABILITY_ID`, `VAPI_TOOL_CREATE_EVENT_ID` (from Vapi Dashboard → Tools)
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (e.g. `http://localhost:3000/api/google/callback`)
 - **App**: `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 

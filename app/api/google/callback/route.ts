@@ -32,7 +32,8 @@ export async function GET(req: NextRequest) {
   const state = stateParts?.[0] ?? rawState; // userId
   const returnTo = stateParts?.length === 2 ? stateParts[1] : "dashboard";
 
-  const errorRedirectPath = returnTo === "onboarding" ? "/onboarding" : "/dashboard";
+  const errorRedirectPath =
+    returnTo === "onboarding" ? "/onboarding" : returnTo === "receptionists" ? "/receptionists" : "/dashboard";
 
   // Handle OAuth errors from Google
   if (error) {
@@ -152,7 +153,8 @@ export async function GET(req: NextRequest) {
     }
 
     console.log("Successfully connected Google Calendar for user:", state);
-    const redirectPath = returnTo === "onboarding" ? "/onboarding" : "/dashboard";
+    const redirectPath =
+      returnTo === "onboarding" ? "/onboarding" : returnTo === "receptionists" ? "/receptionists" : "/dashboard";
     return NextResponse.redirect(`${appUrl}${redirectPath}?calendar=connected`);
   } catch (err) {
     // Log detailed error information

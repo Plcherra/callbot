@@ -5,9 +5,14 @@ import { Button } from "@/app/components/ui/button";
 import { SignOutButton } from "@/app/components/dashboard/SignOutButton";
 import { AppNav } from "@/app/components/dashboard/AppNav";
 import { ReceptionistsList } from "@/app/components/receptionists/ReceptionistsList";
-import { AddReceptionistForm } from "@/app/components/receptionists/AddReceptionistForm";
+import { ReceptionistCreateStepper } from "@/app/components/receptionists/ReceptionistCreateStepper";
+import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 
-export default async function ReceptionistsPage() {
+export default async function ReceptionistsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ calendar?: string; error?: string; message?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -23,6 +28,7 @@ export default async function ReceptionistsPage() {
     .single();
 
   const isSubscribed = profile?.subscription_status === "active";
+  const params = await searchParams;
 
   const { data: receptionists } = await supabase
     .from("receptionists")
@@ -55,8 +61,28 @@ export default async function ReceptionistsPage() {
         </div>
       ) : (
         <>
-          <AddReceptionistForm
-            defaultCalendarId={profile?.calendar_id ?? ""}
+          {params.calendar === "connected" && (
+            <Alert className="mt-8 border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950/30">
+              <AlertTitle>Google Calendar connected</AlertTitle>
+              <AlertDescription>
+                You can now create your receptionist below.
+              </AlertDescription>
+            </Alert>
+          )}
+          {(params.calendar === "error" || params.error) && (
+            <Alert variant="destructive" className="mt-8">
+              <AlertTitle>Calendar connection failed</AlertTitle>
+              <AlertDescription>
+                {params.message
+                  ? decodeURIComponent(params.message)
+                  : "Failed to connect Google Calendar. Please try again in Settings → Integrations."}
+              </AlertDescription>
+            </Alert>
+          )}
+          <ReceptionistCreateStepper
+            hasCalendar={Boolean(profile?.calendar_id?.trim())}
+            userId={user.id}
+            calendarId={profile?.calendar_id ?? ""}
             defaultPhone={profile?.phone ?? null}
           />
           <ReceptionistsList receptionists={receptionists ?? []} />

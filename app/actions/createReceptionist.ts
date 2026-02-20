@@ -10,6 +10,8 @@ import {
   deletePhoneNumber,
 } from "@/app/lib/vapi";
 import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
+import { provisionTwilioNumber } from "@/app/actions/provisionTwilioNumber";
+import { releaseNumber } from "@/app/lib/twilio";
 
 export async function createReceptionist(data: {
   name: string;
@@ -75,6 +77,76 @@ export async function createReceptionist(data: {
     paymentSettings: undefined,
   });
 
+  const useTwilio = process.env.USE_TWILIO_VOICE === "true";
+
+  if (useTwilio) {
+    // Twilio path: self-hosted voice AI
+    let twilioSid: string | null = null;
+    try {
+      const provisionResult = await provisionTwilioNumber(areaCode);
+      if (!provisionResult.success) {
+        return { success: false, error: provisionResult.error };
+      }
+      twilioSid = provisionResult.sid;
+      const inboundNumber = provisionResult.phoneNumber;
+
+      const { data: row, error } = await supabase
+        .from("receptionists")
+        .insert({
+          user_id: user.id,
+          name,
+          phone_number: e164,
+          twilio_phone_number_sid: twilioSid,
+          twilio_phone_number: inboundNumber,
+          inbound_phone_number: inboundNumber,
+          calendar_id: calendarId,
+          status: "active",
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        if (twilioSid) {
+          try {
+            await releaseNumber(twilioSid);
+          } catch {
+            /* best-effort */
+          }
+        }
+        return { success: false, error: error.message };
+      }
+
+      await supabase
+        .from("users")
+        .update({
+          onboarding_completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+        .is("onboarding_completed_at", null);
+
+      return { success: true, id: row?.id };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[createReceptionist] Twilio Error:", err);
+      if (twilioSid) {
+        try {
+          await releaseNumber(twilioSid);
+        } catch {
+          /* best-effort */
+        }
+      }
+      return {
+        success: false,
+        error:
+          process.env.NODE_ENV === "development"
+            ? `Could not activate your AI receptionist: ${message}`
+            : "Could not activate your AI receptionist. Please try again or contact support.",
+      };
+    }
+  }
+
+  // Vapi path (legacy)
   let assistantId: string | null = null;
   let phoneNumberId: string | null = null;
 
@@ -176,14 +248,14 @@ export async function createReceptionist(data: {
         try {
           await deletePhoneNumber(phoneNumberId);
         } catch {
-          // best-effort cleanup
+          /* best-effort */
         }
       }
       if (assistantId) {
         try {
           await deleteAssistant(assistantId);
         } catch {
-          // best-effort cleanup
+          /* best-effort */
         }
       }
       return { success: false, error: error.message };
@@ -206,14 +278,14 @@ export async function createReceptionist(data: {
       try {
         await deletePhoneNumber(phoneNumberId);
       } catch {
-        // best-effort cleanup
+        /* best-effort */
       }
     }
     if (assistantId) {
       try {
         await deleteAssistant(assistantId);
       } catch {
-        // best-effort cleanup
+        /* best-effort */
       }
     }
     if (
@@ -226,7 +298,6 @@ export async function createReceptionist(data: {
           "Phone number limit reached (10 free numbers per account). Please contact support to add more numbers.",
       };
     }
-    // Surface Vapi API errors (auth, rate limits, etc.) and dev errors for debugging
     const isVapiError = typeof message === "string" && message.includes("Vapi API error");
     const userMessage =
       process.env.NODE_ENV === "development" && message

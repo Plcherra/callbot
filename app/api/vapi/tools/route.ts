@@ -213,7 +213,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Prefer receptionist's calendar_id (e.g. per-receptionist calendar), fall back to user's
-  const calendarId = (receptionist.calendar_id?.trim() || user.calendar_id ?? "primary").trim() || "primary";
+  const calendarId = ((receptionist.calendar_id?.trim() || user.calendar_id) ?? "primary").trim() || "primary";
 
   const results: { name: string; toolCallId: string; result: string }[] = [];
 

@@ -46,16 +46,37 @@ export async function provisionNumber(areaCode: string): Promise<ProvisionedNumb
 }
 
 /**
- * Configure the voice webhook URL for an existing Twilio phone number.
+ * Configure the voice webhook URL and optional status callback for a Twilio number.
+ * StatusCallback receives call lifecycle events (initiated, completed, etc.).
  */
 export async function configureVoiceUrl(
   phoneNumberSid: string,
-  webhookUrl: string
+  webhookUrl: string,
+  options?: { statusCallbackUrl?: string }
+): Promise<void> {
+  const client = getTwilioClient();
+  const update: Record<string, string> = {
+    voiceUrl: webhookUrl,
+    voiceMethod: "POST",
+  };
+  if (options?.statusCallbackUrl) {
+    update.statusCallback = options.statusCallbackUrl;
+    update.statusCallbackMethod = "POST";
+  }
+  await client.incomingPhoneNumbers(phoneNumberSid).update(update);
+}
+
+/**
+ * Configure the SMS webhook URL for a Twilio number.
+ */
+export async function configureSmsUrl(
+  phoneNumberSid: string,
+  smsUrl: string
 ): Promise<void> {
   const client = getTwilioClient();
   await client.incomingPhoneNumbers(phoneNumberSid).update({
-    voiceUrl: webhookUrl,
-    voiceMethod: "POST",
+    smsUrl,
+    smsMethod: "POST",
   });
 }
 

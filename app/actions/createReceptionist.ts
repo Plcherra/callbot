@@ -13,6 +13,10 @@ import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 import { provisionTwilioNumber } from "@/app/actions/provisionTwilioNumber";
 import { releaseNumber } from "@/app/lib/twilio";
 
+function isPlaceholderUrl(value: string): boolean {
+  return /your-app\.com|your-domain\.com/i.test(value);
+}
+
 export async function createReceptionist(data: {
   name: string;
   phone_number: string;
@@ -80,6 +84,31 @@ export async function createReceptionist(data: {
   const useTwilio = process.env.USE_TWILIO_VOICE === "true";
 
   if (useTwilio) {
+    const webhookBase =
+      process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    if (!webhookBase) {
+      return {
+        success: false,
+        error:
+          "TWILIO_WEBHOOK_BASE_URL (or NEXT_PUBLIC_APP_URL) must be set to your public app URL before provisioning a Twilio number.",
+      };
+    }
+    if (isPlaceholderUrl(webhookBase)) {
+      return {
+        success: false,
+        error:
+          "TWILIO_WEBHOOK_BASE_URL is still set to a placeholder. Set it to your public app URL before provisioning a Twilio number.",
+      };
+    }
+    const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
+    if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
+      return {
+        success: false,
+        error:
+          "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL before activating Twilio voice.",
+      };
+    }
+
     // Twilio path: self-hosted voice AI
     let twilioSid: string | null = null;
     try {

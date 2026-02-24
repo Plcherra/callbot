@@ -1,6 +1,6 @@
 /**
- * Builds the system prompt for a receptionist's Vapi assistant from DB data.
- * Used when creating/updating the assistant and for "Apply to Vapi" in settings.
+ * Builds the system prompt for a receptionist from DB data.
+ * Used by the voice server and for preview in settings.
  */
 
 const MAX_PROMPT_CHARS = 28000; // ~7k tokens at ~4 chars/token; leave headroom

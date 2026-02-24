@@ -32,7 +32,7 @@ export default async function ReceptionistsPage({
 
   const { data: receptionists } = await supabase
     .from("receptionists")
-    .select("id, name, phone_number, vapi_assistant_id, inbound_phone_number, status")
+    .select("id, name, phone_number, inbound_phone_number, status")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 

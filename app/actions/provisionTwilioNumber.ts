@@ -5,9 +5,42 @@ import {
   configureVoiceUrl,
   configureSmsUrl,
 } from "@/app/lib/twilio";
+import { createClient } from "@/app/lib/supabase/server";
+import { isPlaceholderUrl } from "@/app/lib/urlUtils";
 
-function isPlaceholderUrl(value: string): boolean {
-  return /your-app\.com|your-domain\.com/i.test(value);
+/**
+ * Configures voice and SMS webhooks on an existing Twilio number (bring-your-own).
+ * Use when the user provides a Twilio SID for a number they already own.
+ */
+export async function configureExistingTwilioNumber(
+  sid: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { success: false, error: "Not authenticated." };
+  }
+
+  const webhookBase =
+    process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (!webhookBase || isPlaceholderUrl(webhookBase)) {
+    return {
+      success: false,
+      error: "TWILIO_WEBHOOK_BASE_URL must be set for Twilio configuration.",
+    };
+  }
+  try {
+    const base = webhookBase.replace(/\/$/, "");
+    const voiceUrl = `${base}/api/twilio/voice`;
+    const statusCallbackUrl = `${base}/api/twilio/status`;
+    await configureVoiceUrl(sid, voiceUrl, { statusCallbackUrl });
+    await configureSmsUrl(sid, `${base}/api/twilio/sms`);
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[configureExistingTwilioNumber] Error:", err);
+    return { success: false, error: message };
+  }
 }
 
 /**
@@ -19,6 +52,12 @@ export async function provisionTwilioNumber(areaCode: string): Promise<
   | { success: true; sid: string; phoneNumber: string }
   | { success: false; error: string }
 > {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { success: false, error: "Not authenticated." };
+  }
+
   const webhookBase =
     process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (!webhookBase) {
@@ -46,11 +85,19 @@ export async function provisionTwilioNumber(areaCode: string): Promise<
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[provisionTwilioNumber] Error:", err);
+    if (message.includes("No available")) {
+      const suggestions = ["212", "310", "415", "617", "646", "202", "305", "702"]
+        .filter((ac) => ac !== areaCode)
+        .slice(0, 3)
+        .join(", ");
+      return {
+        success: false,
+        error: `No numbers available in area code ${areaCode}. Try ${suggestions || "212, 310, or 415"} — or bring your own number.`,
+      };
+    }
     return {
       success: false,
-      error: message.includes("No available")
-        ? `No available phone numbers in area code ${areaCode}. Try a different area code.`
-        : `Could not provision Twilio number: ${message}`,
+      error: `Could not provision number: ${message}`,
     };
   }
 }

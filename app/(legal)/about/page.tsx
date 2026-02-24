@@ -34,7 +34,7 @@ export default function AboutPage() {
 
           <h3 className="font-semibold">Technology</h3>
           <p>
-            We use <strong>Vapi.ai</strong> for voice AI, <strong>Supabase</strong> for secure data, and <strong>Stripe</strong> for payments. Your data is encrypted and never sold to third parties.
+            We use <strong>Twilio</strong> for phone numbers and <strong>self-hosted voice AI</strong> (Whisper, Ollama, Piper), <strong>Supabase</strong> for secure data, and <strong>Stripe</strong> for payments. Your data is encrypted and never sold to third parties.
           </p>
 
           <h3 className="font-semibold">Get started</h3>

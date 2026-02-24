@@ -1,6 +1,6 @@
 # AI Receptionist – Subscription Platform
 
-Next.js + Supabase + Stripe + Vapi.ai app for selling and auto-managing AI receptionists for salons, barbers, spas, and handymen.
+Next.js + Supabase + Stripe + Twilio app for selling and auto-managing AI receptionists for salons, barbers, spas, and handymen.
 
 ## Features
 
@@ -8,14 +8,14 @@ Next.js + Supabase + Stripe + Vapi.ai app for selling and auto-managing AI recep
 - **Free signup**: Email/password + Google OAuth → redirect to dashboard (no payment required)
 - **Dashboard** (protected): Free mode shows plan picker (subscription or per-minute); after payment, full setup (Google Calendar, phone, Activate assistant)
 - **Upgrade**: Plan selection opens Stripe Checkout for the chosen tier (or optional Stripe Buy Button embed)
-- **Assistant activation**: Manual; creates Vapi assistant; shows status and test call number. After payment, redirect to `/dashboard`.
+- **Assistant activation**: Create receptionist from Receptionists page; provisions Twilio number and configures voice webhook. After payment, redirect to `/dashboard`.
 
 ## Tech Stack
 
 - Next.js 14 (App Router)
 - Supabase (auth, users table)
 - Stripe (recurring subscription, prebuilt checkout / Buy Button)
-- Vapi.ai (assistant API)
+- Twilio (phone provisioning, voice webhooks)
 - Tailwind CSS + shadcn/ui (Card, Button, Input, Skeleton, Alert)
 
 ## Setup
@@ -31,8 +31,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
   - DEV test: `STRIPE_PRICE_DEV_TEST` ($1/mo for testing)
   - Legacy single plan: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
-- **Vapi.ai**: `VAPI_API_KEY` (phone numbers are provisioned per receptionist; see [docs/NUMBERS.md](docs/NUMBERS.md) — 10 free US numbers per account)
-  - Multi-tenant calendar: `VAPI_TOOL_CHECK_AVAILABILITY_ID`, `VAPI_TOOL_CREATE_EVENT_ID` (from Vapi Dashboard → Tools)
+- **Twilio**: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WEBHOOK_BASE_URL`, `VOICE_SERVER_WS_URL` (see [docs/NUMBERS.md](docs/NUMBERS.md) and [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md))
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (e.g. `http://localhost:3000/api/google/callback`)
 - **App**: `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 
@@ -49,10 +48,11 @@ Copy `.env.local.example` to `.env.local` and fill in:
 3. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $69) when the dedicated Starter env is not set.
 4. **Optional Buy Button**: Create a Payment Link for a plan → **Buy button** → copy `buy-button-id` into `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID`. Set the Payment Link success URL to your `/dashboard`.
 
-### 4. Vapi.ai
+### 4. Twilio and voice server
 
-1. Get your API key and set `VAPI_API_KEY`.
-2. Phone numbers are created automatically per receptionist (Vapi free telephony). See [docs/NUMBERS.md](docs/NUMBERS.md) for the 10-number limit and options.
+1. Create a Twilio account and set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`.
+2. Deploy the voice server (see [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)) and set `VOICE_SERVER_WS_URL`.
+3. Set `TWILIO_WEBHOOK_BASE_URL` to your public app URL. Phone numbers are provisioned per receptionist when you create them.
 
 ### 5. Google OAuth
 
@@ -77,7 +77,7 @@ For production error monitoring (e.g. Sentry), see [docs/ERROR_MONITORING.md](do
 1. **Free signup**: Go to `/signup`, enter email/password (or “Continue with Google”) → redirect to `/dashboard`.
 2. **Dashboard (free)**: See plan picker (subscription and per-minute). Select a plan → redirect to Stripe Checkout.
 3. **Pay**: Use test card `4242 4242 4242 4242`; complete checkout → redirect to `/dashboard?session_id=...`.
-4. **Manual activation**: When ready, use Connect Google Calendar, phone, and Activate assistant. Pay with test card → redirect to /dashboard (no crash).
+4. **Create receptionist**: Connect Google Calendar, then go to Receptionists and use the Add Receptionist wizard. Pay with test card → redirect to /dashboard (no crash).
 
 ## File summary
 
@@ -87,7 +87,7 @@ For production error monitoring (e.g. Sentry), see [docs/ERROR_MONITORING.md](do
 - `app/(protected)/dashboard/page.tsx` – Protected dashboard; free mode (Upgrade card) vs Pro (Calendar, phone, Activate assistant)
 - `app/api/google/callback/route.ts` – Google OAuth callback
 - `app/actions/upgrade.ts` – Create Stripe Checkout session for current user (server-side)
-- `app/actions/activateBot.ts` – Vapi assistant creation
+- `app/actions/createReceptionist.ts` – Create receptionist (Twilio provisioning)
 - `app/actions/google.ts` – Google OAuth URL
 - `app/actions/dashboard.ts` – Save phone
 - `app/components/dashboard/UpgradeCard.tsx` – “Upgrade to Pro” button + optional `<stripe-buy-button>` embed

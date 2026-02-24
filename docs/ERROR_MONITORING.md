@@ -1,6 +1,6 @@
 # Error Monitoring (Production)
 
-For production, consider adding error tracking so you can see failures (e.g. Vapi API errors, Stripe webhook issues) without exposing raw errors to users.
+For production, consider adding error tracking so you can see failures (e.g. Twilio/voice server errors, Stripe webhook issues) without exposing raw errors to users.
 
 ## Sentry
 
@@ -9,7 +9,7 @@ For production, consider adding error tracking so you can see failures (e.g. Vap
 3. Run the Sentry wizard: `npx @sentry/wizard@latest -i nextjs`
 4. Configure `SENTRY_DSN` in your environment.
 
-The app already returns user-friendly messages for Vapi and checkout failures; Sentry will capture the underlying errors server-side for debugging.
+The app already returns user-friendly messages for checkout and voice failures; Sentry will capture the underlying errors server-side for debugging.
 
 ## Other options
 

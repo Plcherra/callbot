@@ -38,8 +38,7 @@ export default async function OnboardingPage({ searchParams }: Props) {
   const hasReceptionist = (receptionists?.length ?? 0) > 0;
   const testCallNumber =
     receptionists?.[0]?.inbound_phone_number?.trim() ||
-    process.env.VAPI_TEST_CALL_NUMBER ||
-    process.env.NEXT_PUBLIC_VAPI_TEST_CALL_NUMBER ||
+    process.env.NEXT_PUBLIC_TEST_CALL_NUMBER ||
     null;
 
   const params = await searchParams;

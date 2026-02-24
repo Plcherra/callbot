@@ -97,7 +97,7 @@ export function DeleteReceptionistButton({
               id="delete-dialog-description"
               className="mt-2 text-sm text-muted-foreground"
             >
-              This will remove the receptionist, its Vapi assistant, and phone
+              This will remove the receptionist and its phone
               number. Call history and settings will be lost. This cannot be
               undone.
             </p>

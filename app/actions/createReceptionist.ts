@@ -1,28 +1,56 @@
 "use server";
+// Vapi path fully removed – Twilio only as of 2025-02-24
 
 import { createClient } from "@/app/lib/supabase/server";
 import {
-  createAssistant,
-  createPhoneNumber,
-  updatePhoneNumber,
-  waitForPhoneNumberProvisioned,
-  deleteAssistant,
-  deletePhoneNumber,
-} from "@/app/lib/vapi";
-import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
-import { provisionTwilioNumber } from "@/app/actions/provisionTwilioNumber";
+  provisionTwilioNumber,
+  configureExistingTwilioNumber,
+} from "@/app/actions/provisionTwilioNumber";
 import { releaseNumber } from "@/app/lib/twilio";
+import { isPlaceholderUrl } from "@/app/lib/urlUtils";
 
-function isPlaceholderUrl(value: string): boolean {
-  return /your-app\.com|your-domain\.com/i.test(value);
-}
+/** Wizard payload from AddReceptionistWizardModal */
+export type CreateReceptionistWizardData = {
+  name: string;
+  country: string;
+  calendar_id: string;
+  phone_strategy: "new" | "own";
+  area_code?: string;
+  own_phone?: string;
+  provider_sid?: string;
+  system_prompt: string;
+  staff?: Array<{ name: string; description: string }>;
+  promotions?: string;
+  business_hours?: string;
+  voice_personality?: string;
+  fallback_behavior?: string;
+  max_call_duration_minutes?: number;
+};
 
-export async function createReceptionist(data: {
+/** Legacy payload from AddReceptionistForm */
+export type CreateReceptionistLegacyData = {
   name: string;
   phone_number: string;
   calendar_id: string;
   country: string;
-}): Promise<{ success: true; id?: string } | { success: false; error: string }> {
+};
+
+export type CreateReceptionistData =
+  | CreateReceptionistWizardData
+  | CreateReceptionistLegacyData;
+
+function isWizardData(
+  data: CreateReceptionistData
+): data is CreateReceptionistWizardData {
+  return "phone_strategy" in data && data.phone_strategy !== undefined;
+}
+
+export async function createReceptionist(
+  data: CreateReceptionistData
+): Promise<
+  | { success: true; id?: string; phoneNumber?: string }
+  | { success: false; error: string }
+> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -44,228 +72,282 @@ export async function createReceptionist(data: {
   if (!profile?.calendar_refresh_token) {
     return {
       success: false,
-      error: "Please connect Google Calendar first (Step 1). Go to Settings → Integrations or complete the step above.",
+      error:
+        "Please connect Google Calendar first (Step 1). Go to Settings → Integrations or complete the step above.",
     };
   }
 
+  if (isWizardData(data)) {
+    return createReceptionistFromWizard(supabase, user.id, data);
+  }
+  return createReceptionistLegacy(supabase, user.id, data);
+}
+
+async function createReceptionistFromWizard(
+  supabase: Awaited<ReturnType<typeof import("@/app/lib/supabase/server").createClient>>,
+  userId: string,
+  data: CreateReceptionistWizardData
+): Promise<
+  | { success: true; id?: string; phoneNumber?: string }
+  | { success: false; error: string }
+> {
   const name = data.name?.trim();
-  const phone = data.phone_number?.trim().replace(/\D/g, "");
   const calendarId = data.calendar_id?.trim();
   const country = data.country?.trim().toUpperCase() || "US";
 
   if (!name) return { success: false, error: "Name is required." };
-  if (!phone || phone.length < 10) return { success: false, error: "Valid phone number is required." };
   if (!calendarId) return { success: false, error: "Calendar ID is required." };
 
-  const e164 =
-    phone.length === 10 ? `+1${phone}` : phone.startsWith("1") ? `+${phone}` : `+${phone}`;
-
-  // Derive area code from phone for US/CA: first 3 digits after country code
-  const localDigits =
-    phone.startsWith("1") && phone.length === 11 ? phone.slice(1) : phone.length === 10 ? phone : "";
-  const areaCode = localDigits.length >= 3 ? localDigits.slice(0, 3) : "";
-
-  if (!areaCode || areaCode.length < 3) {
-    return { success: false, error: "Could not derive area code from phone number. Use a valid 10-digit US/CA number." };
+  const webhookBase =
+    process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (!webhookBase || isPlaceholderUrl(webhookBase)) {
+    return {
+      success: false,
+      error:
+        "TWILIO_WEBHOOK_BASE_URL must be set to your public app URL before provisioning.",
+    };
+  }
+  const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
+  if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
+    return {
+      success: false,
+      error:
+        "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL.",
+    };
   }
 
-  const systemPrompt = buildReceptionistPrompt({
-    name,
-    phoneNumber: e164,
-    calendarId,
-    staff: [],
-    services: [],
-    locations: [],
-    promos: [],
-    reminderRules: [],
-    paymentSettings: undefined,
-  });
+  let inboundNumber: string;
+  let twilioSid: string | null = null;
+  let twilioPhoneNumber: string | null = null;
 
-  const useTwilio = process.env.USE_TWILIO_VOICE === "true";
-
-  if (useTwilio) {
-    const webhookBase =
-      process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
-    if (!webhookBase) {
+  if (data.phone_strategy === "new") {
+    const areaCode =
+      data.area_code === "other" || !data.area_code ? "212" : data.area_code;
+    const provisionResult = await provisionTwilioNumber(areaCode);
+    if (!provisionResult.success) {
+      const fallbackMsg = data.area_code === "other"
+        ? " Try selecting a specific area code (212, 310, 415) or bring your own number."
+        : "";
       return {
         success: false,
-        error:
-          "TWILIO_WEBHOOK_BASE_URL (or NEXT_PUBLIC_APP_URL) must be set to your public app URL before provisioning a Twilio number.",
+        error: provisionResult.error + fallbackMsg,
       };
     }
-    if (isPlaceholderUrl(webhookBase)) {
+    inboundNumber = provisionResult.phoneNumber;
+    twilioSid = provisionResult.sid;
+    twilioPhoneNumber = provisionResult.phoneNumber;
+  } else {
+    const ownPhone = data.own_phone?.trim();
+    if (!ownPhone) {
+      return { success: false, error: "Phone number is required." };
+    }
+    const e164Regex = /^\+[1-9]\d{6,14}$/;
+    if (!e164Regex.test(ownPhone)) {
       return {
         success: false,
-        error:
-          "TWILIO_WEBHOOK_BASE_URL is still set to a placeholder. Set it to your public app URL before provisioning a Twilio number.",
+        error: "Enter phone in E.164 format (e.g. +15551234567).",
       };
     }
-    const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
-    if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
-      return {
-        success: false,
-        error:
-          "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL before activating Twilio voice.",
-      };
-    }
+    inboundNumber = ownPhone;
 
-    // Twilio path: self-hosted voice AI
-    let twilioSid: string | null = null;
-    try {
-      const provisionResult = await provisionTwilioNumber(areaCode);
-      if (!provisionResult.success) {
-        return { success: false, error: provisionResult.error };
+    if (data.provider_sid?.trim()) {
+      const configResult = await configureExistingTwilioNumber(
+        data.provider_sid.trim()
+      );
+      if (!configResult.success) {
+        return {
+          success: false,
+          error: `Could not configure Twilio number: ${configResult.error}`,
+        };
       }
-      twilioSid = provisionResult.sid;
-      const inboundNumber = provisionResult.phoneNumber;
+      twilioSid = data.provider_sid.trim();
+      twilioPhoneNumber = ownPhone;
+    }
+  }
 
-      const { data: row, error } = await supabase
-        .from("receptionists")
-        .insert({
-          user_id: user.id,
-          name,
-          phone_number: e164,
-          twilio_phone_number_sid: twilioSid,
-          twilio_phone_number: inboundNumber,
-          inbound_phone_number: inboundNumber,
-          calendar_id: calendarId,
-          status: "active",
-        })
-        .select("id")
-        .single();
+  const customPrompt = data.system_prompt?.trim();
+  const extraParts: string[] = [];
+  if (customPrompt) {
+    extraParts.push(customPrompt);
+  }
+  if (data.voice_personality) {
+    extraParts.push(`Voice personality: ${data.voice_personality}.`);
+  }
+  if (data.fallback_behavior) {
+    extraParts.push(
+      `Fallback if AI cannot help: ${data.fallback_behavior === "voicemail" ? "take voicemail" : "transfer to human"}.`
+    );
+  }
+  if (data.max_call_duration_minutes) {
+    extraParts.push(
+      `Max call duration: ${data.max_call_duration_minutes} minutes.`
+    );
+  }
+  if (data.business_hours) {
+    extraParts.push(`Business hours: ${data.business_hours}`);
+  }
+  const extraInstructions =
+    extraParts.length > 0 ? extraParts.join("\n\n") : undefined;
 
-      if (error) {
-        if (twilioSid) {
-          try {
-            await releaseNumber(twilioSid);
-          } catch {
-            /* best-effort */
-          }
-        }
-        return { success: false, error: error.message };
-      }
+  try {
+    const { data: row, error } = await supabase
+      .from("receptionists")
+      .insert({
+        user_id: userId,
+        name,
+        phone_number: inboundNumber,
+        inbound_phone_number: inboundNumber,
+        twilio_phone_number_sid: twilioSid,
+        twilio_phone_number: twilioPhoneNumber,
+        calendar_id: calendarId,
+        status: "active",
+        extra_instructions: extraInstructions,
+      })
+      .select("id")
+      .single();
 
-      await supabase
-        .from("users")
-        .update({
-          onboarding_completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id)
-        .is("onboarding_completed_at", null);
-
-      return { success: true, id: row?.id };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("[createReceptionist] Twilio Error:", err);
-      if (twilioSid) {
+    if (error) {
+      if (data.phone_strategy === "new" && twilioSid) {
         try {
           await releaseNumber(twilioSid);
         } catch {
           /* best-effort */
         }
       }
-      return {
-        success: false,
-        error:
-          process.env.NODE_ENV === "development"
-            ? `Could not activate your AI receptionist: ${message}`
-            : "Could not activate your AI receptionist. Please try again or contact support.",
-      };
+      return { success: false, error: error.message };
     }
+
+    const receptionistId = row?.id;
+    if (receptionistId) {
+      const staffList = data.staff?.filter((s) => s.name?.trim()) || [];
+      for (const s of staffList) {
+        await supabase.from("staff").insert({
+          receptionist_id: receptionistId,
+          name: s.name.trim(),
+          role: s.description?.trim() || null,
+          specialties: null,
+          is_active: true,
+        });
+      }
+
+      if (data.promotions?.trim()) {
+        await supabase.from("promos").insert({
+          receptionist_id: receptionistId,
+          description: data.promotions.trim(),
+          code: "WIZARD",
+        });
+      }
+    }
+
+    await supabase
+      .from("users")
+      .update({
+        onboarding_completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", userId)
+      .is("onboarding_completed_at", null);
+
+    return {
+      success: true as const,
+      id: row?.id ?? undefined,
+      phoneNumber: inboundNumber,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[createReceptionist] Wizard Error:", err);
+    if (data.phone_strategy === "new" && twilioSid) {
+      try {
+        await releaseNumber(twilioSid);
+      } catch {
+        /* best-effort */
+      }
+    }
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "development"
+          ? `Could not activate your AI receptionist: ${message}`
+          : "Could not activate your AI receptionist. Please try again or contact support.",
+    };
+  }
+}
+
+async function createReceptionistLegacy(
+  supabase: Awaited<ReturnType<typeof import("@/app/lib/supabase/server").createClient>>,
+  userId: string,
+  data: CreateReceptionistLegacyData
+): Promise<{ success: true; id?: string } | { success: false; error: string }> {
+  const name = data.name?.trim();
+  const phone = data.phone_number?.trim().replace(/\D/g, "");
+  const calendarId = data.calendar_id?.trim();
+  const country = data.country?.trim().toUpperCase() || "US";
+
+  if (!name) return { success: false, error: "Name is required." };
+  if (!phone || phone.length < 10)
+    return { success: false, error: "Valid phone number is required." };
+  if (!calendarId) return { success: false, error: "Calendar ID is required." };
+
+  const e164 =
+    phone.length === 10
+      ? `+1${phone}`
+      : phone.startsWith("1")
+        ? `+${phone}`
+        : `+${phone}`;
+
+  const localDigits =
+    phone.startsWith("1") && phone.length === 11
+      ? phone.slice(1)
+      : phone.length === 10
+        ? phone
+        : "";
+  const areaCode =
+    localDigits.length >= 3 ? localDigits.slice(0, 3) : "";
+
+  if (!areaCode || areaCode.length < 3) {
+    return {
+      success: false,
+      error:
+        "Could not derive area code from phone number. Use a valid 10-digit US/CA number.",
+    };
   }
 
-  // Vapi path (legacy)
-  let assistantId: string | null = null;
-  let phoneNumberId: string | null = null;
+  const webhookBase =
+    process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (!webhookBase || isPlaceholderUrl(webhookBase)) {
+    return {
+      success: false,
+      error:
+        "TWILIO_WEBHOOK_BASE_URL must be set to your public app URL before provisioning a Twilio number.",
+    };
+  }
+  const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
+  if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
+    return {
+      success: false,
+      error:
+        "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL before activating Twilio voice.",
+    };
+  }
 
+  let twilioSid: string | null = null;
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const webhookUrl = `${appUrl.replace(/\/$/, "")}/api/vapi/webhook`;
-
-    const checkToolId = process.env.VAPI_TOOL_CHECK_AVAILABILITY_ID;
-    const createToolId = process.env.VAPI_TOOL_CREATE_EVENT_ID;
-    if (!checkToolId || !createToolId) {
-      return {
-        success: false,
-        error:
-          "VAPI_TOOL_CHECK_AVAILABILITY_ID and VAPI_TOOL_CREATE_EVENT_ID must be set in environment.",
-      };
+    const provisionResult = await provisionTwilioNumber(areaCode);
+    if (!provisionResult.success) {
+      return { success: false, error: provisionResult.error };
     }
-    const toolIds = [checkToolId, createToolId];
-
-    const assistant = await createAssistant({
-      name: name,
-      model: {
-        provider: "openai",
-        model: "gpt-4o-mini",
-        toolIds,
-      },
-      voice: { provider: "11labs", voiceId: "21m00Tcm4TlvDq8ikWAM" },
-      firstMessage: `Hello! Thanks for calling. I'm ${name}, your AI receptionist. How can I help you today?`,
-      systemPrompt,
-      serverUrl: webhookUrl,
-    });
-    assistantId = assistant.id;
-
-    const phoneNumber = await createPhoneNumber({
-      areaCode,
-    });
-    phoneNumberId = phoneNumber.id;
-
-    const provisioned = await waitForPhoneNumberProvisioned(phoneNumber.id);
-    if (!provisioned.number) {
-      if (phoneNumberId) {
-        try {
-          await deletePhoneNumber(phoneNumberId);
-        } catch {
-          /* best-effort */
-        }
-      }
-      if (assistantId) {
-        try {
-          await deleteAssistant(assistantId);
-        } catch {
-          /* best-effort */
-        }
-      }
-      return {
-        success: false,
-        error:
-          "Phone number provisioning is taking longer than expected. Please try again in a few minutes.",
-      };
-    }
-
-    try {
-      await updatePhoneNumber(phoneNumber.id, assistant.id);
-    } catch {
-      try {
-        await deletePhoneNumber(phoneNumberId!);
-      } catch {
-        /* best-effort */
-      }
-      try {
-        await deleteAssistant(assistantId!);
-      } catch {
-        /* best-effort */
-      }
-      return {
-        success: false,
-        error: "Failed to attach phone number to assistant. Please try again.",
-      };
-    }
-
-    const inboundNumber = provisioned.number;
+    twilioSid = provisionResult.sid;
+    const inboundNumber = provisionResult.phoneNumber;
 
     const { data: row, error } = await supabase
       .from("receptionists")
       .insert({
-        user_id: user.id,
+        user_id: userId,
         name,
         phone_number: e164,
-        vapi_assistant_id: assistant.id,
-        vapi_phone_number_id: phoneNumber.id,
-        inbound_phone_number: inboundNumber ?? null,
+        twilio_phone_number_sid: twilioSid,
+        twilio_phone_number: inboundNumber,
+        inbound_phone_number: inboundNumber,
         calendar_id: calendarId,
         status: "active",
       })
@@ -273,16 +355,9 @@ export async function createReceptionist(data: {
       .single();
 
     if (error) {
-      if (phoneNumberId) {
+      if (twilioSid) {
         try {
-          await deletePhoneNumber(phoneNumberId);
-        } catch {
-          /* best-effort */
-        }
-      }
-      if (assistantId) {
-        try {
-          await deleteAssistant(assistantId);
+          await releaseNumber(twilioSid);
         } catch {
           /* best-effort */
         }
@@ -296,44 +371,26 @@ export async function createReceptionist(data: {
         onboarding_completed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", user.id)
+      .eq("id", userId)
       .is("onboarding_completed_at", null);
 
-    return { success: true, id: row?.id };
+    return { success: true as const, id: row?.id ?? undefined };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[createReceptionist] Error:", err);
-    if (phoneNumberId) {
+    console.error("[createReceptionist] Twilio Error:", err);
+    if (twilioSid) {
       try {
-        await deletePhoneNumber(phoneNumberId);
+        await releaseNumber(twilioSid);
       } catch {
         /* best-effort */
       }
     }
-    if (assistantId) {
-      try {
-        await deleteAssistant(assistantId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (
-      typeof message === "string" &&
-      (message.includes("10") || message.toLowerCase().includes("limit"))
-    ) {
-      return {
-        success: false,
-        error:
-          "Phone number limit reached (10 free numbers per account). Please contact support to add more numbers.",
-      };
-    }
-    const isVapiError = typeof message === "string" && message.includes("Vapi API error");
-    const userMessage =
-      process.env.NODE_ENV === "development" && message
-        ? `Could not activate your AI receptionist: ${message}`
-        : isVapiError && message
-          ? message
-          : "Could not activate your AI receptionist. Please try again or contact support.";
-    return { success: false, error: userMessage };
+    return {
+      success: false,
+      error:
+        process.env.NODE_ENV === "development"
+          ? `Could not activate your AI receptionist: ${message}`
+          : "Could not activate your AI receptionist. Please try again or contact support.",
+    };
   }
 }

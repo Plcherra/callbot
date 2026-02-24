@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
+import {
+  parseFormParams,
+  getStringParam,
+  validateTwilioRequest,
+} from "@/app/lib/twilioWebhook";
 
 /**
  * Twilio SMS webhook for incoming text messages.
@@ -9,14 +14,20 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
  * - Placeholder: returns a static reply. Replace with real AI/SMS logic later.
  */
 export async function POST(req: NextRequest) {
-  const formData = await req.formData();
-  const to = (formData.get("To") as string | null)?.trim();
-  const from = (formData.get("From") as string | null)?.trim();
-  const body = (formData.get("Body") as string | null)?.trim();
-  const messageSid = (formData.get("MessageSid") as string | null)?.trim();
+  const rawBody = await req.text();
+  const params = parseFormParams(rawBody);
+  const signature = req.headers.get("x-twilio-signature");
+
+  if (!validateTwilioRequest(rawBody, signature, params, "/api/twilio/sms")) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  const to = getStringParam(params, "To");
+  const from = getStringParam(params, "From");
+  const body = getStringParam(params, "Body");
+  const messageSid = getStringParam(params, "MessageSid");
 
   if (!to) {
-    console.error("[twilio/sms] Missing To in webhook");
     return new NextResponse(
       '<?xml version="1.0" encoding="UTF-8"?><Response></Response>',
       { headers: { "Content-Type": "text/xml" } }
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   // TODO: Replace with real AI/SMS logic (e.g. call your VPS API)
-  const reply = getPlaceholderSmsReply(body, receptionist.name);
+  const reply = getPlaceholderSmsReply(body ?? undefined, receptionist.name);
 
   const response = new twilio.twiml.MessagingResponse();
   response.message(reply);

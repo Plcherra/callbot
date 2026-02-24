@@ -42,11 +42,12 @@ export async function aggregateUsageForReceptionist(
 
   if (!receptionist) return null;
 
+  // Attribute each call to the period where it ended (avoids undercount at month boundaries)
   const { data: usageRows } = await supabase
     .from("call_usage")
     .select("duration_seconds")
     .eq("receptionist_id", receptionistId)
-    .gte("started_at", `${periodStart}T00:00:00.000Z`)
+    .gte("ended_at", `${periodStart}T00:00:00.000Z`)
     .lte("ended_at", `${periodEnd}T23:59:59.999Z`);
 
   const total_seconds =

@@ -5,15 +5,19 @@ import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 /**
  * Returns the built system prompt for a receptionist.
  * Used by the voice server to get the prompt for Twilio Media Streams calls.
- * Optionally secured with x-voice-server-key header.
+ * Requires VOICE_SERVER_API_KEY and x-voice-server-key header. Fail closed if not configured.
  */
 export async function GET(req: NextRequest) {
   const apiKey = process.env.VOICE_SERVER_API_KEY;
-  if (apiKey) {
-    const provided = req.headers.get("x-voice-server-key");
-    if (provided !== apiKey) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!apiKey?.trim()) {
+    return NextResponse.json(
+      { error: "Prompt API not configured" },
+      { status: 503 }
+    );
+  }
+  const provided = req.headers.get("x-voice-server-key");
+  if (provided !== apiKey) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const receptionistId = req.nextUrl.searchParams.get("receptionist_id");

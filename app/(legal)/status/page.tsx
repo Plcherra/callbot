@@ -31,19 +31,19 @@ export default function StatusPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center justify-between text-base">
-              Voice (Vapi)
+              Voice (Twilio + self-hosted)
               <Badge variant="success">Operational</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            AI voice and phone numbers.{" "}
+            AI voice via Twilio and self-hosted Whisper + Ollama + Piper.{" "}
             <a
-              href="https://status.vapi.ai"
+              href="https://status.twilio.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary underline"
             >
-              Vapi status
+              Twilio status
             </a>
           </CardContent>
         </Card>

@@ -4,11 +4,11 @@
  */
 
 const SUBSCRIPTION_PLANS = [
-  { id: "dev_test", name: "DEV Test", envKey: "STRIPE_PRICE_DEV_TEST", priceCents: 100, includedMinutes: 60, billingPlanId: "subscription_dev_test" as const },
-  { id: "starter", name: "Starter", envKey: "STRIPE_PRICE_STARTER", priceCents: 6900, includedMinutes: 300, billingPlanId: "subscription_starter" as const },
-  { id: "pro", name: "Pro", envKey: "STRIPE_PRICE_PRO", priceCents: 14900, includedMinutes: 800, billingPlanId: "subscription_pro" as const },
-  { id: "business", name: "Business", envKey: "STRIPE_PRICE_BUSINESS", priceCents: 24900, includedMinutes: 1500, billingPlanId: "subscription_business" as const },
-  { id: "enterprise", name: "Enterprise", envKey: "STRIPE_PRICE_ENTERPRISE", priceCents: 49900, includedMinutes: 3000, billingPlanId: "subscription_enterprise" as const },
+  { id: "dev_test", name: "DEV Test", envKey: "STRIPE_PRICE_DEV_TEST", priceCents: 100, includedMinutes: 60, perMinuteCents: 35, phoneExtraCents: 200, billingPlanId: "subscription_dev_test" as const },
+  { id: "starter", name: "Starter", envKey: "STRIPE_PRICE_STARTER", priceCents: 6900, includedMinutes: 300, perMinuteCents: 35, phoneExtraCents: 200, billingPlanId: "subscription_starter" as const },
+  { id: "pro", name: "Pro", envKey: "STRIPE_PRICE_PRO", priceCents: 14900, includedMinutes: 800, perMinuteCents: 30, phoneExtraCents: 0, billingPlanId: "subscription_pro" as const },
+  { id: "business", name: "Business", envKey: "STRIPE_PRICE_BUSINESS", priceCents: 24900, includedMinutes: 1500, perMinuteCents: 25, phoneExtraCents: 0, billingPlanId: "subscription_business" as const },
+  { id: "enterprise", name: "Enterprise", envKey: "STRIPE_PRICE_ENTERPRISE", priceCents: 49900, includedMinutes: 3000, perMinuteCents: 25, phoneExtraCents: 0, billingPlanId: "subscription_enterprise" as const },
 ] as const;
 
 const PER_MINUTE_PLANS = [
@@ -70,7 +70,7 @@ export function resolvePriceId(priceId: string): string | null {
 /** Display label for billing_plan + metadata (e.g. "Starter (300 min)", "Pay as you go Tier 1"). */
 export function getPlanDisplayLabel(
   billingPlan: string | null,
-  metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } | null
+  metadata: BillingPlanMetadata | null
 ): string {
   if (!billingPlan) return "Free";
   const sub = SUBSCRIPTION_PLANS.find((p) => p.billingPlanId === billingPlan);
@@ -91,7 +91,7 @@ export function getPlanDisplayLabel(
 /** Short price label for display (e.g. "$49/mo", "$5 + $0.35/min"). */
 export function getPlanPriceLabel(
   billingPlan: string | null,
-  metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } | null
+  metadata: BillingPlanMetadata | null
 ): string {
   if (!billingPlan) return "";
   const sub = SUBSCRIPTION_PLANS.find((p) => p.billingPlanId === billingPlan);
@@ -104,21 +104,38 @@ export function getPlanPriceLabel(
   return "";
 }
 
+/** Billing plan metadata type (stored in users.billing_plan_metadata). */
+export type BillingPlanMetadata = {
+  included_minutes?: number;
+  monthly_fee_cents?: number;
+  per_minute_cents?: number;
+  phone_extra_cents?: number;
+};
+
 /** Build price-to-plan map for webhook (all plans + legacy STRIPE_PRICE_ID as starter). */
 export function getPriceToPlanMap(): Record<
   string,
-  { billing_plan: string; billing_plan_metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } }
+  { billing_plan: string; billing_plan_metadata: BillingPlanMetadata }
 > {
-  const map: Record<
-    string,
-    { billing_plan: string; billing_plan_metadata: { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } }
-  > = {};
+  const map: Record<string, { billing_plan: string; billing_plan_metadata: BillingPlanMetadata }> = {};
   SUBSCRIPTION_PLANS.forEach((p) => {
     const id = process.env[p.envKey];
-    if (id) map[id] = { billing_plan: p.billingPlanId, billing_plan_metadata: { included_minutes: p.includedMinutes } };
+    if (id) {
+      map[id] = {
+        billing_plan: p.billingPlanId,
+        billing_plan_metadata: {
+          included_minutes: p.includedMinutes,
+          per_minute_cents: p.perMinuteCents,
+          phone_extra_cents: p.phoneExtraCents,
+        },
+      };
+    }
   });
   if (process.env.STRIPE_PRICE_ID && !map[process.env.STRIPE_PRICE_ID]) {
-    map[process.env.STRIPE_PRICE_ID] = { billing_plan: "subscription_starter", billing_plan_metadata: { included_minutes: 300 } };
+    map[process.env.STRIPE_PRICE_ID] = {
+      billing_plan: "subscription_starter",
+      billing_plan_metadata: { included_minutes: 300, per_minute_cents: 35, phone_extra_cents: 200 },
+    };
   }
   PER_MINUTE_PLANS.forEach((p) => {
     const id = process.env[p.envKey];

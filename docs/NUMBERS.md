@@ -1,8 +1,8 @@
 # Phone numbers
 
-We use **Vapi** for phone number provisioning (`provider: "vapi"`). Each receptionist gets one Vapi phone number when you create them; there is no shared global number.
+We use **Twilio** for phone number provisioning. Each receptionist can have a Twilio number or bring your own.
 
-- **Provider**: Vapi only. No Twilio, Vonage, or Telnyx.
-- **Limit**: 10 free US numbers per Vapi account. If you hit this limit, creating a new receptionist will fail with a clear message.
-- **Beyond 10**: Contact Vapi support for additional numbers.
-- **No `VAPI_PHONE_NUMBER_ID`**: The legacy env var is no longer used; numbers are created per receptionist via the Vapi API.
+- **Provider**: Twilio only.
+- **New number**: Choose an area code when creating a receptionist; a Twilio number is provisioned and configured with the voice webhook.
+- **Bring your own**: Add your existing Twilio number SID when creating a receptionist; the webhook is configured on that number.
+- **Voice**: Twilio routes calls to the self-hosted voice server (see [VOICE_SETUP.md](VOICE_SETUP.md)).

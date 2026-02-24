@@ -61,6 +61,10 @@ export async function POST(req: NextRequest) {
         const rate = parseInt(String(meta.per_minute_cents), 10);
         if (!Number.isNaN(rate)) billing_plan_metadata.per_minute_cents = rate;
       }
+      if (meta.phone_extra_cents != null) {
+        const phoneExtra = parseInt(String(meta.phone_extra_cents), 10);
+        if (!Number.isNaN(phoneExtra)) billing_plan_metadata.phone_extra_cents = phoneExtra;
+      }
       return { billing_plan, billing_plan_metadata };
     }
     return null;

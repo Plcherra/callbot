@@ -22,7 +22,6 @@ This document describes how to deploy and configure the Twilio + self-hosted voi
 ### Next.js (.env.local)
 
 ```env
-USE_TWILIO_VOICE=true
 TWILIO_ACCOUNT_SID=AC...
 TWILIO_AUTH_TOKEN=...
 TWILIO_WEBHOOK_BASE_URL=https://your-app.com
@@ -73,7 +72,7 @@ Set `TWILIO_WEBHOOK_BASE_URL` to the Next.js ngrok URL and `VOICE_SERVER_WS_URL`
 
 ### 4. Provision a number
 
-With `USE_TWILIO_VOICE=true`, create a receptionist from the app. It will provision a Twilio number and configure the voice webhook.
+Create a receptionist from the app. It will provision a Twilio number and configure the voice webhook.
 
 ## Deployment
 

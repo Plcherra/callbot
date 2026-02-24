@@ -121,9 +121,9 @@ async def handle_connection(websocket):
                 if receptionist_id:
                     system_prompt = await fetch_receptionist_prompt(receptionist_id)
                 logger.info("Start stream_sid=%s receptionist_id=%s", stream_sid, receptionist_id)
-                # Play greeting
+                # Play greeting (run TTS off event loop to avoid blocking)
                 greeting = "Hello! Thanks for calling. I'm your AI receptionist. How can I help you today?"
-                audio, sr = synthesize_speech(greeting)
+                audio, sr = await asyncio.to_thread(synthesize_speech, greeting)
                 if len(audio) > 0:
                     payload_b64 = pcm_to_mulaw(audio, sample_rate=sr)
                     await websocket.send(json.dumps({
@@ -156,20 +156,22 @@ async def handle_connection(websocket):
                     if is_speech:
                         last_speech_time = time.time()
                     elif time.time() - last_speech_time > SILENCE_TIMEOUT and len(audio_buffer) > SAMPLE_RATE:
-                        text = transcribe(audio_buffer)
+                        text = await asyncio.to_thread(transcribe, audio_buffer)
                         audio_buffer = np.array([], dtype=np.float32)
                         if text:
                             logger.info("User: %s", text)
                             is_speaking = True
                             try:
-                                reply = llm_response(system_prompt, conversation_history, text)
+                                reply = await asyncio.to_thread(
+                                    llm_response, system_prompt, conversation_history, text
+                                )
                                 logger.info("AI: %s", reply)
                                 conversation_history.append({"role": "user", "content": text})
                                 conversation_history.append({"role": "assistant", "content": reply})
                                 if len(conversation_history) > 6:
                                     conversation_history = conversation_history[-6:]
 
-                                audio, sr = synthesize_speech(reply)
+                                audio, sr = await asyncio.to_thread(synthesize_speech, reply)
                                 if len(audio) > 0 and stream_sid:
                                     payload_b64 = pcm_to_mulaw(audio, sample_rate=sr)
                                     await websocket.send(json.dumps({

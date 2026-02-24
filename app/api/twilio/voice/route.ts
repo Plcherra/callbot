@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import twilio from "twilio";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
-
-/** Detect placeholder or invalid webhook URLs */
-function isPlaceholderUrl(value: string): boolean {
-  return /your-app\.com|your-domain\.com/i.test(value);
-}
+import {
+  parseFormParams,
+  getStringParam,
+  validateTwilioRequest,
+} from "@/app/lib/twilioWebhook";
+import { isPlaceholderUrl } from "@/app/lib/urlUtils";
 
 /**
  * Build the absolute action URL for Gather callbacks.
@@ -27,14 +28,21 @@ function getActionUrl(path: string): string | null {
  * - "streams": Connects to self-hosted voice server via Media Streams (WebSocket).
  */
 export async function POST(req: NextRequest) {
-  const formData = await req.formData();
-  const to = (formData.get("To") as string | null)?.trim();
-  const from = (formData.get("From") as string | null)?.trim();
-  const callSid = (formData.get("CallSid") as string | null)?.trim();
+  const rawBody = await req.text();
+  const params = parseFormParams(rawBody);
+  const signature = req.headers.get("x-twilio-signature");
 
-  // SpeechResult = transcribed text when caller spoke (from previous Gather)
-  const speechResult = (formData.get("SpeechResult") as string | null)?.trim();
-  const speechError = (formData.get("SpeechResultError") as string | null)?.trim();
+  if (
+    !validateTwilioRequest(rawBody, signature, params, "/api/twilio/voice")
+  ) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  const to = getStringParam(params, "To");
+  const from = getStringParam(params, "From");
+  const callSid = getStringParam(params, "CallSid");
+  const speechResult = getStringParam(params, "SpeechResult");
+  const speechError = getStringParam(params, "SpeechResultError");
 
   if (!to) {
     console.error("[twilio/voice] Missing To in webhook");

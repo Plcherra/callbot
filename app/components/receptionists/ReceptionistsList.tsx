@@ -5,15 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/ca
 import { Button } from "@/app/components/ui/button";
 import { Badge } from "@/app/components/ui/badge";
 import { DeleteReceptionistButton } from "@/app/components/receptionists/DeleteReceptionistButton";
-
-type Receptionist = {
-  id: string;
-  name: string;
-  phone_number: string;
-  vapi_assistant_id: string | null;
-  inbound_phone_number: string | null;
-  status: string;
-};
+import type { Receptionist } from "@/app/lib/types";
 
 type Props = {
   receptionists: Receptionist[];
@@ -57,7 +49,7 @@ export function ReceptionistsList({ receptionists }: Props) {
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/receptionists/${r.id}/settings`}>Settings</Link>
                 </Button>
-                {r.inbound_phone_number && r.vapi_assistant_id && (
+                {r.inbound_phone_number && (
                   <Button asChild variant="outline" size="sm">
                     <a href={`tel:${r.inbound_phone_number}`}>Test call</a>
                   </Button>

@@ -37,7 +37,7 @@ TWILIO_AUTH_TOKEN=your_auth_token
 
 # Public base URL for webhooks (must be reachable by Twilio)
 # Local: use ngrok or Cloudflare Tunnel URL
-# Production: https://voice.echodesk.us or your Vercel/Hetzner URL
+# Production: https://echodesk.us or your Vercel/Hetzner URL
 TWILIO_WEBHOOK_BASE_URL=https://your-public-url.com
 
 # Voice mode (optional, default: gather)
@@ -46,7 +46,7 @@ TWILIO_WEBHOOK_BASE_URL=https://your-public-url.com
 TWILIO_VOICE_MODE=gather
 
 # For streams mode only
-VOICE_SERVER_WS_URL=wss://voice.echodesk.us/ws
+VOICE_SERVER_WS_URL=wss://echodesk.us/ws
 VOICE_SERVER_API_KEY=optional_secret
 ```
 
@@ -109,15 +109,15 @@ Use the HTTPS URL (e.g. `https://abc123.ngrok.io`) as `TWILIO_WEBHOOK_BASE_URL`.
 
 4. Send an SMS to the number — you should get a placeholder reply.
 
-## Production (Hetzner VPS / voice.echodesk.us)
+## Production (Hetzner VPS / echodesk.us)
 
 For production backend on Hetzner:
 
-1. Deploy your Next.js API (or a dedicated webhook server) so it’s reachable at `https://voice.echodesk.us` (or your chosen domain).
+1. Deploy your Next.js API (or a dedicated webhook server) so it’s reachable at `https://echodesk.us` (or your chosen domain).
 
 2. Set environment variables on the server:
    ```bash
-   TWILIO_WEBHOOK_BASE_URL=https://voice.echodesk.us
+   TWILIO_WEBHOOK_BASE_URL=https://echodesk.us
    TWILIO_VOICE_MODE=gather   # or "streams" when voice server is ready
    TWILIO_ACCOUNT_SID=...
    TWILIO_AUTH_TOKEN=...
@@ -125,7 +125,7 @@ For production backend on Hetzner:
 
 3. Ensure HTTPS and valid SSL. Twilio requires HTTPS for webhooks.
 
-4. Update Twilio numbers to use `https://voice.echodesk.us/api/twilio/voice`, `/api/twilio/sms`, `/api/twilio/status`.
+4. Update Twilio numbers to use `https://echodesk.us/api/twilio/voice`, `/api/twilio/sms`, `/api/twilio/status`.
 
 ## Voice Modes
 

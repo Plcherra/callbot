@@ -39,7 +39,7 @@ import {
 } from "@/app/actions/reminderRules";
 import { updatePaymentSettings, updateExtraInstructions, type PaymentSettings } from "@/app/actions/receptionistSettings";
 import { fetchAndSaveWebsiteContent } from "@/app/actions/websiteContent";
-import { getPromptPreview, applyPromptToVapi } from "@/app/actions/applyReceptionistPrompt";
+import { getPromptPreview } from "@/app/actions/applyReceptionistPrompt";
 
 type Props = {
   receptionistId: string;
@@ -430,7 +430,6 @@ function PromptPreviewCard({
   const [charCount, setCharCount] = useState(0);
   const [compact, setCompact] = useState(false);
   const [loadingPreview, setLoadingPreview] = useState(false);
-  const [applying, setApplying] = useState(false);
 
   async function loadPreview() {
     setLoadingPreview(true);
@@ -445,19 +444,6 @@ function PromptPreviewCard({
     setCharCount(res.charCount);
   }
 
-  async function handleApply() {
-    setApplying(true);
-    onMessage(null);
-    const res = await applyPromptToVapi(receptionistId, { compact });
-    setApplying(false);
-    if ("error" in res) {
-      onMessage({ type: "error", text: res.error });
-      return;
-    }
-    onMessage({ type: "success", text: "Instructions updated." });
-    onRefresh();
-  }
-
   const [showPreviewDetails, setShowPreviewDetails] = useState(false);
 
   return (
@@ -465,7 +451,7 @@ function PromptPreviewCard({
       <CardHeader>
         <CardTitle>What the assistant will know</CardTitle>
         <CardDescription>
-          Update what your assistant knows from staff, services, locations, and more. Then save to your assistant.
+          Update what your assistant knows from staff, services, locations, and more. For self-hosted voice, instructions are loaded automatically on each call.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -480,9 +466,6 @@ function PromptPreviewCard({
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={loadPreview} disabled={loadingPreview}>
             {loadingPreview ? "Loading…" : "Preview"}
-          </Button>
-          <Button type="button" onClick={handleApply} disabled={applying}>
-            {applying ? "Saving…" : "Save to assistant"}
           </Button>
         </div>
         {preview && (

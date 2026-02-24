@@ -1,7 +1,5 @@
 "use server";
 
-import { createClient } from "@/app/lib/supabase/server";
-import { updateAssistant } from "@/app/lib/vapi";
 import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 import { listStaff } from "@/app/actions/staff";
@@ -12,7 +10,7 @@ import { listReminderRules } from "@/app/actions/reminderRules";
 import { getReceptionist } from "@/app/actions/receptionistSettings";
 
 /**
- * Returns the built system prompt for a receptionist (for preview). Does not call Vapi.
+ * Returns the built system prompt for a receptionist (for preview).
  */
 export async function getPromptPreview(
   receptionistId: string,
@@ -55,46 +53,4 @@ export async function getPromptPreview(
   });
 
   return { prompt, charCount: prompt.length };
-}
-
-/**
- * Builds the prompt from DB and PATCHes the Vapi assistant. Requires receptionist to have vapi_assistant_id.
- */
-export async function applyPromptToVapi(
-  receptionistId: string,
-  options?: { compact?: boolean }
-): Promise<{ ok: true } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
-  if (!ownership.ok) return { error: ownership.error };
-
-  const recResult = await getReceptionist(receptionistId);
-  if ("error" in recResult) return { error: recResult.error };
-  const rec = recResult.data;
-
-  const vapiAssistantId = rec.vapi_assistant_id;
-  if (!vapiAssistantId) {
-    return { error: "This receptionist has no Vapi assistant linked. Create it from the receptionists list first." };
-  }
-
-  const preview = await getPromptPreview(receptionistId, options);
-  if ("error" in preview) return { error: preview.error };
-
-  try {
-    await updateAssistant(vapiAssistantId, {
-      systemPrompt: preview.prompt,
-    });
-  } catch {
-    return {
-      error:
-        "Could not update the AI prompt. Please try again or contact support.",
-    };
-  }
-
-  const supabase = await createClient();
-  await supabase
-    .from("receptionists")
-    .update({ updated_at: new Date().toISOString() })
-    .eq("id", receptionistId);
-
-  return { ok: true };
 }

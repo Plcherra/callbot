@@ -18,7 +18,6 @@ export type ReceptionistRow = {
   status: string;
   payment_settings: PaymentSettings | null;
   updated_at: string;
-  vapi_assistant_id: string | null;
   website_url?: string | null;
   website_content?: string | null;
   website_content_updated_at?: string | null;
@@ -33,7 +32,7 @@ export async function getReceptionist(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("receptionists")
-    .select("id, name, phone_number, calendar_id, status, payment_settings, updated_at, vapi_assistant_id, website_url, website_content, website_content_updated_at, extra_instructions")
+    .select("id, name, phone_number, calendar_id, status, payment_settings, updated_at, website_url, website_content, website_content_updated_at, extra_instructions")
     .eq("id", receptionistId)
     .single();
   if (error) return { error: error.message };

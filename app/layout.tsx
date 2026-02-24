@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import { Footer } from "@/app/components/Footer";
 import { PostHogProvider } from "@/app/components/analytics/PostHogProvider";
@@ -24,6 +25,7 @@ export default function RootLayout({
           <PostHogProvider>
             {children}
             <Footer />
+            <Toaster richColors position="top-center" />
           </PostHogProvider>
         </TooltipProvider>
       </body>

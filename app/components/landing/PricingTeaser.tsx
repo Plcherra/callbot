@@ -8,7 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/app/components/ui/card";
-import { subscriptionPlans } from "@/app/lib/plans";
+import { getPublicSubscriptionPlans } from "@/app/lib/plans";
 
 function SignupLink({ planId, children }: { planId: string; children: React.ReactNode }) {
   return (
@@ -26,7 +26,7 @@ const FREE_TRIAL_PLAN = {
 };
 
 export function PricingTeaser() {
-  const teaserPlans = [FREE_TRIAL_PLAN, ...subscriptionPlans.slice(0, 3)];
+  const teaserPlans = [FREE_TRIAL_PLAN, ...getPublicSubscriptionPlans()];
 
   return (
     <section className="px-6 py-12">

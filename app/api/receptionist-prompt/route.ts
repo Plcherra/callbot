@@ -51,6 +51,8 @@ export async function GET(req: NextRequest) {
     supabase.from("reminder_rules").select("type, content").eq("receptionist_id", receptionistId),
   ]);
 
+  const greeting = `Hello! Thanks for calling. I'm ${rec.name}. How can I help you today?`;
+
   const prompt = buildReceptionistPrompt({
     name: rec.name,
     phoneNumber: rec.phone_number,
@@ -88,5 +90,5 @@ export async function GET(req: NextRequest) {
     compact: true,
   });
 
-  return NextResponse.json({ prompt, charCount: prompt.length });
+  return NextResponse.json({ prompt, greeting, charCount: prompt.length });
 }

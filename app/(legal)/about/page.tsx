@@ -12,7 +12,7 @@ export default function AboutPage() {
       </div>
       <h1 className="text-3xl font-bold">About Us</h1>
       <p className="mt-2 text-muted-foreground">
-        We build AI receptionists for small businesses.
+        We build AI receptionists for individuals and small businesses.
       </p>
 
       <Card className="mt-8">
@@ -24,12 +24,12 @@ export default function AboutPage() {
             We help salons, barbers, spas, and handymen never miss a booking. Our AI receptionist answers calls 24/7, books appointments into Google Calendar, and provides a professional experience for your customers.
           </p>
           <p>
-            Based in <strong>Massachusetts</strong>, we're a small team focused on making AI accessible and affordable for local businesses.
+            Based in <strong>Massachusetts</strong>, we're a small team focused on making AI accessible and affordable for individuals and local businesses.
           </p>
 
           <h3 className="font-semibold">Why we built this</h3>
           <p>
-            Small business owners are busy. Missing calls means lost revenue. We created an AI solution that's simple to set up, works with your existing tools (Google Calendar, your phone number), and costs less than hiring a part-time receptionist.
+            Whether you're solo or running a small business, missing calls means lost opportunities. We created an AI solution that's simple to set up, works with your existing tools (Google Calendar, your phone number), and costs less than hiring a part-time receptionist.
           </p>
 
           <h3 className="font-semibold">Technology</h3>

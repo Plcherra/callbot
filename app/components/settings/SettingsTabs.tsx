@@ -12,7 +12,7 @@ import { createCheckoutSession } from "@/app/actions/upgrade";
 import { createClient } from "@/app/lib/supabase/client";
 import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
 import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
-import { getPlanDisplayLabel, getPlanPriceLabel, subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
+import { getPlanDisplayLabel, getPlanPriceLabel, getSubscriptionPlans, publicSubscriptionPlanIds, type PlanId } from "@/app/lib/plans";
 import { syncBillingPlanFromStripe } from "@/app/actions/syncSubscription";
 
 type BillingPlanMetadata = {
@@ -225,7 +225,7 @@ export function SettingsTabs({
               <PhoneInput initialPhone={phone} />
             </div>
             <p className="text-xs text-muted-foreground">
-              Calls are recorded. Ensure your business complies with local recording laws (e.g., TCPA, consent).
+              Calls are recorded. Ensure compliance with local recording laws (e.g., TCPA, consent).
             </p>
           </CardContent>
         </Card>
@@ -273,59 +273,35 @@ export function SettingsTabs({
             <div>
               <h3 className="text-sm font-semibold mb-2">Change plan</h3>
               <p className="text-sm text-muted-foreground mb-3">
-                Subscription plans include fixed minutes per month. Pay-as-you-go plans charge a base fee plus per-minute usage.
+                Subscription plans include a set number of minutes per month. Overage may be billed.
               </p>
               <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">Subscription (included minutes)</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {subscriptionPlans.map((plan) => {
-                    const label = `${plan.name} (${plan.includedMinutes} min)`;
-                    const current = isCurrentPlan(plan.id, label) || (billingPlan === plan.billingPlanId);
-                    return (
-                      <div key={plan.id} className="flex items-center justify-between rounded-lg border p-3">
-                        <div>
-                          <p className="font-medium text-sm">{plan.name}</p>
-                          <p className="text-xs text-muted-foreground">{plan.includedMinutes} min · ${(plan.priceCents / 100).toFixed(0)}/mo</p>
-                        </div>
-                        {current ? (
-                          <span className="text-xs text-muted-foreground">Current</span>
-                        ) : hasStripeCustomer ? (
-                          <Button size="sm" variant="outline" onClick={handleBillingPortal} disabled={portalLoading}>
-                            Change in portal
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" onClick={() => handleChangePlan(plan.id)} disabled={changePlanLoadingId !== null}>
-                            {changePlanLoadingId === plan.id ? "Redirecting…" : "Select"}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-xs font-medium text-muted-foreground mt-3">Pay as you go</p>
                 <div className="grid gap-2 sm:grid-cols-3">
-                  {perMinutePlans.map((plan) => {
-                    const current = billingPlan === "per_minute" && billingPlanMetadata?.monthly_fee_cents === plan.monthlyFeeCents && billingPlanMetadata?.per_minute_cents === plan.perMinuteCents;
-                    return (
-                      <div key={plan.id} className="flex flex-col gap-2 rounded-lg border p-3">
-                        <div>
-                          <p className="font-medium text-sm">{plan.name}</p>
-                          <p className="text-xs text-muted-foreground">${(plan.monthlyFeeCents / 100).toFixed(0)} + ${(plan.perMinuteCents / 100).toFixed(2)}/min</p>
+                  {getSubscriptionPlans()
+                    .filter((plan) => publicSubscriptionPlanIds.includes(plan.id))
+                    .map((plan) => {
+                      const label = `${plan.name} (${plan.includedMinutes} min)`;
+                      const current = isCurrentPlan(plan.id, label) || (billingPlan === plan.billingPlanId);
+                      return (
+                        <div key={plan.id} className="flex items-center justify-between rounded-lg border p-3">
+                          <div>
+                            <p className="font-medium text-sm">{plan.name}</p>
+                            <p className="text-xs text-muted-foreground">{plan.includedMinutes} min · ${(plan.priceCents / 100).toFixed(0)}/mo</p>
+                          </div>
+                          {current ? (
+                            <span className="text-xs text-muted-foreground">Current</span>
+                          ) : hasStripeCustomer ? (
+                            <Button size="sm" variant="outline" onClick={handleBillingPortal} disabled={portalLoading}>
+                              Change in portal
+                            </Button>
+                          ) : (
+                            <Button size="sm" variant="outline" onClick={() => handleChangePlan(plan.id)} disabled={changePlanLoadingId !== null}>
+                              {changePlanLoadingId === plan.id ? "Redirecting…" : "Select"}
+                            </Button>
+                          )}
                         </div>
-                        {current ? (
-                          <span className="text-xs text-muted-foreground">Current</span>
-                        ) : hasStripeCustomer ? (
-                          <Button size="sm" variant="outline" onClick={handleBillingPortal} disabled={portalLoading}>
-                            Change in portal
-                          </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" onClick={() => handleChangePlan(plan.id)} disabled={changePlanLoadingId !== null}>
-                            {changePlanLoadingId === plan.id ? "Redirecting…" : "Select"}
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               </div>
             </div>
@@ -351,14 +327,14 @@ export function SettingsTabs({
       <TabsContent value="business">
         <Card>
           <CardHeader>
-            <CardTitle>Business</CardTitle>
-            <CardDescription>Business name and address</CardDescription>
+            <CardTitle>Your details</CardTitle>
+            <CardDescription>Name and address (optional)</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSaveBusiness} className="space-y-4">
               <div className="space-y-2">
                 <label htmlFor="business-name" className="text-sm font-medium">
-                  Business name
+                  Name or business name
                 </label>
                 <Input
                   id="business-name"
@@ -369,7 +345,7 @@ export function SettingsTabs({
               </div>
               <div className="space-y-2">
                 <label htmlFor="business-address" className="text-sm font-medium">
-                  Address
+                  Address (optional)
                 </label>
                 <Input
                   id="business-address"

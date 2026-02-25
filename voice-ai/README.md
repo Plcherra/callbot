@@ -2,6 +2,10 @@
 
 Self-hosted voice AI for echodesk: Twilio Media Streams → Whisper (STT) → Ollama (LLM) → Piper (TTS). Runs on Hetzner (cpx31 or better) to eliminate per-minute voice costs.
 
+**Level 2** features: per-call memory, Google Calendar tool calling (check availability, create, reschedule), STT confidence filtering, retries, and configurable timeouts.
+
+**Production**: Use `call_server.py`. For a local mic/speaker demo without Twilio, use `echo_desk_voice.py` (local-only).
+
 ## Quick Start (Local)
 
 ```bash
@@ -34,6 +38,15 @@ Server listens on `WS_HOST:WS_PORT` (default `0.0.0.0:8765`).
 | `LLM_MODEL` | No | `llama3.1:8b` | Ollama model name |
 | `VAD_AGGRESSIVENESS` | No | `3` | WebRTC VAD sensitivity (0–3) |
 | `SILENCE_TIMEOUT` | No | `0.9` | Seconds of silence before processing speech |
+| `SILENCE_TIMEOUT_AFTER_PLAYBACK` | No | `0.4` | Shorter silence window after TTS so next turn is detected sooner |
+| `CALENDAR_API_BASE_URL` | No | same as `PROMPT_API_BASE_URL` | Next.js base URL for `/api/voice/calendar` |
+| `CALENDAR_API_TIMEOUT` | No | `15` | Timeout in seconds for calendar API calls |
+| `MAX_TOOL_CALL_ROUNDS` | No | `2` | Max LLM rounds when using calendar tools |
+| `STT_NO_SPEECH_PROB_THRESHOLD` | No | `0.6` | Reject utterance if Whisper no_speech_prob above this |
+| `STT_MIN_AVG_LOGPROB` | No | `-1.0` | Reject utterance if segment avg_logprob below this |
+| `RETRY_PROMPT_COUNT` | No | `2` | Retries for prompt fetch (with backoff) |
+| `RETRY_LLM_COUNT` | No | `2` | Retries for Ollama chat on failure |
+| `RETRY_CALENDAR_COUNT` | No | `1` | Retries for calendar API on 5xx/timeout |
 | `SUPABASE_URL` | No | — | For future DB access |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | — | For future DB access |
 
@@ -184,3 +197,64 @@ TWILIO_WEBHOOK_BASE_URL=https://echodesk.us
 | base.en | ~3 GB | Medium | Better accuracy |
 | llama3.1:8b | ~6 GB | Medium | Good conversation |
 | llama3.2:3b | ~2 GB | Faster | Lighter alternative |
+
+**Level 2 upgrade:** For 85–90% booking success, use `llama3.1:70b` or `mixtral:8x22b` on a larger instance (32+ GB RAM). Set `LLM_MODEL=llama3.1:70b` in env.
+
+## Performance Targets (cpx31)
+
+Use these as acceptance criteria and for local validation (e.g. log timestamps at speech_end, llm_start, llm_end, tts_end).
+
+| Metric | Target |
+|--------|--------|
+| **Latency (with one tool call)** | P95 from “user stops speaking” to “first TTS chunk sent” &lt; 3.5 s |
+| **Latency (no tool)** | P95 &lt; 2.5 s |
+| **Booking success rate** | Create/reschedule succeed ≥ 98% when Calendar and Ollama are healthy |
+| **Error handling** | On Calendar/network errors, graceful message and no crash ≥ 99.5% |
+| **Memory** | Process RSS stable under 2 GB with one concurrent call; no unbounded growth over 10 calls (memory cleaned per disconnect) |
+| **Concurrency** | At least 2 concurrent calls on cpx31 without OOM or severe latency regression; document recommended max concurrent streams for your instance |
+
+Optional: add logging like `logger.info("timing speech_end=%s llm_start=%s ...", ...)` to measure segments locally.
+
+## Manual Test Plan (10 Scenarios)
+
+Run these manually to validate Level 2 behaviour before release.
+
+1. **Happy path booking**  
+   Call → greet → say “I’d like to book a haircut tomorrow at 2pm” → AI checks calendar, creates event, confirms.  
+   **Pass:** Event appears in Google Calendar with correct time and summary.
+
+2. **Conflict handling**  
+   Create an event manually in Google Calendar for a slot, then have the AI book the same slot.  
+   **Pass:** AI reports that the slot is unavailable and suggests alternative times (from `suggested_slots`).
+
+3. **Reschedule**  
+   Say “I need to move my appointment to 3pm” (after having one booked or referring to a known event).  
+   **Pass:** AI reschedules; event in Calendar shows new time.
+
+4. **Low STT confidence**  
+   Mumble or speak very quietly.  
+   **Pass:** No or minimal LLM call; no hallucinated reply (optionally “I didn’t catch that” if implemented).
+
+5. **Clarification**  
+   Say only “I want an appointment” (no date/time).  
+   **Pass:** AI asks for date and time, then completes booking once given.
+
+6. **Services and pricing**  
+   Ask “What do you offer and how much?”  
+   **Pass:** Answer matches configured services and prices from the receptionist prompt.
+
+7. **Staff**  
+   Ask “Can I see Sarah?” (or a configured staff name).  
+   **Pass:** AI acknowledges and can book with that staff (e.g. in event title/description if supported).
+
+8. **Error recovery**  
+   Simulate Calendar API down (e.g. wrong URL or invalid token) or 401.  
+   **Pass:** AI says something like “I’m having trouble with the calendar right now, please call back or leave your number” and does not crash.
+
+9. **Multi-turn memory**  
+   Say “Book me for Tuesday at 10am” then “Actually make it 11am”.  
+   **Pass:** AI uses context and updates the same booking to 11am.
+
+10. **Barge-in (if implemented)**  
+    Start a long AI response, then speak over it.  
+    **Pass:** AI stops or defers and eventually responds to the new input. (If barge-in is not implemented, document “N/A – same as current behaviour”.)

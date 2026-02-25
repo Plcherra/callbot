@@ -10,7 +10,7 @@ export function Hero() {
         </h1>
         <p className="mt-6 text-lg text-white/90 sm:text-xl">
           Your AI answers calls, books appointments, and syncs with Google
-          Calendar. Perfect for salons, barbers, spas, and handymen.
+          Calendar. For individuals and small businesses—salons, barbers, spas, handymen, and more.
         </p>
         <p className="mt-4 text-2xl font-semibold">From $69/mo</p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">

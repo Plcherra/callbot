@@ -35,7 +35,7 @@ export const FALLBACK_BEHAVIORS = [
 ] as const;
 
 export const DEFAULT_SYSTEM_PROMPT =
-  "You are a friendly, professional receptionist for a [business type]. Answer calls politely, book appointments into Google Calendar, confirm details, and be helpful. Never be pushy.";
+  "You are a friendly, professional receptionist for a [business or personal context, e.g. salon, consulting, personal]. Answer calls politely, book appointments into Google Calendar, confirm details, and be helpful. Never be pushy.";
 
 const staffItemSchema = z.object({
   name: z.string(),

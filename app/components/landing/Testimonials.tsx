@@ -15,7 +15,7 @@ const testimonials = [
     role: "Barbershop",
   },
   {
-    quote: "Finally something that works for small businesses. Worth every penny.",
+    quote: "Finally something that works for individuals and small businesses. Worth every penny.",
     author: "Sarah K.",
     role: "Spa & wellness",
   },

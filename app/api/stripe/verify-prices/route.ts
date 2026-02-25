@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getStripe } from "@/app/lib/stripe";
-import { getPriceIdForPlanId, subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
+import { getPriceIdForPlanId, subscriptionPlans, type PlanId } from "@/app/lib/plans";
 
 /**
  * GET /api/stripe/verify-prices
@@ -20,10 +20,7 @@ export async function GET() {
   const results: { plan: string; priceId: string | null; status: "ok" | "missing" | "error"; message?: string }[] = [];
 
   const stripe = getStripe();
-  const allPlans = [
-    ...subscriptionPlans.map((p) => ({ plan: p.name, planId: p.id as PlanId })),
-    ...perMinutePlans.map((p) => ({ plan: p.name, planId: p.id as PlanId })),
-  ];
+  const allPlans = subscriptionPlans.map((p) => ({ plan: p.name, planId: p.id }));
 
   for (const { plan, planId } of allPlans) {
     const priceId = getPriceIdForPlanId(planId);

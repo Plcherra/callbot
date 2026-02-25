@@ -13,7 +13,7 @@ import {
 } from "@/app/components/ui/card";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { createCheckoutSession } from "@/app/actions/upgrade";
-import { subscriptionPlans, perMinutePlans, type PlanId } from "@/app/lib/plans";
+import { getPublicSubscriptionPlans, type PlanId } from "@/app/lib/plans";
 
 const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
@@ -23,10 +23,6 @@ const PLAN_NAMES: Record<PlanId, string> = {
   starter: "Starter",
   pro: "Pro",
   business: "Business",
-  enterprise: "Enterprise",
-  per_minute_1: "Pay as you go (Tier 1)",
-  per_minute_2: "Pay as you go (Tier 2)",
-  per_minute_3: "Pay as you go (Tier 3)",
 };
 
 type Props = { userId: string; selectedPlanId?: string };
@@ -34,6 +30,7 @@ type Props = { userId: string; selectedPlanId?: string };
 export function UpgradeCard({ userId, selectedPlanId }: Props) {
   const [loadingPlanId, setLoadingPlanId] = useState<PlanId | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const publicPlans = getPublicSubscriptionPlans();
 
   async function handleUpgrade(planId: PlanId) {
     setLoadingPlanId(planId);
@@ -57,7 +54,7 @@ export function UpgradeCard({ userId, selectedPlanId }: Props) {
         <CardHeader>
           <CardTitle>Choose a plan</CardTitle>
           <CardDescription>
-            Connect calendar to start. Pick a subscription or pay-as-you-go tier.
+            Connect calendar to start. Pick a subscription plan with included minutes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -76,8 +73,8 @@ export function UpgradeCard({ userId, selectedPlanId }: Props) {
 
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground mb-2">Subscription (included minutes)</h3>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {subscriptionPlans.map((plan) => (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {publicPlans.map((plan) => (
                 <div
                   key={plan.id}
                   className="flex flex-col rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between gap-2"
@@ -90,33 +87,6 @@ export function UpgradeCard({ userId, selectedPlanId }: Props) {
                   </div>
                   <Button
                     size="sm"
-                    onClick={() => handleUpgrade(plan.id)}
-                    disabled={loadingPlanId !== null}
-                  >
-                    {loadingPlanId === plan.id ? "Redirecting…" : "Select"}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-2">Pay as you go</h3>
-            <div className="grid gap-2 sm:grid-cols-3">
-              {perMinutePlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className="flex flex-col rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between gap-2"
-                >
-                  <div>
-                    <p className="font-medium text-sm">{plan.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      ${(plan.monthlyFeeCents / 100).toFixed(0)} + ${(plan.perMinuteCents / 100).toFixed(2)}/min
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
                     onClick={() => handleUpgrade(plan.id)}
                     disabled={loadingPlanId !== null}
                   >

@@ -339,7 +339,7 @@ function WebsiteCard({
       <CardHeader>
         <CardTitle>Business website</CardTitle>
         <CardDescription>
-          Add your business website URL to pull in information your assistant can use when answering calls.
+          Add your website URL to pull in information your assistant can use when answering calls.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

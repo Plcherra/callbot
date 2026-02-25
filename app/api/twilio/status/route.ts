@@ -6,6 +6,8 @@ import {
   getStringParam,
   validateTwilioRequest,
 } from "@/app/lib/twilioWebhook";
+import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
+import { insertCallUsage } from "@/app/lib/callUsage";
 
 /**
  * Twilio status callback webhook.
@@ -100,26 +102,20 @@ async function handleStreamStopped(
     Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)
   );
 
-  const insertRow: Record<string, unknown> = {
-    receptionist_id: receptionistId,
-    call_sid: callSid,
-    started_at: startedAt.toISOString(),
-    ended_at: endedAt.toISOString(),
-    duration_seconds: durationSeconds,
+  const { error } = await insertCallUsage({
+    supabase,
+    receptionistId,
+    userId: receptionist?.user_id ?? null,
+    callSid,
+    startedAt,
+    endedAt,
+    durationSeconds,
     direction,
-    cost_cents: costCents,
+    costCents,
     status: "completed",
-  };
-  if (receptionist?.user_id) {
-    insertRow.user_id = receptionist.user_id;
-  }
-
-  const { error } = await supabase.from("call_usage").insert(insertRow);
+  });
 
   if (error) {
-    if (error.code === "23505") {
-      return NextResponse.json({ received: true });
-    }
     console.error("[twilio/status] call_usage insert failed:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -137,24 +133,7 @@ async function handleCallCompleted(
   callDurationSeconds: number
 ): Promise<NextResponse> {
   const supabase = createServiceRoleClient();
-
-  let rec: { id: string; user_id: string | null } | null = null;
-  const { data: byTwilio } = await supabase
-    .from("receptionists")
-    .select("id, user_id")
-    .eq("twilio_phone_number", to)
-    .eq("status", "active")
-    .maybeSingle();
-  if (byTwilio) rec = byTwilio;
-  else {
-    const { data: byInbound } = await supabase
-      .from("receptionists")
-      .select("id, user_id")
-      .eq("inbound_phone_number", to)
-      .eq("status", "active")
-      .maybeSingle();
-    rec = byInbound;
-  }
+  const rec = await getReceptionistByPhoneNumber(supabase, to);
 
   if (!rec) {
     if (process.env.NODE_ENV === "development") {
@@ -181,24 +160,20 @@ async function handleCallCompleted(
     }
   }
 
-  const insertRow: Record<string, unknown> = {
-    receptionist_id: rec.id,
-    call_sid: callSid,
-    started_at: startedAt.toISOString(),
-    ended_at: endedAt.toISOString(),
-    duration_seconds: callDurationSeconds,
+  const { error } = await insertCallUsage({
+    supabase,
+    receptionistId: rec.id,
+    userId: rec.user_id ?? null,
+    callSid,
+    startedAt,
+    endedAt,
+    durationSeconds: callDurationSeconds,
     direction,
-    cost_cents: costCents,
+    costCents,
     status: "completed",
-  };
-  if (rec.user_id) {
-    insertRow.user_id = rec.user_id;
-  }
-
-  const { error } = await supabase.from("call_usage").insert(insertRow);
+  });
 
   if (error) {
-    if (error.code === "23505") return NextResponse.json({ received: true });
     console.error("[twilio/status] call_usage insert failed:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

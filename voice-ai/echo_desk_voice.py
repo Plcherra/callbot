@@ -1,5 +1,9 @@
 """
-Echo Desk Voice AI - Local voice receptionist using Whisper, Ollama, and Piper TTS.
+Echo Desk Voice AI - Local demo for mic/speaker conversation (Whisper, Ollama, Piper).
+
+This is a local-only demo for testing the voice pipeline without Twilio.
+Production uses call_server.py (Twilio Media Streams WebSocket).
+
 Run from project root: python voice-ai/echo_desk_voice.py
 """
 import asyncio

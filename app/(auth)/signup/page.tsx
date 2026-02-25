@@ -17,7 +17,7 @@ import {
 } from "@/app/components/ui/card";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 
-const VALID_PLANS: PlanId[] = ["starter", "pro", "business", "enterprise", "per_minute_1", "per_minute_2", "per_minute_3"];
+const VALID_PLANS: PlanId[] = ["starter", "pro", "business"];
 
 function SignupForm() {
   const router = useRouter();

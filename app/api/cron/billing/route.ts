@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  invoicePerMinuteUsersForPreviousMonth,
-  invoiceSubscriptionOverageForPreviousMonth,
-} from "@/app/lib/billing";
+import { invoiceSubscriptionOverageForPreviousMonth } from "@/app/lib/billing";
 
 /**
- * Cron endpoint to invoice per-minute users and subscription overage for the previous month.
+ * Cron endpoint to invoice subscription overage (and phone fee) for the previous month.
  * Run once at the start of each month. Secure with CRON_SECRET.
  */
 export async function GET(req: NextRequest) {
@@ -22,11 +19,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const perMinute = await invoicePerMinuteUsersForPreviousMonth();
     const overage = await invoiceSubscriptionOverageForPreviousMonth();
     return NextResponse.json({
       ok: true,
-      per_minute: perMinute,
       overage,
     });
   } catch (err) {

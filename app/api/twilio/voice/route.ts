@@ -7,6 +7,7 @@ import {
   validateTwilioRequest,
 } from "@/app/lib/twilioWebhook";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
+import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
 
 /**
  * Build the absolute action URL for Gather callbacks.
@@ -50,24 +51,7 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
-  let receptionist: { id: string; name?: string } | null = null;
-
-  const { data: byTwilio } = await supabase
-    .from("receptionists")
-    .select("id, name")
-    .eq("twilio_phone_number", to)
-    .eq("status", "active")
-    .maybeSingle();
-  if (byTwilio) receptionist = byTwilio;
-  else {
-    const { data: byInbound } = await supabase
-      .from("receptionists")
-      .select("id, name")
-      .eq("inbound_phone_number", to)
-      .eq("status", "active")
-      .maybeSingle();
-    receptionist = byInbound;
-  }
+  const receptionist = await getReceptionistByPhoneNumber(supabase, to);
 
   if (!receptionist) {
     console.warn("[twilio/voice] No receptionist found for To:", to);
@@ -77,7 +61,7 @@ export async function POST(req: NextRequest) {
   const voiceMode = process.env.TWILIO_VOICE_MODE || "gather";
 
   if (voiceMode === "streams") {
-    return handleMediaStreams(receptionist, to);
+    return handleMediaStreams(receptionist, to, callSid ?? undefined, from ?? undefined);
   }
 
   // --- Gather mode (default) ---
@@ -93,10 +77,13 @@ export async function POST(req: NextRequest) {
 
 /**
  * Media Streams: Connect to self-hosted WebSocket voice server.
+ * Passes receptionist_id, call_sid, and caller_phone for per-call memory and logging.
  */
 async function handleMediaStreams(
   receptionist: { id: string },
-  _to: string
+  _to: string,
+  callSid?: string,
+  callerPhone?: string
 ): Promise<NextResponse> {
   const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
   if (!voiceServerUrl?.trim() || isPlaceholderUrl(voiceServerUrl)) {
@@ -118,6 +105,8 @@ async function handleMediaStreams(
     statusCallback: statusCallbackUrl,
   });
   stream.parameter({ name: "receptionist_id", value: receptionist.id });
+  if (callSid) stream.parameter({ name: "call_sid", value: callSid });
+  if (callerPhone) stream.parameter({ name: "caller_phone", value: callerPhone });
 
   return new NextResponse(response.toString(), {
     headers: { "Content-Type": "text/xml" },
@@ -153,8 +142,6 @@ async function handleGatherSpeech(ctx: GatherContext): Promise<NextResponse> {
 
   // --- Caller spoke and we got transcription ---
   if (speechResult) {
-    // TODO: Replace with real AI call (e.g. POST to your VPS API)
-    // For now: placeholder static response
     const aiResponse = getPlaceholderAiResponse(speechResult);
     response.say(
       { voice: "alice", language: "en-US" },
@@ -204,8 +191,8 @@ async function handleGatherSpeech(ctx: GatherContext): Promise<NextResponse> {
 }
 
 /**
- * Placeholder AI: returns static response.
- * Replace with real AI API call (e.g. to your VPS) later.
+ * Placeholder AI for Gather mode: returns static response.
+ * For real AI, use TWILIO_VOICE_MODE=streams with the self-hosted voice server.
  */
 function getPlaceholderAiResponse(userInput: string): string {
   const lower = userInput.toLowerCase();

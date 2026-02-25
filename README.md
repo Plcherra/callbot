@@ -4,9 +4,9 @@ Next.js + Supabase + Stripe + Twilio app for selling and auto-managing AI recept
 
 ## Features
 
-- **Landing page**: Hero, multi-tier pricing (subscription + per-minute), demo video, testimonials
+- **Landing page**: Hero, subscription pricing (Starter, Pro, Business), demo video, testimonials
 - **Free signup**: Email/password + Google OAuth → redirect to dashboard (no payment required)
-- **Dashboard** (protected): Free mode shows plan picker (subscription or per-minute); after payment, full setup (Google Calendar, phone, Activate assistant)
+- **Dashboard** (protected): Free mode shows plan picker (subscription plans); after payment, full setup (Google Calendar, phone, Activate assistant)
 - **Upgrade**: Plan selection opens Stripe Checkout for the chosen tier (or optional Stripe Buy Button embed)
 - **Assistant activation**: Create receptionist from Receptionists page; provisions Twilio number and configures voice webhook. After payment, redirect to `/dashboard`.
 
@@ -18,6 +18,17 @@ Next.js + Supabase + Stripe + Twilio app for selling and auto-managing AI recept
 - Twilio (phone provisioning, voice webhooks)
 - Tailwind CSS + shadcn/ui (Card, Button, Input, Skeleton, Alert)
 
+## Quick Start
+
+```bash
+npm install
+cp .env.local.example .env.local
+# Fill in .env.local (see Setup below)
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000). For Twilio voice, deploy the voice server ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
+
 ## Setup
 
 ### 1. Environment variables
@@ -26,12 +37,11 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 - **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Stripe**: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, and price IDs:
-  - Subscription: `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_PRICE_ENTERPRISE`
-  - Per-minute: `STRIPE_PRICE_PER_MINUTE_1`, `STRIPE_PRICE_PER_MINUTE_2`, `STRIPE_PRICE_PER_MINUTE_3`
-  - DEV test: `STRIPE_PRICE_DEV_TEST` ($1/mo for testing)
-  - Legacy single plan: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
+  - `STRIPE_PRICE_DEV_TEST` ($1/mo for testing, hidden from public)
+  - `STRIPE_PRICE_STARTER` ($69/mo), `STRIPE_PRICE_PRO` ($149/mo), `STRIPE_PRICE_BUSINESS` ($249/mo)
+  - Legacy: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
-- **Twilio**: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WEBHOOK_BASE_URL`, `VOICE_SERVER_WS_URL` (see [docs/NUMBERS.md](docs/NUMBERS.md) and [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md))
+- **Twilio**: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WEBHOOK_BASE_URL`, `VOICE_SERVER_WS_URL` (see [docs/NUMBERS.md](docs/NUMBERS.md), [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md), [docs/TWILIO_SETUP.md](docs/TWILIO_SETUP.md))
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (e.g. `http://localhost:3000/api/google/callback`)
 - **App**: `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 
@@ -43,10 +53,9 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 ### 3. Stripe
 
-1. **Subscription prices**: Create 4 recurring products/prices (e.g. $69/mo, $149/mo, $249/mo, $499/mo) and set `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`, `STRIPE_PRICE_ENTERPRISE`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for pro/business/enterprise).
-2. **Per-minute prices**: Create 3 recurring base prices ($5/mo, $7/mo, $10/mo) and set `STRIPE_PRICE_PER_MINUTE_1`, `STRIPE_PRICE_PER_MINUTE_2`, `STRIPE_PRICE_PER_MINUTE_3`. Usage is billed separately via the billing cron. Optionally set Price metadata: `plan=per_minute`, `monthly_fee_cents`, `per_minute_cents`.
-3. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $69) when the dedicated Starter env is not set.
-4. **Optional Buy Button**: Create a Payment Link for a plan → **Buy button** → copy `buy-button-id` into `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID`. Set the Payment Link success URL to your `/dashboard`.
+1. **Subscription prices**: Create 4 recurring prices: DEV Test $1/mo, Starter $69/mo, Pro $149/mo, Business $249/mo. Set `STRIPE_PRICE_DEV_TEST`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for dev_test/pro/business).
+2. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $69) when the dedicated Starter env is not set.
+3. **Optional Buy Button**: Create a Payment Link for a plan → **Buy button** → copy `buy-button-id` into `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID`. Set the Payment Link success URL to your `/dashboard`.
 
 ### 4. Twilio and voice server
 
@@ -70,12 +79,15 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-For production error monitoring (e.g. Sentry), see [docs/ERROR_MONITORING.md](docs/ERROR_MONITORING.md).
+- **Tests**: `npm run test` or `npm run test:run`
+- **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Stripe permissions**: [docs/STRIPE_PERMISSIONS.md](docs/STRIPE_PERMISSIONS.md)
+- **Error monitoring**: [docs/ERROR_MONITORING.md](docs/ERROR_MONITORING.md)
 
 ## Test flow
 
 1. **Free signup**: Go to `/signup`, enter email/password (or “Continue with Google”) → redirect to `/dashboard`.
-2. **Dashboard (free)**: See plan picker (subscription and per-minute). Select a plan → redirect to Stripe Checkout.
+2. **Dashboard (free)**: See plan picker (Starter, Pro, Business). Select a plan → redirect to Stripe Checkout.
 3. **Pay**: Use test card `4242 4242 4242 4242`; complete checkout → redirect to `/dashboard?session_id=...`.
 4. **Create receptionist**: Connect Google Calendar, then go to Receptionists and use the Add Receptionist wizard. Pay with test card → redirect to /dashboard (no crash).
 

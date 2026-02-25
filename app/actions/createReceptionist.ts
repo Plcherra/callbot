@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/provisionTwilioNumber";
 import { releaseNumber } from "@/app/lib/twilio";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
+import { normalizeToE164 } from "@/app/lib/phone";
 
 /** Wizard payload from AddReceptionistWizardModal */
 export type CreateReceptionistWizardData = {
@@ -141,14 +142,14 @@ async function createReceptionistFromWizard(
     if (!ownPhone) {
       return { success: false, error: "Phone number is required." };
     }
-    const e164Regex = /^\+[1-9]\d{6,14}$/;
-    if (!e164Regex.test(ownPhone)) {
+    const e164 = normalizeToE164(ownPhone);
+    if (!e164) {
       return {
         success: false,
         error: "Enter phone in E.164 format (e.g. +15551234567).",
       };
     }
-    inboundNumber = ownPhone;
+    inboundNumber = e164;
 
     if (data.provider_sid?.trim()) {
       const configResult = await configureExistingTwilioNumber(
@@ -279,21 +280,17 @@ async function createReceptionistLegacy(
   data: CreateReceptionistLegacyData
 ): Promise<{ success: true; id?: string } | { success: false; error: string }> {
   const name = data.name?.trim();
-  const phone = data.phone_number?.trim().replace(/\D/g, "");
+  const phoneRaw = data.phone_number?.trim();
   const calendarId = data.calendar_id?.trim();
   const country = data.country?.trim().toUpperCase() || "US";
 
   if (!name) return { success: false, error: "Name is required." };
-  if (!phone || phone.length < 10)
+  const e164 = phoneRaw ? normalizeToE164(phoneRaw) : null;
+  if (!e164)
     return { success: false, error: "Valid phone number is required." };
   if (!calendarId) return { success: false, error: "Calendar ID is required." };
 
-  const e164 =
-    phone.length === 10
-      ? `+1${phone}`
-      : phone.startsWith("1")
-        ? `+${phone}`
-        : `+${phone}`;
+  const phone = e164.replace(/\D/g, "");
 
   const localDigits =
     phone.startsWith("1") && phone.length === 11

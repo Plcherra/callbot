@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/app/lib/supabase/server";
+import { normalizeToE164 } from "@/app/lib/phone";
 
 export async function savePhone(phone: string): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
@@ -11,15 +12,10 @@ export async function savePhone(phone: string): Promise<{ success: boolean; erro
     return { success: false, error: "Not authenticated." };
   }
 
-  const normalized = phone.replace(/\D/g, "");
-  if (normalized.length < 10) {
+  const e164 = normalizeToE164(phone);
+  if (!e164) {
     return { success: false, error: "Please enter a valid phone number." };
   }
-  const e164 = normalized.startsWith("1") && normalized.length === 11
-    ? `+${normalized}`
-    : normalized.length === 10
-    ? `+1${normalized}`
-    : `+${normalized}`;
 
   const { error } = await supabase
     .from("users")

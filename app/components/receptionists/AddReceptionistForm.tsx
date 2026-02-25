@@ -136,7 +136,7 @@ export function AddReceptionistForm({ defaultCalendarId, defaultPhone, redirectT
               required
             />
             <p className="text-xs text-muted-foreground">
-              Your business number. We&apos;ll provision a new number in the same area code for callers to reach this receptionist.
+              Your number. We&apos;ll provision a new number in the same area code for callers to reach this receptionist.
             </p>
           </div>
           <div className="space-y-2">

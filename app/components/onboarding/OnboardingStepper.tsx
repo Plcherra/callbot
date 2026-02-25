@@ -109,7 +109,7 @@ export function OnboardingStepper({
         {currentStep === 2 && (
           <div className="space-y-4">
             <div>
-              <p className="font-medium">2. Set your default business phone</p>
+              <p className="font-medium">2. Set your default phone</p>
               <p className="text-sm text-muted-foreground">
                 Used when creating new receptionists.
               </p>

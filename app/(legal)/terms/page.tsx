@@ -24,12 +24,12 @@ export default function TermsPage() {
 
           <h3 className="font-semibold">Service</h3>
           <p>
-            We provide an AI receptionist service for small businesses. The service includes call answering, appointment booking, and Google Calendar integration.
+            We provide an AI receptionist service for individuals and small businesses. The service includes call answering, appointment booking, and Google Calendar integration.
           </p>
 
           <h3 className="font-semibold">Subscription</h3>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Paid plans: see <Link href="/#pricing" className="text-primary underline">Pricing</Link> (subscription plans with included minutes, or per-minute plans with base fee + usage).</li>
+            <li>Paid plans: see <Link href="/#pricing" className="text-primary underline">Pricing</Link> (subscription plans with included minutes).</li>
             <li>You can cancel anytime via the Stripe billing portal.</li>
             <li>No refunds after 7 days of initial subscription.</li>
             <li>We may change pricing with 30 days notice.</li>
@@ -42,7 +42,7 @@ export default function TermsPage() {
 
           <h3 className="font-semibold">Your responsibilities</h3>
           <ul className="list-disc pl-6 space-y-1">
-            <li>Provide accurate business information (phone, calendar).</li>
+            <li>Provide accurate information (phone, calendar).</li>
             <li>Use the service lawfully; do not abuse or spam.</li>
             <li>Secure your account credentials.</li>
             <li>Comply with laws governing call recording and telephony (e.g., TCPA, consent).</li>

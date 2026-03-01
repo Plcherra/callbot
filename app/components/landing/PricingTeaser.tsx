@@ -34,7 +34,7 @@ export function PricingTeaser() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {teaserPlans.map((plan) => (
             <Card
-              key={plan.id}
+              key={`${plan.id}-${plan.name}`}
               className="flex flex-col border-2 border-primary/10 shadow-md transition-colors hover:border-primary/20"
             >
               <CardHeader className="pb-2">

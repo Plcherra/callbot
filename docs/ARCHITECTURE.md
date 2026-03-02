@@ -14,20 +14,17 @@ flowchart TB
         Pages[Pages / Server Components]
         Actions[Server Actions]
         API[API Routes]
+        VoiceWS[Voice WebSocket]
     end
 
     subgraph External [External Services]
         Supabase[(Supabase)]
         Stripe[Stripe]
-        Twilio[Twilio]
+        Telnyx[Telnyx]
         GCal[Google Calendar]
-    end
-
-    subgraph Voice [Self-Hosted Voice AI]
-        VoiceServer[Voice Server Python]
-        Ollama[Ollama LLM]
-        Whisper[Whisper STT]
-        Piper[Piper TTS]
+        Deepgram[Deepgram STT]
+        Grok[Grok LLM]
+        ElevenLabs[ElevenLabs TTS]
     end
 
     Browser --> Pages
@@ -35,15 +32,15 @@ flowchart TB
     Pages --> Supabase
     Actions --> Supabase
     Actions --> Stripe
-    Actions --> Twilio
     API --> Supabase
     API --> GCal
 
-    Twilio -->|Media Streams WebSocket| VoiceServer
-    VoiceServer --> Whisper
-    VoiceServer --> Ollama
-    VoiceServer --> Piper
-    VoiceServer -->|Fetch prompt / Calendar| API
+    Telnyx -->|call.initiated| API
+    Telnyx -->|WebSocket audio| VoiceWS
+    VoiceWS --> Deepgram
+    VoiceWS --> Grok
+    VoiceWS --> ElevenLabs
+    VoiceWS -->|Fetch prompt / Calendar| API
 ```
 
 ## Data Flow
@@ -51,41 +48,41 @@ flowchart TB
 ### Signup and Subscription
 
 1. User signs up (email/password or Google OAuth) via Supabase Auth
-2. User selects plan on dashboard → Stripe Checkout
-3. Stripe webhook (`/api/stripe/webhook`) updates `users.subscription_status`, `billing_plan`
+2. User selects plan on dashboard → Stripe Checkout (Starter, Pro, Business, or PAYG)
+3. Stripe webhook updates `users` and upserts `user_plans` with allocated inbound/outbound minutes
 4. User completes onboarding: Google Calendar OAuth, creates receptionist
 
 ### Receptionist Creation
 
 1. User submits Add Receptionist wizard
-2. `createReceptionist` action provisions Twilio number (or uses own number)
-3. Receptionist row inserted in `receptionists` with `twilio_phone_number`, `inbound_phone_number`
-4. Twilio number configured with voice webhook → `TWILIO_WEBHOOK_BASE_URL/api/twilio/voice`
+2. `createReceptionist` provisions Telnyx DID (or configures bring-your-own)
+3. Receptionist row inserted with `telnyx_phone_number`, `inbound_phone_number`
+4. Telnyx number configured with voice webhook → `TELNYX_WEBHOOK_BASE_URL/api/telnyx/voice`
 
 ### Incoming Call
 
-1. Caller dials receptionist number → Twilio receives call
-2. Twilio POSTs to `/api/twilio/voice` with `To` (called number)
-3. Voice route looks up receptionist by `To` via `getReceptionistByPhoneNumber`
-4. **Streams mode** (`TWILIO_VOICE_MODE=streams`): Twilio connects WebSocket to `VOICE_SERVER_WS_URL`
-5. Voice server fetches prompt from `/api/receptionist-prompt`, runs Whisper → Ollama → Piper
-6. Calendar actions (check availability, create appointment) via `/api/voice/calendar`
-7. On stream end, Twilio calls `/api/twilio/status` → `call_usage` row inserted
+1. Caller dials DID → Telnyx receives call
+2. Telnyx webhooks `call.initiated` to `/api/telnyx/voice`
+3. Next.js answers call and starts stream to WebSocket at `/api/voice/stream`
+4. Voice pipeline: Deepgram STT → Grok LLM → ElevenLabs TTS (ulaw 8kHz)
+5. Calendar actions via `/api/voice/calendar`
+6. On hangup, Telnyx CDR webhook → `/api/telnyx/cdr` → `call_usage` insert
 
 ## Key Tables
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Auth, subscription_status, billing_plan, calendar_refresh_token |
-| `receptionists` | Per-business AI: name, phone numbers, calendar_id, settings |
-| `call_usage` | Call logs: duration, cost, transcript (for billing and analytics) |
-| `staff`, `services`, `locations`, `promos` | Receptionist-specific configuration |
+| `users` | Auth, subscription_status, billing_plan |
+| `user_plans` | Allocated inbound/outbound minutes, overage rate, PAYG rate |
+| `receptionists` | Per-business AI: name, telnyx_phone_number, calendar_id |
+| `call_usage` | Call logs: duration, direction, overage_flag, billed_minutes |
+| `usage_snapshots` | Per-receptionist per-period: total_seconds, overage_minutes, payg_minutes |
 
 ## Key Files
 
-- `app/api/twilio/voice/route.ts` — Incoming call webhook, routes to Media Streams or Gather
-- `app/api/twilio/status/route.ts` — Call end callback, inserts call_usage
-- `app/api/receptionist-prompt/route.ts` — Fetches built prompt for voice server
-- `app/api/voice/calendar/route.ts` — Google Calendar actions (check, create, reschedule)
-- `voice-ai/call_server.py` — WebSocket server: Whisper → Ollama → Piper
-- `app/lib/buildReceptionistPrompt.ts` — Builds system prompt from receptionist data
+- `app/api/telnyx/voice/route.ts` — Incoming call webhook, answer + stream to WebSocket
+- `app/api/telnyx/cdr/route.ts` — CDR webhook, inserts call_usage
+- `app/api/voice/stream` — WebSocket handler (via server.js)
+- `server/voiceStreamHandler.ts` — Voice pipeline: Deepgram → Grok → ElevenLabs
+- `app/api/receptionist-prompt/route.ts` — Fetches built prompt for voice pipeline
+- `app/api/voice/calendar/route.ts` — Google Calendar actions

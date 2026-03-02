@@ -3,7 +3,6 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { getStripe } from "@/app/lib/stripe";
 
 const SUBSCRIPTION_PLAN_IDS = [
-  "subscription_dev_test",
   "subscription_starter",
   "subscription_pro",
   "subscription_business",
@@ -23,7 +22,7 @@ function getPreviousMonthPeriod(): { period_start: string; period_end: string } 
 
 /**
  * For each subscription user with overage minutes, invoice the overage.
- * Also charges phone number fee ($2) for Starter plan when they have a Twilio number.
+ * Also charges phone number fee ($2) for Starter plan when they have a provisioned number.
  * Idempotent: skips if billing_invoices already has (user_id, period_start, 'overage').
  */
 export async function invoiceSubscriptionOverageForPreviousMonth(): Promise<{
@@ -67,10 +66,10 @@ export async function invoiceSubscriptionOverageForPreviousMonth(): Promise<{
     }
 
     const meta = u.billing_plan_metadata as
-      | { per_minute_cents?: number; phone_extra_cents?: number }
+      | { per_minute_cents?: number; overage_rate_cents?: number; phone_extra_cents?: number }
       | null
       | undefined;
-    const perMinuteCents = typeof meta?.per_minute_cents === "number" ? meta.per_minute_cents : 35;
+    const perMinuteCents = typeof meta?.overage_rate_cents === "number" ? meta.overage_rate_cents : meta?.per_minute_cents ?? 25;
     const phoneExtraCents = typeof meta?.phone_extra_cents === "number" ? meta.phone_extra_cents : 0;
 
     const { data: snapshots } = await supabase
@@ -86,11 +85,13 @@ export async function invoiceSubscriptionOverageForPreviousMonth(): Promise<{
     if (phoneExtraCents > 0) {
       const { data: receptionists } = await supabase
         .from("receptionists")
-        .select("id")
+        .select("id, telnyx_phone_number, twilio_phone_number")
         .eq("user_id", u.id)
-        .not("twilio_phone_number", "is", null)
-        .limit(1);
-      if (receptionists?.length) {
+        .limit(10);
+      const hasNumber = receptionists?.some(
+        (r) => r.telnyx_phone_number || r.twilio_phone_number
+      );
+      if (hasNumber) {
         phoneFeeCents = phoneExtraCents;
       }
     }

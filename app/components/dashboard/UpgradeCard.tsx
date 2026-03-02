@@ -19,10 +19,10 @@ const PUBLISHABLE_KEY = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const BUY_BUTTON_ID = process.env.NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID;
 
 const PLAN_NAMES: Record<PlanId, string> = {
-  dev_test: "DEV Test",
   starter: "Starter",
   pro: "Pro",
   business: "Business",
+  payg: "Pay As You Go",
 };
 
 type Props = { userId: string; selectedPlanId?: string };
@@ -74,7 +74,7 @@ export function UpgradeCard({ userId, selectedPlanId }: Props) {
           <div>
             <h3 className="text-sm font-semibold text-muted-foreground mb-2">Subscription (included minutes)</h3>
             <div className="grid gap-2 sm:grid-cols-3">
-              {publicPlans.map((plan) => (
+              {publicPlans.filter((p) => p.id !== "payg").map((plan) => (
                 <div
                   key={plan.id}
                   className="flex flex-col rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between gap-2"

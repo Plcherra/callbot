@@ -36,7 +36,7 @@ export function Pricing() {
             Subscription plans
           </h3>
           <div className="mt-6 grid gap-6 sm:grid-cols-3">
-            {publicPlans.map((plan) => (
+            {publicPlans.filter((p) => p.id !== "payg").map((plan) => (
               <Card
                 key={plan.id}
                 className="flex flex-col border-2 border-primary/20 shadow-lg"

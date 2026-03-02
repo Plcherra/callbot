@@ -1,12 +1,11 @@
 "use server";
-// Vapi path fully removed – Twilio only as of 2025-02-24
 
 import { createClient } from "@/app/lib/supabase/server";
 import {
-  provisionTwilioNumber,
-  configureExistingTwilioNumber,
-} from "@/app/actions/provisionTwilioNumber";
-import { releaseNumber } from "@/app/lib/twilio";
+  provisionTelnyxNumber,
+  configureExistingTelnyxNumber,
+  releaseNumber,
+} from "@/app/actions/provisionTelnyxNumber";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
 import { normalizeToE164 } from "@/app/lib/phone";
 
@@ -100,31 +99,23 @@ async function createReceptionistFromWizard(
   if (!calendarId) return { success: false, error: "Calendar ID is required." };
 
   const webhookBase =
-    process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (!webhookBase || isPlaceholderUrl(webhookBase)) {
     return {
       success: false,
       error:
-        "TWILIO_WEBHOOK_BASE_URL must be set to your public app URL before provisioning.",
-    };
-  }
-  const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
-  if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
-    return {
-      success: false,
-      error:
-        "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL.",
+        "TELNYX_WEBHOOK_BASE_URL must be set to your public app URL before provisioning.",
     };
   }
 
   let inboundNumber: string;
-  let twilioSid: string | null = null;
-  let twilioPhoneNumber: string | null = null;
+  let telnyxId: string | null = null;
+  let telnyxPhoneNumber: string | null = null;
 
   if (data.phone_strategy === "new") {
     const areaCode =
       data.area_code === "other" || !data.area_code ? "212" : data.area_code;
-    const provisionResult = await provisionTwilioNumber(areaCode);
+    const provisionResult = await provisionTelnyxNumber(areaCode);
     if (!provisionResult.success) {
       const fallbackMsg = data.area_code === "other"
         ? " Try selecting a specific area code (212, 310, 415) or bring your own number."
@@ -135,8 +126,8 @@ async function createReceptionistFromWizard(
       };
     }
     inboundNumber = provisionResult.phoneNumber;
-    twilioSid = provisionResult.sid;
-    twilioPhoneNumber = provisionResult.phoneNumber;
+    telnyxId = provisionResult.id;
+    telnyxPhoneNumber = provisionResult.phoneNumber;
   } else {
     const ownPhone = data.own_phone?.trim();
     if (!ownPhone) {
@@ -152,17 +143,17 @@ async function createReceptionistFromWizard(
     inboundNumber = e164;
 
     if (data.provider_sid?.trim()) {
-      const configResult = await configureExistingTwilioNumber(
+      const configResult = await configureExistingTelnyxNumber(
         data.provider_sid.trim()
       );
       if (!configResult.success) {
         return {
           success: false,
-          error: `Could not configure Twilio number: ${configResult.error}`,
+          error: `Could not configure Telnyx number: ${configResult.error}`,
         };
       }
-      twilioSid = data.provider_sid.trim();
-      twilioPhoneNumber = ownPhone;
+      telnyxId = data.provider_sid.trim();
+      telnyxPhoneNumber = ownPhone;
     }
   }
 
@@ -198,8 +189,8 @@ async function createReceptionistFromWizard(
         name,
         phone_number: inboundNumber,
         inbound_phone_number: inboundNumber,
-        twilio_phone_number_sid: twilioSid,
-        twilio_phone_number: twilioPhoneNumber,
+        telnyx_phone_number_id: telnyxId,
+        telnyx_phone_number: telnyxPhoneNumber,
         calendar_id: calendarId,
         status: "active",
         extra_instructions: extraInstructions,
@@ -208,9 +199,9 @@ async function createReceptionistFromWizard(
       .single();
 
     if (error) {
-      if (data.phone_strategy === "new" && twilioSid) {
+      if (data.phone_strategy === "new" && telnyxId) {
         try {
-          await releaseNumber(twilioSid);
+          await releaseNumber(telnyxId);
         } catch {
           /* best-effort */
         }
@@ -257,9 +248,9 @@ async function createReceptionistFromWizard(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[createReceptionist] Wizard Error:", err);
-    if (data.phone_strategy === "new" && twilioSid) {
+    if (data.phone_strategy === "new" && telnyxId) {
       try {
-        await releaseNumber(twilioSid);
+        await releaseNumber(telnyxId);
       } catch {
         /* best-effort */
       }
@@ -310,30 +301,22 @@ async function createReceptionistLegacy(
   }
 
   const webhookBase =
-    process.env.TWILIO_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
   if (!webhookBase || isPlaceholderUrl(webhookBase)) {
     return {
       success: false,
       error:
-        "TWILIO_WEBHOOK_BASE_URL must be set to your public app URL before provisioning a Twilio number.",
-    };
-  }
-  const voiceServerUrl = process.env.VOICE_SERVER_WS_URL;
-  if (!voiceServerUrl || isPlaceholderUrl(voiceServerUrl)) {
-    return {
-      success: false,
-      error:
-        "VOICE_SERVER_WS_URL is not configured. Set it to your public wss:// voice server URL before activating Twilio voice.",
+        "TELNYX_WEBHOOK_BASE_URL must be set to your public app URL before provisioning a Telnyx number.",
     };
   }
 
-  let twilioSid: string | null = null;
+  let telnyxId: string | null = null;
   try {
-    const provisionResult = await provisionTwilioNumber(areaCode);
+    const provisionResult = await provisionTelnyxNumber(areaCode);
     if (!provisionResult.success) {
       return { success: false, error: provisionResult.error };
     }
-    twilioSid = provisionResult.sid;
+    telnyxId = provisionResult.id;
     const inboundNumber = provisionResult.phoneNumber;
 
     const { data: row, error } = await supabase
@@ -342,8 +325,8 @@ async function createReceptionistLegacy(
         user_id: userId,
         name,
         phone_number: e164,
-        twilio_phone_number_sid: twilioSid,
-        twilio_phone_number: inboundNumber,
+        telnyx_phone_number_id: telnyxId,
+        telnyx_phone_number: inboundNumber,
         inbound_phone_number: inboundNumber,
         calendar_id: calendarId,
         status: "active",
@@ -352,9 +335,9 @@ async function createReceptionistLegacy(
       .single();
 
     if (error) {
-      if (twilioSid) {
+      if (telnyxId) {
         try {
-          await releaseNumber(twilioSid);
+          await releaseNumber(telnyxId);
         } catch {
           /* best-effort */
         }
@@ -374,10 +357,10 @@ async function createReceptionistLegacy(
     return { success: true as const, id: row?.id ?? undefined };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[createReceptionist] Twilio Error:", err);
-    if (twilioSid) {
+    console.error("[createReceptionist] Telnyx Error:", err);
+    if (telnyxId) {
       try {
-        await releaseNumber(twilioSid);
+        await releaseNumber(telnyxId);
       } catch {
         /* best-effort */
       }

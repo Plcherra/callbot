@@ -14,7 +14,7 @@ type Props = {
 
 /**
  * Reusable "Your AI is live—call to test" section.
- * Shown when the receptionist has a callable number (Twilio).
+ * Shown when the receptionist has a callable number (Telnyx).
  */
 export function CallNowSection({
   inboundPhoneNumber,

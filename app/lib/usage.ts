@@ -45,19 +45,37 @@ export async function aggregateUsageForReceptionist(
   // Attribute each call to the period where it ended (avoids undercount at month boundaries)
   const { data: usageRows } = await supabase
     .from("call_usage")
-    .select("duration_seconds")
+    .select("duration_seconds, direction, payg_minutes, billed_minutes")
     .eq("receptionist_id", receptionistId)
     .gte("ended_at", `${periodStart}T00:00:00.000Z`)
     .lte("ended_at", `${periodEnd}T23:59:59.999Z`);
-
-  const total_seconds =
-    usageRows?.reduce((sum, r) => sum + (r.duration_seconds ?? 0), 0) ?? 0;
 
   const { data: userRow } = await supabase
     .from("users")
     .select("billing_plan, billing_plan_metadata")
     .eq("id", receptionist.user_id)
     .single();
+
+  let total_seconds = 0;
+  let inbound_seconds = 0;
+  let outbound_seconds = 0;
+  let payg_minutes: number | null = null;
+
+  for (const r of usageRows ?? []) {
+    const sec = r.duration_seconds ?? 0;
+    total_seconds += sec;
+    const dir = (r.direction ?? "").toLowerCase();
+    if (dir === "inbound") inbound_seconds += sec;
+    else if (dir === "outbound") outbound_seconds += sec;
+  }
+
+  if (userRow?.billing_plan === "subscription_payg") {
+    payg_minutes =
+      usageRows?.reduce(
+        (s, r) => s + Number(r.payg_minutes ?? r.billed_minutes ?? (r.duration_seconds ?? 0) / 60),
+        0
+      ) ?? 0;
+  }
 
   const metadata = userRow?.billing_plan_metadata as
     | { included_minutes?: number }
@@ -67,7 +85,7 @@ export async function aggregateUsageForReceptionist(
     typeof metadata?.included_minutes === "number" ? metadata.included_minutes : null;
   const total_minutes = Math.ceil(total_seconds / 60);
   const overage_minutes =
-    included_minutes != null
+    included_minutes != null && userRow?.billing_plan !== "subscription_payg"
       ? Math.max(0, total_minutes - included_minutes)
       : 0;
 
@@ -78,6 +96,9 @@ export async function aggregateUsageForReceptionist(
       period_start: periodStart,
       period_end: periodEnd,
       total_seconds,
+      inbound_seconds,
+      outbound_seconds,
+      payg_minutes,
       billing_plan: userRow?.billing_plan ?? null,
       included_minutes,
       overage_minutes,

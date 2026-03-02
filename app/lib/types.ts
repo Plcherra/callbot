@@ -9,6 +9,8 @@ export type Receptionist = {
   phone_number: string;
   calendar_id?: string | null;
   status: string;
+  telnyx_phone_number_id?: string | null;
+  telnyx_phone_number?: string | null;
   twilio_phone_number_sid?: string | null;
   twilio_phone_number?: string | null;
   inbound_phone_number?: string | null;
@@ -25,9 +27,19 @@ export function hasCallableNumber(r: Pick<Receptionist, "inbound_phone_number">)
   return Boolean(r.inbound_phone_number?.trim());
 }
 
-/** Whether the receptionist uses Twilio. */
+/** Whether the receptionist uses Telnyx. */
+export function usesTelnyx(r: Pick<Receptionist, "telnyx_phone_number_id">): boolean {
+  return Boolean(r.telnyx_phone_number_id);
+}
+
+/** Whether the receptionist uses Twilio (legacy). */
 export function usesTwilio(r: Pick<Receptionist, "twilio_phone_number_sid">): boolean {
   return Boolean(r.twilio_phone_number_sid);
+}
+
+/** Whether the receptionist has a provisioned number (Telnyx or legacy Twilio). */
+export function hasProvisionedNumber(r: Pick<Receptionist, "telnyx_phone_number_id" | "twilio_phone_number_sid">): boolean {
+  return usesTelnyx(r) || usesTwilio(r);
 }
 
 /** call_usage row shape. */

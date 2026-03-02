@@ -1,6 +1,6 @@
 /**
  * URL validation helpers.
- * Shared across Twilio provisioning, webhooks, and voice routes.
+ * Shared across Telnyx provisioning, webhooks, and voice routes.
  */
 
 /** Detect placeholder or invalid webhook URLs */

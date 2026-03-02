@@ -459,7 +459,7 @@ export function AddReceptionistWizardModal({
                   <div>
                     <span className="font-medium">Give me a new phone number</span>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      We&apos;ll provision a fresh US number through Twilio (~$1–2/month).
+                      We&apos;ll provision a fresh US number through Telnyx (~$1–2/month).
                     </p>
                     {form.watch("phone_strategy") === "new" && (
                       <div className="mt-3">
@@ -494,7 +494,7 @@ export function AddReceptionistWizardModal({
                   <div className="flex-1">
                     <span className="font-medium">Bring my own number</span>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Use a number you already own (Twilio, Telnyx, Verizon, AT&T, etc.).
+                      Use a number you already own (Telnyx, Verizon, AT&T, etc.).
                     </p>
                     {form.watch("phone_strategy") === "own" && (
                       <div className="mt-3 space-y-2">
@@ -511,7 +511,7 @@ export function AddReceptionistWizardModal({
                         </div>
                         <div>
                           <label className="text-xs font-medium">
-                            Provider Phone SID (optional, for Twilio/Telnyx)
+                            Telnyx Phone Number ID (optional)
                           </label>
                           <Input
                             placeholder="PN..."

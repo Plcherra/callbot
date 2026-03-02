@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { invoiceSubscriptionOverageForPreviousMonth } from "@/app/lib/billing";
 
 /**
- * Cron endpoint to invoice subscription overage (and phone fee) for the previous month.
- * Run once at the start of each month. Secure with CRON_SECRET.
+ * Legacy cron endpoint. Overage billing is now handled by /api/cron/payg-billing
+ * (which runs both PAYG invoicing and overage for fixed plans via usageBilling).
+ * This endpoint is deprecated—configure your cron to use payg-billing instead.
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -18,18 +18,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const overage = await invoiceSubscriptionOverageForPreviousMonth();
-    return NextResponse.json({
-      ok: true,
-      overage,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[cron/billing] invoice job failed", { error: message });
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({
+    ok: true,
+    deprecated: true,
+    message:
+      "Overage billing moved to /api/cron/payg-billing. Update your cron to call that endpoint instead.",
+  });
 }

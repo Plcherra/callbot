@@ -42,7 +42,8 @@ export async function POST(req: NextRequest) {
   if (!apiKey?.trim()) {
     return NextResponse.json({ error: "Calendar API not configured" }, { status: 503 });
   }
-  const provided = req.headers.get("x-voice-server-key");
+  const provided =
+    req.headers.get("x-voice-server-key") ?? req.headers.get("x-voice-api-key");
   if (provided !== apiKey) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

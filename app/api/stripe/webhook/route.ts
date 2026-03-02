@@ -161,6 +161,32 @@ export async function POST(req: NextRequest) {
         if (plan) {
           update.billing_plan = plan.billing_plan;
           update.billing_plan_metadata = plan.billing_plan_metadata;
+
+          const included = (plan.billing_plan_metadata?.included_minutes as number) ?? 0;
+          const { data: existingPlan } = await supabase
+            .from("user_plans")
+            .select("inbound_percent, outbound_percent")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          const inboundPct = existingPlan?.inbound_percent ?? 80;
+          const outboundPct = existingPlan?.outbound_percent ?? 20;
+          const allocatedInbound = Math.floor((included * inboundPct) / 100);
+          const allocatedOutbound = included - allocatedInbound;
+
+          await supabase.from("user_plans").upsert(
+            {
+              user_id: user.id,
+              billing_plan: plan.billing_plan,
+              allocated_inbound_minutes: plan.billing_plan !== "subscription_payg" ? allocatedInbound : null,
+              allocated_outbound_minutes: plan.billing_plan !== "subscription_payg" ? allocatedOutbound : null,
+              inbound_percent: inboundPct,
+              outbound_percent: outboundPct,
+              overage_rate_cents: 25,
+              payg_rate_cents: 20,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id" }
+          );
         }
         await supabase.from("users").update(update as Record<string, string | null>).eq("id", user.id);
         console.log("[Stripe webhook] customer.subscription.*: user", user.id, "status", status, "plan", plan?.billing_plan ?? "none");
@@ -189,6 +215,10 @@ export async function POST(req: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", user.id);
+        await supabase
+          .from("user_plans")
+          .delete()
+          .eq("user_id", user.id);
         console.log("[Stripe webhook] customer.subscription.deleted: user", user.id);
       }
       break;

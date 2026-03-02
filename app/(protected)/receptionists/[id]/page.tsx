@@ -10,6 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { getCurrentPeriod } from "@/app/lib/usage";
 import { DeleteReceptionistButton } from "@/app/components/receptionists/DeleteReceptionistButton";
 import { CallNowSection } from "@/app/components/receptionists/CallNowSection";
+import { OutboundCallSection } from "@/app/components/receptionists/OutboundCallSection";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -26,7 +27,7 @@ export default async function ReceptionistDetailPage({ params, searchParams }: P
   const { id } = await params;
   const { data: receptionist } = await supabase
     .from("receptionists")
-    .select("id, name, phone_number, calendar_id, status, twilio_phone_number_sid, inbound_phone_number")
+    .select("id, name, phone_number, calendar_id, status, telnyx_phone_number_id, telnyx_phone_number, inbound_phone_number")
     .eq("id", id)
     .eq("user_id", user.id)
     .single();
@@ -92,6 +93,11 @@ export default async function ReceptionistDetailPage({ params, searchParams }: P
         inboundPhoneNumber={receptionist.inbound_phone_number}
         showCreatedAlert={created === "1"}
         hint="Try asking it to book an appointment."
+      />
+
+      <OutboundCallSection
+        receptionistId={receptionist.id}
+        hasTelnyxNumber={Boolean(receptionist.telnyx_phone_number)}
       />
 
       <Card className="mt-8">

@@ -31,19 +31,19 @@ export default function StatusPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center justify-between text-base">
-              Voice (Twilio + self-hosted)
+              Voice (Telnyx + Deepgram/ElevenLabs/Grok)
               <Badge variant="success">Operational</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="text-sm text-muted-foreground">
-            AI voice via Twilio and self-hosted Whisper + Ollama + Piper.{" "}
+            AI voice via Telnyx, Deepgram, ElevenLabs, and Grok.{" "}
             <a
-              href="https://status.twilio.com"
+              href="https://status.telnyx.com"
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary underline"
             >
-              Twilio status
+              Telnyx status
             </a>
           </CardContent>
         </Card>

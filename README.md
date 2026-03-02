@@ -1,6 +1,6 @@
 # AI Receptionist – Subscription Platform
 
-Next.js + Supabase + Stripe + Twilio app for selling and auto-managing AI receptionists for salons, barbers, spas, and handymen.
+Next.js + Supabase + Stripe + Telnyx app for selling and auto-managing AI receptionists for salons, barbers, spas, and handymen.
 
 ## Features
 
@@ -8,14 +8,14 @@ Next.js + Supabase + Stripe + Twilio app for selling and auto-managing AI recept
 - **Free signup**: Email/password + Google OAuth → redirect to dashboard (no payment required)
 - **Dashboard** (protected): Free mode shows plan picker (subscription plans); after payment, full setup (Google Calendar, phone, Activate assistant)
 - **Upgrade**: Plan selection opens Stripe Checkout for the chosen tier (or optional Stripe Buy Button embed)
-- **Assistant activation**: Create receptionist from Receptionists page; provisions Twilio number and configures voice webhook. After payment, redirect to `/dashboard`.
+- **Assistant activation**: Create receptionist from Receptionists page; provisions Telnyx DID and configures voice webhook. After payment, redirect to `/dashboard`.
 
 ## Tech Stack
 
 - Next.js 14 (App Router)
 - Supabase (auth, users table)
 - Stripe (recurring subscription, prebuilt checkout / Buy Button)
-- Twilio (phone provisioning, voice webhooks)
+- Telnyx (phone provisioning, voice webhooks)
 - Tailwind CSS + shadcn/ui (Card, Button, Input, Skeleton, Alert)
 
 ## Quick Start
@@ -27,7 +27,7 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). For Twilio voice, deploy the voice server ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
+Open [http://localhost:3000](http://localhost:3000). For voice, run `node server.js` for WebSocket support ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
 
 ## Setup
 
@@ -37,11 +37,11 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 - **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - **Stripe**: `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, and price IDs:
-  - `STRIPE_PRICE_DEV_TEST` ($1/mo for testing, hidden from public)
-  - `STRIPE_PRICE_STARTER` ($69/mo), `STRIPE_PRICE_PRO` ($149/mo), `STRIPE_PRICE_BUSINESS` ($249/mo)
+  - `STRIPE_PRICE_STARTER` ($69/mo), `STRIPE_PRICE_PRO` ($149/mo), `STRIPE_PRICE_BUSINESS` ($249/mo), `STRIPE_PRICE_PAYG` (optional)
   - Legacy: `STRIPE_PRICE_ID` (treated as Starter if `STRIPE_PRICE_STARTER` is not set)
 - **Optional Stripe Buy Button**: Create a Payment Link in Stripe → Buy button → copy embed code and set `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID` (buy-button-id from the embed)
-- **Twilio**: `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WEBHOOK_BASE_URL`, `VOICE_SERVER_WS_URL` (see [docs/NUMBERS.md](docs/NUMBERS.md), [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md), [docs/TWILIO_SETUP.md](docs/TWILIO_SETUP.md))
+- **Telnyx**: `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL` (see [docs/NUMBERS.md](docs/NUMBERS.md), [docs/TELNYX_SETUP.md](docs/TELNYX_SETUP.md), [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md))
+- **Voice AI**: `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`, `GROK_API_KEY`
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (e.g. `http://localhost:3000/api/google/callback`)
 - **App**: `NEXT_PUBLIC_APP_URL` (e.g. `http://localhost:3000`)
 
@@ -53,15 +53,15 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 ### 3. Stripe
 
-1. **Subscription prices**: Create 4 recurring prices: DEV Test $1/mo, Starter $69/mo, Pro $149/mo, Business $249/mo. Set `STRIPE_PRICE_DEV_TEST`, `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for dev_test/pro/business).
+1. **Subscription prices**: Create recurring prices for Starter $69/mo, Pro $149/mo, Business $249/mo. Set `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_BUSINESS`. Optionally set Price metadata: `plan=subscription_starter`, `included_minutes=300` (and similarly for pro/business).
 2. **Legacy**: A single `STRIPE_PRICE_ID` is supported and treated as Starter (300 min @ $69) when the dedicated Starter env is not set.
 3. **Optional Buy Button**: Create a Payment Link for a plan → **Buy button** → copy `buy-button-id` into `NEXT_PUBLIC_STRIPE_BUY_BUTTON_ID`. Set the Payment Link success URL to your `/dashboard`.
 
-### 4. Twilio and voice server
+### 4. Telnyx and voice AI
 
-1. Create a Twilio account and set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`.
-2. Deploy the voice server (see [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)) and set `VOICE_SERVER_WS_URL`.
-3. Set `TWILIO_WEBHOOK_BASE_URL` to your public app URL. Phone numbers are provisioned per receptionist when you create them.
+1. Create a Telnyx account and set `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL`.
+2. Set Deepgram, ElevenLabs, Grok API keys (see [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
+3. Run `node server.js` for WebSocket voice support. Phone numbers are provisioned per receptionist when you create them.
 
 ### 5. Google OAuth
 
@@ -99,7 +99,7 @@ Open [http://localhost:3000](http://localhost:3000).
 - `app/(protected)/dashboard/page.tsx` – Protected dashboard; free mode (Upgrade card) vs Pro (Calendar, phone, Activate assistant)
 - `app/api/google/callback/route.ts` – Google OAuth callback
 - `app/actions/upgrade.ts` – Create Stripe Checkout session for current user (server-side)
-- `app/actions/createReceptionist.ts` – Create receptionist (Twilio provisioning)
+- `app/actions/createReceptionist.ts` – Create receptionist (Telnyx provisioning)
 - `app/actions/google.ts` – Google OAuth URL
 - `app/actions/dashboard.ts` – Save phone
 - `app/components/dashboard/UpgradeCard.tsx` – “Upgrade to Pro” button + optional `<stripe-buy-button>` embed

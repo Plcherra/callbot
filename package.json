@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node server.js",
+    "start:next": "next start",
     "lint": "next lint",
     "test": "vitest",
     "test:run": "vitest run",
@@ -30,9 +31,11 @@
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.71.2",
     "sonner": "^2.0.7",
+    "@deepgram/sdk": "^3.0.0",
     "stripe": "^17.4.0",
     "tailwind-merge": "^2.5.4",
-    "twilio": "^5.12.2",
+    "telnyx": "^5.51.0",
+    "ws": "^8.18.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

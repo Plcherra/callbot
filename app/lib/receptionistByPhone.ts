@@ -8,20 +8,20 @@ export type ReceptionistByPhone = {
 
 /**
  * Look up an active receptionist by the "To" phone number (called number).
- * Tries twilio_phone_number first, then inbound_phone_number.
+ * Tries telnyx_phone_number first, then inbound_phone_number.
  */
 export async function getReceptionistByPhoneNumber(
   supabase: SupabaseClient,
   to: string
 ): Promise<ReceptionistByPhone | null> {
-  const { data: byTwilio } = await supabase
+  const { data: byTelnyx } = await supabase
     .from("receptionists")
     .select("id, name, user_id")
-    .eq("twilio_phone_number", to)
+    .eq("telnyx_phone_number", to)
     .eq("status", "active")
     .maybeSingle();
 
-  if (byTwilio) return byTwilio;
+  if (byTelnyx) return byTelnyx;
 
   const { data: byInbound } = await supabase
     .from("receptionists")

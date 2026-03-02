@@ -66,11 +66,27 @@ Use `journalctl -u echodesk-voice -f | grep timing` to collect samples. Full tra
 
 ---
 
+## Outbound Call Testing
+
+| Step | Action | Pass criteria |
+|------|--------|---------------|
+| 1 | Call `POST /api/telnyx/outbound` with `{ receptionist_id, to }` (authenticated) | Returns `{ call_control_id, ok: true }` |
+| 2 | Answer the call on the destination phone | AI greets, same voice pipeline as inbound |
+| 3 | Check Supabase `call_usage` | New row with `direction = 'outbound'` |
+
+## Quota Block Testing
+
+| Step | Action | Pass criteria |
+|------|--------|---------------|
+| 1 | Use a fixed plan (Starter/Pro/Business) with outbound minutes exhausted | — |
+| 2 | Call `POST /api/telnyx/outbound` | Returns `403` with message "No outbound minutes remaining this period" |
+| 3 | PAYG users | Always allowed (no quota) |
+
 ## Automated Testing (future)
 
 Create a weekly script that:
-1. Calls Twilio number via API
+1. Calls Telnyx DID or uses Telnyx API to simulate inbound call
 2. Sends predefined audio clips (ElevenLabs or recorded)
 3. Checks Supabase for correct action (appointment created, etc.)
 
-See `voice-ai/README.md` for deployment and env setup.
+See [VOICE_SETUP.md](VOICE_SETUP.md) and [TELNYX_SETUP.md](TELNYX_SETUP.md) for deployment and env setup.

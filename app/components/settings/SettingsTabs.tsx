@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/app/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/app/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/app/components/ui/input";
 import { Alert, AlertDescription } from "@/app/components/ui/alert";
 import { updateBusiness, createBillingPortalSession, deleteAccount } from "@/app/actions/settings";
 import { createCheckoutSession } from "@/app/actions/upgrade";
+import { updatePlanSplit } from "@/app/actions/updatePlanSplit";
 import { createClient } from "@/app/lib/supabase/client";
 import { CalendarConnect } from "@/app/components/dashboard/CalendarConnect";
 import { PhoneInput } from "@/app/components/dashboard/PhoneInput";
@@ -32,6 +33,8 @@ type Props = {
   userId: string;
   billingPlan?: string | null;
   billingPlanMetadata?: BillingPlanMetadata;
+  inboundPercent?: number;
+  outboundPercent?: number;
 };
 
 export function SettingsTabs({
@@ -45,6 +48,8 @@ export function SettingsTabs({
   userId,
   billingPlan = null,
   billingPlanMetadata = null,
+  inboundPercent = 80,
+  outboundPercent = 20,
 }: Props) {
   const [businessNameVal, setBusinessNameVal] = useState(businessName);
   const [businessAddressVal, setBusinessAddressVal] = useState(businessAddress);
@@ -60,7 +65,27 @@ export function SettingsTabs({
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [syncPlanLoading, setSyncPlanLoading] = useState(false);
+  const [splitSaving, setSplitSaving] = useState(false);
+  const [splitMessage, setSplitMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [inboundPct, setInboundPct] = useState(inboundPercent);
+  useEffect(() => {
+    setInboundPct(inboundPercent);
+  }, [inboundPercent]);
   const router = useRouter();
+
+  async function handleSaveSplit(e: React.FormEvent) {
+    e.preventDefault();
+    setSplitSaving(true);
+    setSplitMessage(null);
+    const result = await updatePlanSplit(inboundPct);
+    setSplitSaving(false);
+    if (result.success) {
+      setSplitMessage({ type: "success", text: "Minutes split saved." });
+      router.refresh();
+    } else {
+      setSplitMessage({ type: "error", text: result.error ?? "Failed to save." });
+    }
+  }
 
   async function handleSaveBusiness(e: React.FormEvent) {
     e.preventDefault();
@@ -305,6 +330,40 @@ export function SettingsTabs({
                 </div>
               </div>
             </div>
+            {subscriptionStatus === "active" &&
+              billingPlan &&
+              billingPlan !== "subscription_payg" && (
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Minutes split</h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  How to allocate your included minutes between inbound and outbound calls. Takes effect on next plan renewal.
+                </p>
+                <form onSubmit={handleSaveSplit} className="flex flex-wrap items-end gap-4">
+                  <div className="space-y-2">
+                    <label htmlFor="inbound-percent" className="text-sm font-medium">
+                      Inbound %
+                    </label>
+                    <Input
+                      id="inbound-percent"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={inboundPct}
+                      onChange={(e) => setInboundPct(Number(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="text-sm text-muted-foreground">Outbound: {100 - inboundPct}%</div>
+                  <Button type="submit" disabled={splitSaving}>
+                    {splitSaving ? "Saving…" : "Save split"}
+                  </Button>
+                </form>
+                {splitMessage && (
+                  <Alert variant={splitMessage.type === "error" ? "destructive" : "default"} className="mt-2">
+                    <AlertDescription>{splitMessage.text}</AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
             {hasStripeCustomer && (
               <div>
                 <p className="text-sm text-muted-foreground mb-2">

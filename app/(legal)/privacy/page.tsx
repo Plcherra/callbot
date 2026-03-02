@@ -27,7 +27,7 @@ export default function PrivacyPage() {
             <li>Email, password (via Supabase authentication)</li>
             <li>Business phone number, Google Calendar ID (for AI receptionist)</li>
             <li>Payment info (via Stripe; we do not store card details)</li>
-            <li>Call recordings and transcripts (via our self-hosted voice AI and Twilio). Call audio and text may be processed and stored for quality, training, and support.</li>
+            <li>Call recordings and transcripts (via Telnyx and external voice AI services). Call audio and text may be processed and stored for quality, training, and support.</li>
             <li>Call metadata (duration, timestamps) and usage for billing</li>
           </ul>
 
@@ -46,7 +46,7 @@ export default function PrivacyPage() {
 
           <h3 className="font-semibold">Third-party services</h3>
           <p>
-            We use <strong>Supabase</strong> (database and auth), <strong>Stripe</strong> (payments), <strong>Twilio</strong> (phone and call handling), and self-hosted voice AI. Each has their own privacy policies. We do not sell your data to third parties.
+            We use <strong>Supabase</strong> (database and auth), <strong>Stripe</strong> (payments), <strong>Telnyx</strong> (phone and call handling), and external voice AI (Deepgram, ElevenLabs, Grok). Each has their own privacy policies. We do not sell your data to third parties.
           </p>
 
           <h3 className="font-semibold">Your rights (GDPR / CCPA)</h3>

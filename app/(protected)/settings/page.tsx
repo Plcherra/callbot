@@ -19,6 +19,12 @@ export default async function SettingsPage() {
     .eq("id", user.id)
     .single();
 
+  const { data: userPlan } = await supabase
+    .from("user_plans")
+    .select("inbound_percent, outbound_percent")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   // Re-sync billing_plan if active but missing
   if (profile?.subscription_status === "active" && !profile?.billing_plan && (profile?.stripe_subscription_id || profile?.stripe_customer_id)) {
     const { syncBillingPlanFromStripe } = await import("@/app/actions/syncSubscription");
@@ -54,6 +60,8 @@ export default async function SettingsPage() {
         userId={user.id}
         billingPlan={profile?.billing_plan ?? null}
         billingPlanMetadata={profile?.billing_plan_metadata as { included_minutes?: number; monthly_fee_cents?: number; per_minute_cents?: number } | null ?? null}
+        inboundPercent={userPlan?.inbound_percent ?? 80}
+        outboundPercent={userPlan?.outbound_percent ?? 20}
       />
     </main>
   );

@@ -7,42 +7,34 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Give it more time for build + npm
+    timeout-minutes: 10
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          host: ${{ secrets.SSH_HOST }}          # e.g. 178.156.245.100
-          username: ${{ secrets.SSH_USER }}      # adam
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22                               # default, but explicit
-          timeout: 30s                           # connection timeout
-          script_stop: true                      # stop on first error
-          debug: true                            # more verbose logs
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-          script: |
-            echo "=== Starting deployment ==="
-            echo "Current directory: $(pwd)"
-            
-            cd ${{ secrets.APP_PATH }} || { echo "ERROR: Directory ${{ secrets.APP_PATH }} not found"; exit 1; }
-            echo "In app directory: $(pwd)"
-            
+      - name: Add known hosts
+        run: |
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to VPS
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            echo '=== Connected to VPS ==='
+            cd ${{ secrets.APP_PATH }} || { echo 'Directory not found'; exit 1; }
+            pwd
             git fetch --all
             git reset --hard origin/main
-            git pull origin main || { echo "Git pull failed"; exit 1; }
-            
-            echo "Latest commit: $(git rev-parse HEAD)"
-            
-            npm ci || { echo "npm ci failed"; exit 1; }
-            
-            npm run build || { echo "Next.js build failed"; exit 1; }
-            
-            pm2 reload callbot --update-env || { echo "PM2 reload failed"; exit 1; }
-            
-            pm2 save || echo "pm2 save non-critical"
-            
-            echo "=== Deployment finished successfully ==="
+            git pull origin main || { echo 'Git pull failed'; exit 1; }
+            echo 'Latest commit: $(git rev-parse HEAD)'
+            npm ci || { echo 'npm ci failed'; exit 1; }
+            npm run build || { echo 'Build failed'; exit 1; }
+            pm2 reload callbot --update-env || { echo 'PM2 reload failed'; exit 1; }
+            pm2 save || echo 'pm2 save non-critical'
+            echo '=== Deployment completed ==='
+          "

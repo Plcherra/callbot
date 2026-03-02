@@ -1,0 +1,35 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.APP_PATH }}
+            git fetch --all
+            git reset --hard origin/main   # Clean reset to avoid conflicts
+            git pull origin main           # Or just this if no reset needed
+            
+            # Optional: only if package.json changed
+            npm ci                         # Clean install (faster/safer than npm i)
+            
+            npm run build                  # Next.js build
+            
+            pm2 reload callbot --update-env  # Graceful zero-downtime reload
+            # OR pm2 restart callbot         # Simpler but brief downtime
+            
+            pm2 save                       # Persist list

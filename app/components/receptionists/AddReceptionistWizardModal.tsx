@@ -361,7 +361,13 @@ export function AddReceptionistWizardModal({
         >
           <div className="flex items-center justify-between gap-0.5 text-center">
             {WIZARD_STEPS.map((s, i) => (
-              <div key={s.id} className="flex flex-1 flex-col items-center">
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => s.id < step && setStep(s.id)}
+                className="flex flex-1 flex-col items-center cursor-pointer group"
+                aria-label={`Go to step ${s.id}: ${s.label}`}
+              >
                 <div className="flex flex-1 w-full items-center">
                   <div
                     className={`mx-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium transition-colors ${
@@ -379,10 +385,10 @@ export function AddReceptionistWizardModal({
                     <div className="h-0.5 flex-1 bg-muted min-w-2" aria-hidden="true" />
                   )}
                 </div>
-                <span className="mt-1.5 text-[10px] font-medium text-muted-foreground truncate max-w-full">
+                <span className={`mt-1.5 text-[10px] font-medium truncate max-w-full ${s.id < step ? "text-muted-foreground group-hover:text-foreground" : "text-muted-foreground"}`}>
                   {s.label}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
           <p className="text-xs text-muted-foreground text-center mt-4" id="step-indicator">
@@ -727,7 +733,7 @@ export function AddReceptionistWizardModal({
         {/* Footer buttons - touch-friendly on mobile */}
         <div className="flex flex-wrap justify-between gap-3 pt-4 border-t">
           <div>
-            {step > 1 && step < 6 && (
+            {step > 1 && (
               <Button variant="outline" onClick={goBack} disabled={loading} className="min-h-[2.75rem]">
                 Back
               </Button>

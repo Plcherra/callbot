@@ -58,18 +58,27 @@ async function answerAndStream(
   await streamStart(callControlId, streamUrl);
 }
 
+function headersToObject(headers: Headers): Record<string, string> {
+  const obj: Record<string, string> = {};
+  headers.forEach((v, k) => { obj[k] = v; });
+  return obj;
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("t-signature") ?? req.headers.get("telnyx-signature");
   const publicKey = process.env.TELNYX_PUBLIC_KEY;
   const webhookSecret = process.env.TELNYX_WEBHOOK_SECRET;
+  const headersObj = headersToObject(req.headers);
 
   if (
     !validateTelnyxWebhook(rawBody, signature, {
       publicKey: publicKey ?? undefined,
       webhookSecret: webhookSecret ?? undefined,
+      headers: headersObj,
     })
   ) {
+    console.error("[telnyx/voice] Webhook validation failed. Ensure TELNYX_PUBLIC_KEY (API v2) or TELNYX_WEBHOOK_SECRET (API v1) is set.");
     return new NextResponse("Forbidden", { status: 403 });
   }
 

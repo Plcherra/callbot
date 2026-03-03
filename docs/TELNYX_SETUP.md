@@ -6,11 +6,16 @@ This guide covers Telnyx configuration for voice webhooks, DIDs, and CDR.
 
 ```bash
 TELNYX_API_KEY=your_api_key
-TELNYX_PUBLIC_KEY=  # for webhook verification (optional if using TELNYX_WEBHOOK_SECRET)
-TELNYX_WEBHOOK_SECRET=  # for HMAC webhook verification
+TELNYX_PUBLIC_KEY=  # REQUIRED for webhook verification (API v2). Get from Portal → Account → Public Key
+TELNYX_WEBHOOK_SECRET=  # Alternative: for HMAC verification (API v1)
 TELNYX_WEBHOOK_BASE_URL=https://echodesk.us
-TELNYX_CONNECTION_ID=  # optional, for Call Control connection
+TELNYX_CONNECTION_ID=  # required for outbound calls and number provisioning
 ```
+
+**Important:** If you get `403 Forbidden` when Telnyx sends webhooks (calls not picking up), you must set `TELNYX_PUBLIC_KEY`:
+1. Telnyx Portal → **Account settings** → **Public key** (or API Keys section)
+2. Copy the base64 public key
+3. Add `TELNYX_PUBLIC_KEY=your_base64_key` to your VPS env and restart
 
 ## Webhooks
 

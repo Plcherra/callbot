@@ -58,22 +58,41 @@ async function tryProvisionInAreaCode(areaCode: string, apiKey: string): Promise
   const phoneNumber = numbers[0]?.phone_number;
   if (!phoneNumber) return null;
 
-  const orderRes = await fetch(`${TELNYX_API_BASE}/phone_numbers`, {
+  const connectionId = process.env.TELNYX_CONNECTION_ID?.trim();
+  const orderBody: {
+    phone_numbers: Array<{ phone_number: string }>;
+    connection_id?: string;
+  } = {
+    phone_numbers: [{ phone_number: phoneNumber }],
+  };
+  if (connectionId) orderBody.connection_id = connectionId;
+
+  const orderRes = await fetch(`${TELNYX_API_BASE}/number_orders`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ phone_number: phoneNumber }),
+    body: JSON.stringify(orderBody),
   });
   if (!orderRes.ok) {
     const err = await orderRes.text();
     throw new Error(parseTelnyxError(err, "order"));
   }
-  const orderData = (await orderRes.json()) as { data?: { id?: string; phone_number?: string } };
-  const id = orderData.data?.id;
-  const num = orderData.data?.phone_number ?? phoneNumber;
+  const orderData = (await orderRes.json()) as {
+    data?: {
+      phone_numbers?: Array<{ id?: string; phone_number?: string }>;
+      status?: string;
+    };
+  };
+  const orderedNumbers = orderData.data?.phone_numbers ?? [];
+  const first = orderedNumbers[0];
+  if (!first?.phone_number) return null;
+
+  const num = first.phone_number;
+  const id = first.id;
   if (!id) return null;
+
   return { id, phoneNumber: num };
 }
 

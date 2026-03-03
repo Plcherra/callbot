@@ -45,7 +45,7 @@ const FALLBACK_AREA_CODES = ["212", "310", "415", "508", "781", "646", "202", "3
 
 async function tryProvisionInAreaCode(areaCode: string, apiKey: string): Promise<ProvisionedNumber | null> {
   const searchRes = await fetch(
-    `${TELNYX_API_BASE}/available_phone_numbers?filter[country_code]=US&filter[number_type]=local&filter[features][]=voice&filter[locality]=${encodeURIComponent(areaCode)}&page[size]=1`,
+    `${TELNYX_API_BASE}/available_phone_numbers?filter[country_code]=US&filter[phone_number_type]=local&filter[features][]=voice&filter[national_destination_code]=${encodeURIComponent(areaCode)}&page[size]=1`,
     { headers: { Authorization: `Bearer ${apiKey}` } }
   );
   if (!searchRes.ok) {

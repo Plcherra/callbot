@@ -1,4 +1,5 @@
 import { Hero } from "@/app/components/landing/Hero";
+import { LandingHeader } from "@/app/components/landing/LandingHeader";
 import { Pricing } from "@/app/components/landing/Pricing";
 import { PricingTeaser } from "@/app/components/landing/PricingTeaser";
 import { Testimonials } from "@/app/components/landing/Testimonials";
@@ -6,6 +7,7 @@ import { Testimonials } from "@/app/components/landing/Testimonials";
 export default function HomePage() {
   return (
     <main>
+      <LandingHeader />
       <Hero />
       <PricingTeaser />
       {/* Demo video: set NEXT_PUBLIC_DEMO_VIDEO_ID to your YouTube video ID (e.g. abc123) for https://www.youtube.com/embed/abc123 */}

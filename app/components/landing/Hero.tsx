@@ -13,7 +13,7 @@ export function Hero() {
           Calendar. For individuals and small businesses—salons, barbers, spas, handymen, and more.
         </p>
         <p className="mt-4 text-2xl font-semibold">From $69/mo</p>
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
           <Button asChild size="lg" className="bg-white text-purple-700 hover:bg-white/90">
             <Link href="/signup">Get Started</Link>
           </Button>

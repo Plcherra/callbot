@@ -240,7 +240,8 @@ export function AddReceptionistWizardModal({
       toast.success("Receptionist created successfully!");
       router.refresh();
     } else {
-      setSubmitError(result.error);
+      const err = result.error || "Something went wrong.";
+      setSubmitError(err.replace(/<[^>]*>/g, "").trim() || "Could not create receptionist. Please try again.");
     }
   });
 

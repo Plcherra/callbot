@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { releaseNumber } from "@/app/actions/provisionTelnyxNumber";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
@@ -9,12 +10,12 @@ import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership
  * Related data (staff, services, locations, call_usage, etc.) is cascade-deleted.
  */
 export async function deleteReceptionist(
-  receptionistId: string
+  receptionistId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { success: false, error: ownership.error };
-
-  const supabase = await createClient();
   const { data: rec } = await supabase
     .from("receptionists")
     .select("telnyx_phone_number_id, twilio_phone_number_sid")

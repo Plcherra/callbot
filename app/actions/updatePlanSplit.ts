@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 
 /**
@@ -7,9 +8,10 @@ import { createClient } from "@/app/lib/supabase/server";
  * Only works when user has an existing user_plans row (active subscription).
  */
 export async function updatePlanSplit(
-  inboundPercent: number
+  inboundPercent: number,
+  supabaseParam?: SupabaseClient
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const supabase = await createClient();
+  const supabase = supabaseParam ?? (await createClient());
   const {
     data: { user },
   } = await supabase.auth.getUser();

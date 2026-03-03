@@ -22,12 +22,26 @@ Configure in [Telnyx Portal](https://portal.telnyx.com) → Messaging → Webhoo
 | `call.call-ended` | `https://echodesk.us/api/telnyx/cdr` |
 | `call.hangup` | `https://echodesk.us/api/telnyx/cdr` |
 
+## Where to Find the "Connection" (Call Control) in the Portal
+
+**There is no separate "Connections" nav item** for Call Control. Telnyx renamed it. The equivalent is:
+
+1. **Left nav**: **Real-Time Communications** → **Voice** → **Programmable Voice**
+2. **Tabs**: Click **Voice API Applications** (the first tab)
+3. This is your Call Control / Connection setup. Click **Create Voice App** if you don't have one yet.
+
+When you create a Voice App (or open an existing one), the **ID** shown in the app details is your `TELNYX_CONNECTION_ID`. Copy that ID into `.env.local` / your VPS env.
+
+The "Connections" dropdown in **Reporting → Detailed Records** is only for filtering reports; it is not where you create or manage Call Control connections.
+
+---
+
 ## DID Provisioning
 
 1. Sign up at [portal.telnyx.com](https://portal.telnyx.com), complete KYC.
 2. Buy 1–2 test US local DIDs ($1/mo each).
-3. Create a **Connection** (Call Control) and link DIDs to it.
-4. Configure the Connection's webhook URL to `https://echodesk.us/api/telnyx/voice`.
+3. Create a **Voice API Application** (see above) and set its webhook URL to `https://echodesk.us/api/telnyx/voice`.
+4. Assign your numbers to that application (or they auto-link when provisioned via our backend with `TELNYX_CONNECTION_ID` set).
 
 ## Elastic SIP Trunk
 

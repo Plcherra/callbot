@@ -1,19 +1,17 @@
 /**
  * Check outbound quota before initiating an outbound call.
  * Returns { allowed, remainingMinutes? } or { allowed: false, reason }.
+ * Supports cookie (web) and Bearer token (mobile) auth.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/app/lib/supabase/server";
+import { getAuthUser } from "@/app/lib/supabase/getAuthUser";
 import { checkOutboundQuota } from "@/app/lib/quotaCheck";
 
 export async function GET(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, supabase } = await getAuthUser(req);
 
-  if (!user) {
+  if (!user || !supabase) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

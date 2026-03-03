@@ -87,12 +87,16 @@ export async function provisionTelnyxNumber(areaCode: string): Promise<
         .filter((ac) => ac !== areaCode)
         .slice(0, 3)
         .join(", ");
-      return {
-        success: false,
-        error: `No numbers available in area code ${areaCode}. Try ${suggestions || "212, 310, or 415"} — or bring your own number.`,
+    return {
+      success: false,
+      error: `No numbers available in area code ${areaCode}. Try ${suggestions || "212, 310, or 415"} — or bring your own number.`,
       };
     }
-    return { success: false, error: `Could not provision number: ${message}` };
+    const safeMsg = message.replace(/<[^>]*>/g, "").trim();
+    return {
+      success: false,
+      error: safeMsg ? `Could not provision number: ${safeMsg}` : "Could not provision number. Check your Telnyx API key and Connection ID.",
+    };
   }
 }
 

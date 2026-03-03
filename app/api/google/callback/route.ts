@@ -7,6 +7,7 @@ const redirectUri = process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
 const clientId = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const mobileScheme = process.env.MOBILE_REDIRECT_SCHEME || "echodesk";
 
 if (!redirectUri || !clientId || !clientSecret) {
   console.error(
@@ -31,37 +32,37 @@ export async function GET(req: NextRequest) {
   const stateParts = rawState?.split(":");
   const state = stateParts?.[0] ?? rawState; // userId
   const returnTo = stateParts?.length === 2 ? stateParts[1] : "dashboard";
+  const isMobileRedirect = returnTo === "mobile" || returnTo === "settings";
 
   const errorRedirectPath =
     returnTo === "onboarding" ? "/onboarding" : returnTo === "receptionists" ? "/receptionists" : "/dashboard";
 
+  function buildErrorRedirect(msg: string) {
+    if (isMobileRedirect) {
+      return NextResponse.redirect(
+        `${mobileScheme}://google-callback?success=0&error=${encodeURIComponent(msg)}`
+      );
+    }
+    return NextResponse.redirect(
+      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(msg)}`
+    );
+  }
+
   // Handle OAuth errors from Google
   if (error) {
     console.error("Google OAuth error:", error);
-    return NextResponse.redirect(
-      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-        `OAuth error: ${error}`
-      )}`
-    );
+    return buildErrorRedirect(`OAuth error: ${error}`);
   }
 
   // Validate required parameters
   if (!code) {
     console.error("Missing authorization code in callback");
-    return NextResponse.redirect(
-      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-        "Missing authorization code"
-      )}`
-    );
+    return buildErrorRedirect("Missing authorization code");
   }
 
   if (!state) {
     console.error("Missing state parameter in callback");
-    return NextResponse.redirect(
-      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-        "Missing state parameter"
-      )}`
-    );
+    return buildErrorRedirect("Missing state parameter");
   }
 
   // Validate state (userId) exists in database
@@ -74,11 +75,7 @@ export async function GET(req: NextRequest) {
 
   if (userError || !user) {
     console.error("Invalid state/userId:", state, userError);
-    return NextResponse.redirect(
-      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-        "Invalid user"
-      )}`
-    );
+    return buildErrorRedirect("Invalid user");
   }
 
   try {
@@ -95,20 +92,14 @@ export async function GET(req: NextRequest) {
 
     if (!tokens) {
       console.error("Failed to get tokens from Google");
-      return NextResponse.redirect(
-        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-          "Failed to get tokens"
-        )}`
-      );
+      return buildErrorRedirect("Failed to get tokens");
     }
 
     // Refresh token is required for offline access
     if (!tokens.refresh_token) {
       console.error("No refresh token received. User may need to grant offline access.");
-      return NextResponse.redirect(
-        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-          "No refresh token received. Please try connecting again and ensure you grant all permissions."
-        )}`
+      return buildErrorRedirect(
+        "No refresh token received. Please try connecting again and ensure you grant all permissions."
       );
     }
 
@@ -122,11 +113,7 @@ export async function GET(req: NextRequest) {
 
     if (!userInfo) {
       console.error("Failed to get user info");
-      return NextResponse.redirect(
-        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-          "Failed to get user information"
-        )}`
-      );
+      return buildErrorRedirect("Failed to get user information");
     }
 
     const calendarId = userInfo.email ?? "primary";
@@ -145,14 +132,13 @@ export async function GET(req: NextRequest) {
 
     if (updateError) {
       console.error("Database update error:", updateError);
-      return NextResponse.redirect(
-        `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-          "Failed to save calendar connection"
-        )}`
-      );
+      return buildErrorRedirect("Failed to save calendar connection");
     }
 
     console.log("Successfully connected Google Calendar for user:", state);
+    if (isMobileRedirect) {
+      return NextResponse.redirect(`${mobileScheme}://google-callback?success=1`);
+    }
     const redirectPath =
       returnTo === "onboarding" ? "/onboarding" : returnTo === "receptionists" ? "/receptionists" : "/dashboard";
     return NextResponse.redirect(`${appUrl}${redirectPath}?calendar=connected`);
@@ -170,10 +156,6 @@ export async function GET(req: NextRequest) {
     });
 
     // Return user-friendly error message
-    return NextResponse.redirect(
-      `${appUrl}${errorRedirectPath}?calendar=error&message=${encodeURIComponent(
-        `Connection failed: ${errorMessage}`
-      )}`
-    );
+    return buildErrorRedirect(`Connection failed: ${errorMessage}`);
   }
 }

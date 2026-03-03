@@ -1,16 +1,20 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { getStripe } from "@/app/lib/stripe";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-export async function updateBusiness(data: {
-  business_name: string;
-  business_address: string;
-}): Promise<{ success: boolean; error?: string }> {
-  const supabase = await createClient();
+export async function updateBusiness(
+  data: {
+    business_name: string;
+    business_address: string;
+  },
+  supabaseParam?: SupabaseClient
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = supabaseParam ?? (await createClient());
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -29,10 +33,10 @@ export async function updateBusiness(data: {
   return { success: true };
 }
 
-export async function createBillingPortalSession(): Promise<
-  { url: string } | { error: string }
-> {
-  const supabase = await createClient();
+export async function createBillingPortalSession(
+  supabaseParam?: SupabaseClient
+): Promise<{ url: string } | { error: string }> {
+  const supabase = supabaseParam ?? (await createClient());
   const {
     data: { user },
   } = await supabase.auth.getUser();

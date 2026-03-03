@@ -5,6 +5,28 @@
 
 const TELNYX_API_BASE = "https://api.telnyx.com/v2";
 
+/**
+ * Parse Telnyx API error response. Avoids exposing raw HTML to users.
+ */
+function parseTelnyxError(raw: string, context: string): string {
+  const trimmed = raw?.trim() || "";
+  if (!trimmed) return `Telnyx ${context} failed. Please try again.`;
+  if (trimmed.startsWith("<") || trimmed.toLowerCase().includes("<!doctype")) {
+    return `Telnyx ${context} failed. Check your API key and Connection ID, then try again.`;
+  }
+  try {
+    const json = JSON.parse(trimmed) as { errors?: Array<{ detail?: string; title?: string }> };
+    const first = json.errors?.[0];
+    if (first?.detail) return first.detail;
+    if (first?.title) return first.title;
+  } catch {
+    /* not JSON */
+  }
+  const noHtml = trimmed.replace(/<[^>]*>/g, "").trim();
+  if (noHtml.length > 200) return noHtml.slice(0, 200) + "...";
+  return noHtml || `Telnyx ${context} failed. Please try again.`;
+}
+
 function getApiKey(): string {
   const key = process.env.TELNYX_API_KEY;
   if (!key?.trim()) {
@@ -18,31 +40,23 @@ export type ProvisionedNumber = {
   phoneNumber: string;
 };
 
-/**
- * Search for available local numbers and order one.
- * Returns the phone number record ID and E.164 number.
- */
-export async function provisionNumber(areaCode: string): Promise<ProvisionedNumber> {
-  const apiKey = getApiKey();
+/** Fallback area codes when the requested one has no inventory */
+const FALLBACK_AREA_CODES = ["212", "310", "415", "508", "781", "646", "202", "305", "702"];
+
+async function tryProvisionInAreaCode(areaCode: string, apiKey: string): Promise<ProvisionedNumber | null> {
   const searchRes = await fetch(
     `${TELNYX_API_BASE}/available_phone_numbers?filter[country_code]=US&filter[number_type]=local&filter[features][]=voice&filter[locality]=${encodeURIComponent(areaCode)}&page[size]=1`,
-    {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    }
+    { headers: { Authorization: `Bearer ${apiKey}` } }
   );
   if (!searchRes.ok) {
     const err = await searchRes.text();
-    throw new Error(`Telnyx search failed: ${err}`);
+    throw new Error(parseTelnyxError(err, "search"));
   }
   const searchData = (await searchRes.json()) as { data?: { phone_number?: string }[] };
   const numbers = searchData.data ?? [];
-  if (numbers.length === 0) {
-    throw new Error(`No available phone numbers in area code ${areaCode}`);
-  }
+  if (numbers.length === 0) return null;
   const phoneNumber = numbers[0]?.phone_number;
-  if (!phoneNumber) {
-    throw new Error("Telnyx returned no phone number");
-  }
+  if (!phoneNumber) return null;
 
   const orderRes = await fetch(`${TELNYX_API_BASE}/phone_numbers`, {
     method: "POST",
@@ -54,15 +68,30 @@ export async function provisionNumber(areaCode: string): Promise<ProvisionedNumb
   });
   if (!orderRes.ok) {
     const err = await orderRes.text();
-    throw new Error(`Telnyx order failed: ${err}`);
+    throw new Error(parseTelnyxError(err, "order"));
   }
   const orderData = (await orderRes.json()) as { data?: { id?: string; phone_number?: string } };
   const id = orderData.data?.id;
   const num = orderData.data?.phone_number ?? phoneNumber;
-  if (!id) {
-    throw new Error("Telnyx order returned no id");
-  }
+  if (!id) return null;
   return { id, phoneNumber: num };
+}
+
+/**
+ * Search for available local numbers and order one.
+ * If the requested area code has no inventory, tries fallback area codes.
+ * Returns the phone number record ID and E.164 number.
+ */
+export async function provisionNumber(areaCode: string): Promise<ProvisionedNumber> {
+  const apiKey = getApiKey();
+  const toTry = [areaCode, ...FALLBACK_AREA_CODES.filter((ac) => ac !== areaCode)];
+
+  for (const ac of toTry) {
+    const result = await tryProvisionInAreaCode(ac, apiKey);
+    if (result) return result;
+  }
+
+  throw new Error(`No available phone numbers in area code ${areaCode} or common fallbacks. Try bringing your own number.`);
 }
 
 /**
@@ -87,7 +116,8 @@ export async function configureVoiceUrl(
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Telnyx configure voice failed: ${err}`);
+    const msg = parseTelnyxError(err, "configure voice");
+    throw new Error(msg);
   }
 }
 
@@ -120,7 +150,8 @@ export async function createOutboundCall(params: {
   });
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Telnyx create call failed: ${err}`);
+    const msg = parseTelnyxError(err, "create call");
+    throw new Error(msg);
   }
   const data = (await res.json()) as { data?: { call_control_id?: string } };
   const id = data.data?.call_control_id;
@@ -139,6 +170,7 @@ export async function releaseNumber(phoneNumberId: string): Promise<void> {
   });
   if (!res.ok && res.status !== 404) {
     const err = await res.text();
-    throw new Error(`Telnyx release failed: ${err}`);
+    const msg = parseTelnyxError(err, "release");
+    throw new Error(msg);
   }
 }

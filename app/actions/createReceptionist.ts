@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import {
   provisionTelnyxNumber,
@@ -46,12 +47,13 @@ function isWizardData(
 }
 
 export async function createReceptionist(
-  data: CreateReceptionistData
+  data: CreateReceptionistData,
+  supabaseParam?: SupabaseClient
 ): Promise<
   | { success: true; id?: string; phoneNumber?: string }
   | { success: false; error: string }
 > {
-  const supabase = await createClient();
+  const supabase = supabaseParam ?? (await createClient());
   const {
     data: { user },
   } = await supabase.auth.getUser();

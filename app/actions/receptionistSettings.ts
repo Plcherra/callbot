@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 
@@ -25,11 +26,12 @@ export type ReceptionistRow = {
 };
 
 export async function getReceptionist(
-  receptionistId: string
+  receptionistId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ data: ReceptionistRow } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("receptionists")
     .select("id, name, phone_number, calendar_id, status, payment_settings, updated_at, website_url, website_content, website_content_updated_at, extra_instructions")
@@ -42,11 +44,12 @@ export async function getReceptionist(
 
 export async function updatePaymentSettings(
   receptionistId: string,
-  settings: PaymentSettings
+  settings: PaymentSettings,
+  supabaseParam?: SupabaseClient
 ): Promise<{ ok: true } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { error } = await supabase
     .from("receptionists")
     .update({
@@ -60,11 +63,12 @@ export async function updatePaymentSettings(
 
 export async function updateExtraInstructions(
   receptionistId: string,
-  extraInstructions: string | null
+  extraInstructions: string | null,
+  supabaseParam?: SupabaseClient
 ): Promise<{ ok: true } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { error } = await supabase
     .from("receptionists")
     .update({

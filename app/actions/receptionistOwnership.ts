@@ -1,14 +1,17 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 
 /**
  * Verifies the current user owns the receptionist. Returns receptionist id or null.
+ * When supabase is provided (e.g. from Bearer auth), uses it; otherwise uses cookie-based client.
  */
 export async function assertReceptionistOwnership(
-  receptionistId: string
+  receptionistId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ ok: true; receptionistId: string } | { ok: false; error: string }> {
-  const supabase = await createClient();
+  const supabase = supabaseParam ?? (await createClient());
   const {
     data: { user },
   } = await supabase.auth.getUser();

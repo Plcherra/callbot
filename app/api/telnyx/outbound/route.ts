@@ -1,10 +1,11 @@
 /**
  * Initiate an outbound call. Quota check → Telnyx create_call → return call ID.
  * Same voice pipeline as inbound (stream to /api/voice/stream).
+ * Supports cookie (web) and Bearer token (mobile) auth.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/app/lib/supabase/server";
+import { getAuthUser } from "@/app/lib/supabase/getAuthUser";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { checkOutboundQuota } from "@/app/lib/quotaCheck";
 import { createOutboundCall } from "@/app/lib/telnyx";
@@ -18,11 +19,8 @@ function toE164(phone: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
+  const { user, supabase } = await getAuthUser(req);
+  if (!user || !supabase) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -1,8 +1,23 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../models/wizard_form.dart';
 import '../../services/api_client.dart';
+
+const _steps = [
+  'Basics',
+  'Phone',
+  'Instructions',
+  'Business',
+  'Advanced',
+  'Review',
+];
 
 class CreateReceptionistScreen extends StatefulWidget {
   const CreateReceptionistScreen({super.key});
@@ -13,67 +28,111 @@ class CreateReceptionistScreen extends StatefulWidget {
 }
 
 class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _calendarIdController = TextEditingController(text: 'primary');
-  final _systemPromptController = TextEditingController(
-    text:
-        'You are a friendly, professional receptionist. Answer calls politely, '
-        'book appointments into Google Calendar, confirm details, and be helpful.',
-  );
-  String _phoneStrategy = 'new';
-  String _areaCode = '212';
-  final _ownPhoneController = TextEditingController();
+  bool get _isPhoneDevice => !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
+
+  int _step = 1;
+  final _formData = WizardFormData(calendarId: 'primary');
   bool _loading = false;
   String? _error;
+  String? _successId;
+  String? _successPhone;
+  String? _successName;
 
   @override
-  void dispose() {
-    _nameController.dispose();
-    _calendarIdController.dispose();
-    _systemPromptController.dispose();
-    _ownPhoneController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadDefaults();
+  }
+
+  Future<void> _loadDefaults() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    final res = await Supabase.instance.client
+        .from('users')
+        .select('calendar_id')
+        .eq('id', user.id)
+        .maybeSingle();
+    if (res != null && res['calendar_id'] != null) {
+      setState(() => _formData.calendarId = res['calendar_id'] as String);
+    }
+  }
+
+  bool _validateStep() {
+    if (_step == 1) {
+      if (_formData.name.trim().isEmpty) {
+        setState(() => _error = 'Name is required');
+        return false;
+      }
+      if (_formData.calendarId.trim().isEmpty) {
+        setState(() => _error = 'Calendar ID is required');
+        return false;
+      }
+      return true;
+    }
+    if (_step == 2) {
+      if (_formData.phoneStrategy == 'new') {
+        if (_formData.areaCode == null || _formData.areaCode!.isEmpty) {
+          setState(() => _error = 'Please select an area code');
+          return false;
+        }
+      } else {
+        final phone = _formData.ownPhone?.trim() ?? '';
+        if (phone.isEmpty) {
+          setState(() => _error = 'Phone number is required');
+          return false;
+        }
+        if (!RegExp(r'^\+\d{10,15}$').hasMatch(phone)) {
+          setState(() => _error = 'Enter phone in E.164 format (e.g. +15551234567)');
+          return false;
+        }
+      }
+      return true;
+    }
+    if (_step == 3) {
+      if (_formData.systemPrompt.trim().isEmpty) {
+        setState(() => _error = 'System prompt is required');
+        return false;
+      }
+      return true;
+    }
+    if (_step == 6) {
+      if (!_formData.consent) {
+        setState(() => _error = 'Consent is required');
+        return false;
+      }
+      return true;
+    }
+    return true;
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_validateStep()) return;
 
     setState(() {
-      _loading = true;
       _error = null;
+      _loading = true;
     });
 
     try {
-      final body = <String, dynamic>{
-        'name': _nameController.text.trim(),
-        'country': 'US',
-        'calendar_id': _calendarIdController.text.trim(),
-        'phone_strategy': _phoneStrategy,
-        'system_prompt': _systemPromptController.text.trim(),
-        'staff': <Map<String, dynamic>>[],
-      };
-      if (_phoneStrategy == 'new') {
-        body['area_code'] = _areaCode == 'other' ? '212' : _areaCode;
-      } else {
-        body['own_phone'] = _ownPhoneController.text.trim();
-      }
-
       final res = await ApiClient.post(
         '/api/mobile/receptionists/create',
-        body: body,
+        body: _formData.toApiBody(),
       );
 
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        if (mounted) {
-          Navigator.of(context).pop(true);
-        }
-      } else {
-        final data = _parseJson(res.body);
-        final msg = data['error'] as String? ??
-            (res.body.isNotEmpty ? res.body : 'Failed to create receptionist (${res.statusCode})');
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
         setState(() {
-          _error = msg;
+          _successId = data['id'] as String?;
+          _successPhone = data['phoneNumber'] as String?;
+          _successName = _formData.name;
+          _loading = false;
+        });
+      } else {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        setState(() {
+          _error = data['error'] as String? ?? 'Failed to create receptionist';
           _loading = false;
         });
       }
@@ -85,125 +144,571 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
     }
   }
 
-  Map<String, dynamic> _parseJson(String body) {
-    try {
-      return body.isNotEmpty
-          ? jsonDecode(body) as Map<String, dynamic>
-          : <String, dynamic>{};
-    } catch (_) {
-      return <String, dynamic>{};
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (_successId != null) {
+      return _buildSuccessState();
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Receptionist')),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextFormField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Receptionist Name',
-                border: OutlineInputBorder(),
-              ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _calendarIdController,
-              decoration: const InputDecoration(
-                labelText: 'Calendar ID (email or "primary")',
-                border: OutlineInputBorder(),
-              ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
-            ),
-            const SizedBox(height: 16),
-            const Text('Phone number', style: TextStyle(fontWeight: FontWeight.w500)),
-            Row(
+      appBar: AppBar(
+        title: const Text('Add Receptionist'),
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () => context.go('/receptionists'),
+        ),
+      ),
+      body: Column(
+        children: [
+          _buildStepper(),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
               children: [
-                Expanded(
-                  child: RadioListTile<String>(
-                    title: const Text('New number'),
-                    value: 'new',
-                    groupValue: _phoneStrategy,
-                    onChanged: (v) => setState(() => _phoneStrategy = v!),
+                if (_error != null) ...[
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(_error!),
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: RadioListTile<String>(
-                    title: const Text('Bring your own'),
-                    value: 'own',
-                    groupValue: _phoneStrategy,
-                    onChanged: (v) => setState(() => _phoneStrategy = v!),
-                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_step == 1) _buildStep1(),
+                if (_step == 2) _buildStep2(),
+                if (_step == 3) _buildStep3(),
+                if (_step == 4) _buildStep4(),
+                if (_step == 5) _buildStep5(),
+                if (_step == 6) _buildStep6(),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    if (_step > 1)
+                      OutlinedButton(
+                        onPressed: _loading
+                            ? null
+                            : () => setState(() {
+                                  _step--;
+                                  _error = null;
+                                }),
+                        child: const Text('Back'),
+                      )
+                    else
+                      const SizedBox(),
+                    if (_step == 4 || _step == 5)
+                      TextButton(
+                        onPressed: () =>
+                            setState(() => _step++),
+                        child: const Text('Skip'),
+                      ),
+                    FilledButton(
+                      onPressed: _loading
+                          ? null
+                          : () async {
+                              if (_step < 6) {
+                                if (_validateStep()) {
+                                  setState(() {
+                                    _step++;
+                                    _error = null;
+                                  });
+                                }
+                              } else {
+                                await _submit();
+                              }
+                            },
+                      child: _loading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Text(_step == 6 ? 'Create Receptionist' : 'Next'),
+                    ),
+                  ],
                 ),
               ],
             ),
-            if (_phoneStrategy == 'new') ...[
-              DropdownButtonFormField<String>(
-                value: _areaCode,
-                decoration: const InputDecoration(
-                  labelText: 'Area code',
-                  border: OutlineInputBorder(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepper() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              for (var i = 0; i < _steps.length; i++) ...[
+                GestureDetector(
+                  onTap: i + 1 < _step ? () => setState(() => _step = i + 1) : null,
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: _step > i + 1
+                        ? Colors.green
+                        : _step == i + 1
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey.shade300,
+                    child: Text(
+                      _step > i + 1 ? '✓' : '${i + 1}',
+                      style: TextStyle(
+                        color: _step >= i + 1 ? Colors.white : Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
                 ),
-                items: const [
-                  DropdownMenuItem(value: '212', child: Text('212 (New York)')),
-                  DropdownMenuItem(value: '310', child: Text('310 (LA)')),
-                  DropdownMenuItem(value: '415', child: Text('415 (SF)')),
-                  DropdownMenuItem(value: '617', child: Text('617 (Boston)')),
-                  DropdownMenuItem(value: 'other', child: Text('Other')),
-                ],
-                onChanged: (v) => setState(() => _areaCode = v ?? '212'),
-              ),
-            ] else ...[
-              TextFormField(
-                controller: _ownPhoneController,
-                decoration: const InputDecoration(
-                  labelText: 'Phone (E.164 e.g. +15551234567)',
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  if (_phoneStrategy != 'own') return null;
-                  if (v == null || v.trim().isEmpty) return 'Required';
-                  return null;
-                },
-              ),
+                if (i < _steps.length - 1)
+                  Expanded(
+                    child: Container(
+                      height: 2,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      color: _step > i + 1 ? Colors.green : Colors.grey.shade300,
+                    ),
+                  ),
+              ],
             ],
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _systemPromptController,
-              maxLines: 4,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Step $_step of 6: ${_steps[_step - 1]}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStep1() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          initialValue: _formData.name,
+          decoration: const InputDecoration(
+            labelText: 'Receptionist name',
+            hintText: 'e.g. Eve, Alex, My AI Receptionist',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => _formData.name = v,
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          value: _formData.country,
+          decoration: const InputDecoration(
+            labelText: 'Country',
+            border: OutlineInputBorder(),
+          ),
+          items: countryOptions
+              .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
+              .toList(),
+          onChanged: (v) => setState(() => _formData.country = v ?? 'US'),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.calendarId,
+          decoration: const InputDecoration(
+            labelText: 'Calendar ID',
+            hintText: 'primary or email@example.com',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => _formData.calendarId = v ?? '',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep2() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('How do you want to connect this receptionist to phone calls?'),
+        const SizedBox(height: 16),
+        RadioListTile<String>(
+          title: const Text('Give me a new phone number'),
+          subtitle: const Text(
+            "We'll provision a fresh US number through Telnyx (~\$1–2/month).",
+          ),
+          value: 'new',
+          groupValue: _formData.phoneStrategy,
+          onChanged: (v) => setState(() => _formData.phoneStrategy = v ?? 'new'),
+        ),
+        if (_formData.phoneStrategy == 'new')
+          Padding(
+            padding: const EdgeInsets.only(left: 16, top: 8),
+            child: DropdownButtonFormField<String>(
+              value: _formData.areaCode ?? '212',
               decoration: const InputDecoration(
-                labelText: 'System prompt',
-                alignLabelWithHint: true,
+                labelText: 'Preferred area code',
                 border: OutlineInputBorder(),
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Required' : null,
+              items: areaCodes
+                  .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
+                  .toList(),
+              onChanged: (v) => setState(() => _formData.areaCode = v ?? '212'),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            ],
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _loading ? null : _submit,
-              child: _loading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Create Receptionist'),
+          ),
+        RadioListTile<String>(
+          title: const Text('Bring my own number'),
+          subtitle: const Text(
+            'Use a number you already own (Telnyx, Verizon, AT&T, etc.).',
+          ),
+          value: 'own',
+          groupValue: _formData.phoneStrategy,
+          onChanged: (v) => setState(() => _formData.phoneStrategy = v ?? 'own'),
+        ),
+        if (_formData.phoneStrategy == 'own')
+          Padding(
+            padding: const EdgeInsets.only(left: 16, top: 8),
+            child: Column(
+              children: [
+                TextFormField(
+                  initialValue: _formData.ownPhone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone number (E.164)',
+                    hintText: '+15551234567',
+                    border: OutlineInputBorder(),
+                  ),
+                  keyboardType: TextInputType.phone,
+                  onChanged: (v) => _formData.ownPhone = v,
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  initialValue: _formData.providerSid,
+                  decoration: const InputDecoration(
+                    labelText: 'Telnyx Phone Number ID (optional)',
+                    hintText: 'PN...',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => _formData.providerSid = v,
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildStep3() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Core instructions for your receptionist'),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => setState(() {
+            _formData.systemPrompt =
+                "You are a friendly, professional receptionist for a [business or personal context, e.g. salon, consulting, personal]. Answer calls politely, book appointments into Google Calendar, confirm details, and be helpful. Never be pushy.";
+          }),
+          child: const Text('Use default prompt'),
+        ),
+        TextFormField(
+          initialValue: _formData.systemPrompt,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 8,
+          onChanged: (v) => _formData.systemPrompt = v ?? '',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep4() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Business details (optional)'),
+        const SizedBox(height: 16),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Staff members'),
+            TextButton.icon(
+              onPressed: () => setState(() {
+                _formData.staff.add(StaffItem(name: '', description: ''));
+              }),
+              icon: const Icon(Icons.add),
+              label: const Text('Add'),
             ),
           ],
         ),
+        ..._formData.staff.asMap().entries.map((e) {
+          final i = e.key;
+          final s = e.value;
+          return Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  initialValue: s.name,
+                  decoration: const InputDecoration(
+                    hintText: 'Name',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => _formData.staff[i] =
+                      StaffItem(name: v ?? '', description: s.description),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: TextFormField(
+                  initialValue: s.description,
+                  decoration: const InputDecoration(
+                    hintText: 'Role or specialty',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (v) => _formData.staff[i] =
+                      StaffItem(name: s.name, description: v ?? ''),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete),
+                onPressed: () => setState(() => _formData.staff.removeAt(i)),
+              ),
+            ],
+          );
+        }),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.promotions,
+          decoration: const InputDecoration(
+            labelText: 'Current promotions',
+            hintText: 'e.g. 20% off first visit with code WELCOME20',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 2,
+          onChanged: (v) => _formData.promotions = v,
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.businessHours,
+          decoration: const InputDecoration(
+            labelText: 'Business hours',
+            hintText: 'e.g. Mon–Fri 9am–6pm, Sat 10am–4pm',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => _formData.businessHours = v,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep5() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Advanced settings (optional)'),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          value: _formData.voicePersonality ?? 'friendly',
+          decoration: const InputDecoration(
+            labelText: 'Voice personality',
+            border: OutlineInputBorder(),
+          ),
+          items: voicePersonalityOptions
+              .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
+              .toList(),
+          onChanged: (v) => setState(() => _formData.voicePersonality = v),
+        ),
+        const SizedBox(height: 16),
+        DropdownButtonFormField<String>(
+          value: _formData.fallbackBehavior ?? 'voicemail',
+          decoration: const InputDecoration(
+            labelText: "Fallback if AI can't help",
+            border: OutlineInputBorder(),
+          ),
+          items: fallbackBehaviorOptions
+              .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
+              .toList(),
+          onChanged: (v) => setState(() => _formData.fallbackBehavior = v),
+        ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.maxCallDurationMinutes?.toString(),
+          decoration: const InputDecoration(
+            labelText: 'Max call duration (minutes)',
+            hintText: 'e.g. 15',
+            border: OutlineInputBorder(),
+          ),
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onChanged: (v) {
+            final n = int.tryParse(v ?? '');
+            _formData.maxCallDurationMinutes = n;
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStep6() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Review & create'),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ReviewRow('Name', _formData.name),
+                _ReviewRow('Country', _formData.country),
+                _ReviewRow('Calendar', _formData.calendarId),
+                _ReviewRow(
+                  'Phone',
+                  _formData.phoneStrategy == 'new'
+                      ? 'New number (${_formData.areaCode ?? '—'})'
+                      : (_formData.ownPhone ?? '—'),
+                ),
+                _ReviewRow(
+                  'Prompt',
+                  '${(_formData.systemPrompt).substring(0, _formData.systemPrompt.length.clamp(0, 80))}...',
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          title: const Text(
+            'I confirm that I have obtained all necessary consents for call recording and AI interaction in my jurisdiction.',
+          ),
+          value: _formData.consent,
+          onChanged: (v) => setState(() => _formData.consent = v ?? false),
+          controlAffinity: ListTileControlAffinity.leading,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSuccessState() {
+    return Scaffold(
+      appBar: AppBar(
+        leading: const SizedBox(),
+        title: const Text('Success'),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green, size: 64),
+            const SizedBox(height: 24),
+            Text(
+              'Receptionist created!',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text('"$_successName" is ready to take calls.'),
+            if (_successPhone != null) ...[
+              const SizedBox(height: 24),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text('Give this number to your customers'),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        _successPhone!,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      if (!_isPhoneDevice)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 8),
+                          child: Text(
+                            'Call this number from your phone to test the AI.',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: () {
+                              Clipboard.setData(
+                                ClipboardData(text: _successPhone ?? ''),
+                              );
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Copied!')),
+                              );
+                            },
+                            icon: const Icon(Icons.copy),
+                            label: const Text('Copy'),
+                          ),
+                          if (_isPhoneDevice) ...[
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => launchUrl(
+                                Uri.parse('tel:$_successPhone'),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              icon: const Icon(Icons.phone),
+                              label: const Text('Test call'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(
+                  onPressed: () => context.go('/receptionists'),
+                  child: const Text('Done'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _successId != null
+                      ? () => context.go('/receptionists/${_successId!}')
+                      : null,
+                  child: const Text('View receptionist'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ReviewRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Expanded(child: Text(value)),
+        ],
       ),
     );
   }

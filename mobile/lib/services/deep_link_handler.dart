@@ -55,6 +55,8 @@ class DeepLinkHandler {
         final err = uri.queryParameters['error'] ?? 'Connection failed';
         onMessage('Calendar: $err');
       }
+    } else if (uri.host == 'settings') {
+      onMessage('Billing updated');
     }
   }
 }

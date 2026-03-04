@@ -1,10 +1,12 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
 import '../../services/api_client.dart';
+import 'receptionist_detail_screen.dart';
 import 'create_receptionist_screen.dart';
 
 class ReceptionistsScreen extends StatefulWidget {
@@ -18,6 +20,9 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
   List<Receptionist> _receptionists = [];
   bool _loading = true;
   String? _error;
+  bool _isSubscribed = false;
+  bool _hasCalendar = false;
+  String? _calendarId;
 
   @override
   void initState() {
@@ -34,15 +39,28 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
 
-      final res = await Supabase.instance.client
+      final supabase = Supabase.instance.client;
+
+      final profileRes = await supabase
+          .from('users')
+          .select('subscription_status, calendar_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      _isSubscribed = (profileRes?['subscription_status'] ?? '') == 'active';
+      _calendarId = profileRes?['calendar_id'] as String?;
+      _hasCalendar = (_calendarId ?? '').trim().isNotEmpty;
+
+      final res = await supabase
           .from('receptionists')
-          .select('id, name, phone_number, status')
+          .select('id, name, phone_number, inbound_phone_number, status')
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
       final list = (res as List)
           .map((e) => Receptionist.fromJson(e as Map<String, dynamic>))
           .toList();
+
       setState(() {
         _receptionists = list;
         _loading = false;
@@ -65,7 +83,10 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Call from ${r.name}', style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Call from ${r.name}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
@@ -128,11 +149,7 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
   }
 
   Future<void> _navigateToCreate() async {
-    final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (context) => const CreateReceptionistScreen(),
-      ),
-    );
+    final created = await context.push<bool>('/receptionists/create');
     if (created == true) _load();
   }
 
@@ -140,11 +157,15 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Receptionists'),
+        title: const Text('My Receptionists'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.go('/dashboard'),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: _navigateToCreate,
+            icon: const Icon(Icons.settings),
+            onPressed: () => context.push('/settings'),
           ),
         ],
       ),
@@ -152,40 +173,182 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text('Error: $_error'))
-              : _receptionists.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('No receptionists yet.'),
-                          const SizedBox(height: 16),
-                          FilledButton.icon(
-                            onPressed: _navigateToCreate,
-                            icon: const Icon(Icons.add),
-                            label: const Text('Create Receptionist'),
-                          ),
-                        ],
-                      ),
-                    )
+              : !_isSubscribed
+                  ? _buildUpgradePrompt()
                   : RefreshIndicator(
                       onRefresh: _load,
-                      child: ListView.builder(
+                      child: ListView(
                         padding: const EdgeInsets.all(16),
-                        itemCount: _receptionists.length,
-                        itemBuilder: (context, i) {
-                          final r = _receptionists[i];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: ListTile(
-                              title: Text(r.name),
-                              subtitle: Text(r.phoneNumber),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => _showOutboundCallSheet(context, r),
+                        children: [
+                          _buildCreateStepper(),
+                          const SizedBox(height: 24),
+                          if (_receptionists.isEmpty)
+                            _buildEmptyState()
+                          else
+                            ..._receptionists.map(
+                              (r) => Card(
+                                margin: const EdgeInsets.only(bottom: 8),
+                                child: ListTile(
+                                  title: Text(r.name),
+                                  subtitle: Text(r.displayPhone),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () =>
+                                      context.push('/receptionists/${r.id}'),
+                                  onLongPress: () =>
+                                      _showOutboundCallSheet(context, r),
+                                ),
+                              ),
                             ),
-                          );
-                        },
+                        ],
                       ),
                     ),
+    );
+  }
+
+  Widget _buildUpgradePrompt() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text('Upgrade to Pro'),
+            const SizedBox(height: 8),
+            const Text(
+              'You need an active subscription to add receptionists.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () => context.go('/dashboard'),
+              child: const Text('Go to dashboard'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCreateStepper() {
+    final currentStep = !_hasCalendar ? 1 : 2;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Create receptionist'),
+            const SizedBox(height: 4),
+            const Text(
+              'Complete each step. Calendar is required for booking and availability.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _StepCircle(
+                  done: currentStep > 1,
+                  current: currentStep == 1,
+                  label: '1',
+                ),
+                Expanded(
+                  child: Container(
+                    height: 2,
+                    color: currentStep > 1 ? Colors.green : Colors.grey.shade300,
+                  ),
+                ),
+                _StepCircle(
+                  done: false,
+                  current: currentStep == 2,
+                  label: '2',
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Connect Calendar', style: TextStyle(fontSize: 10)),
+                const Text('Create Receptionist', style: TextStyle(fontSize: 10)),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (currentStep == 1)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Step 1: Connect Google Calendar'),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: () => context.push('/settings'),
+                    child: const Text('Connect in Settings'),
+                  ),
+                ],
+              )
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Step 2: Create your receptionist'),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: _navigateToCreate,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Receptionist'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('No receptionists yet.'),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _navigateToCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('Create Receptionist'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepCircle extends StatelessWidget {
+  final bool done;
+  final bool current;
+  final String label;
+
+  const _StepCircle({
+    required this.done,
+    required this.current,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: done
+          ? Colors.green
+          : current
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade300,
+      child: Text(
+        done ? '✓' : label,
+        style: TextStyle(
+          color: done || current ? Colors.white : Colors.grey.shade700,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 }

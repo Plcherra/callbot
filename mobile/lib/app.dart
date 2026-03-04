@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:go_router/go_router.dart';
 
-import 'screens/auth/login_screen.dart';
-import 'screens/dashboard/dashboard_screen.dart';
+import 'app_router.dart';
 import 'services/deep_link_handler.dart';
 
 class EchodeskApp extends StatefulWidget {
@@ -16,10 +15,12 @@ class _EchodeskAppState extends State<EchodeskApp> {
   final DeepLinkHandler _deepLinkHandler = DeepLinkHandler();
   final GlobalKey<ScaffoldMessengerState> _scaffoldKey =
       GlobalKey<ScaffoldMessengerState>();
+  late final GoRouter _router;
 
   @override
   void initState() {
     super.initState();
+    _router = createAppRouter();
     _deepLinkHandler.init((msg) {
       _scaffoldKey.currentState?.showSnackBar(SnackBar(content: Text(msg)));
     });
@@ -33,28 +34,14 @@ class _EchodeskAppState extends State<EchodeskApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       scaffoldMessengerKey: _scaffoldKey,
       title: 'Echodesk',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      home: StreamBuilder<AuthState>(
-        stream: Supabase.instance.client.auth.onAuthStateChange,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final session = snapshot.data?.session;
-          if (session != null) {
-            return const DashboardScreen();
-          }
-          return const LoginScreen();
-        },
-      ),
+      routerConfig: _router,
     );
   }
 }

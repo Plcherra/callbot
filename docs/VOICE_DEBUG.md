@@ -114,7 +114,23 @@ Ensure these are set on the VPS (in `.env.local` or PM2 env):
 - `TELNYX_API_KEY`
 - `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` (for webhook validation)
 
-### 8. Bug Fix Applied
+### 8. No Usage on Deepgram/Grok/ElevenLabs
+
+If **none** of these APIs show usage when you make a test call, the pipeline is never running. Check:
+
+1. **WebSocket connects?** In `pm2 logs callbot`, look for:
+   ```
+   [voice/stream] WebSocket connected { receptionist_id: ..., api_keys: { DG: true, Grok: true, ElevenLabs: true } }
+   ```
+   - If you never see this → Telnyx cannot reach your WebSocket. Check nginx/proxy WebSocket upgrade, and that `TELNYX_WEBHOOK_BASE_URL` is your public URL.
+
+2. **API keys on VPS?** If you see `api_keys: { DG: false, Grok: false, ElevenLabs: false }` or `MISSING API KEYS`:
+   - Add `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY` to your VPS env (`.env` in app root, or PM2 ecosystem `env` block).
+   - Restart: `pm2 reload callbot --update-env`
+
+3. **server.js loads env** — The server now loads `dotenv` for `.env` and `.env.local`. Ensure those files exist on the VPS or use PM2 ecosystem env.
+
+### 9. Bug Fix Applied
 
 A bug in `app/lib/receptionistByPhone.ts` was fixed: `for (const v of unique)` → `for (const v of variants)`. The old code would throw `ReferenceError` and break receptionist lookup. Redeploy to pick up the fix.
 

@@ -23,7 +23,10 @@ async function streamStart(callControlId: string, streamUrl: string): Promise<vo
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ stream_url: streamUrl }),
+      body: JSON.stringify({
+        stream_url: streamUrl,
+        stream_bidirectional_mode: "rtp",
+      }),
     }
   );
   if (!res.ok) {

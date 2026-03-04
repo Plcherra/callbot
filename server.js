@@ -3,6 +3,10 @@
  * Run: node server.js (instead of next start)
  */
 
+const path = require("path");
+const appRoot = path.resolve(__dirname);
+require("dotenv").config({ path: path.join(appRoot, ".env") });
+require("dotenv").config({ path: path.join(appRoot, ".env.local") });
 const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");

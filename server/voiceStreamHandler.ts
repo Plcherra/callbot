@@ -59,24 +59,26 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   const params = getStreamParams(request.search ?? request.url ?? "");
   const receptionistId = params.receptionist_id ?? "";
 
-  console.log("[voice/stream] WebSocket connected", {
-    receptionist_id: receptionistId,
-    call_sid: params.call_sid,
-    direction: params.direction,
-  });
-
   const deepgramKey = process.env.DEEPGRAM_API_KEY ?? "";
   const grokKey = process.env.GROK_API_KEY ?? "";
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY ?? "";
   const elevenlabsVoice = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
 
+  console.log("[voice/stream] WebSocket connected", {
+    receptionist_id: receptionistId,
+    call_sid: params.call_sid,
+    direction: params.direction,
+    api_keys: { DG: !!deepgramKey, Grok: !!grokKey, ElevenLabs: !!elevenlabsKey },
+  });
+
   if (!deepgramKey || !grokKey || !elevenlabsKey) {
-    console.error("[voice/stream] Missing DEEPGRAM_API_KEY, GROK_API_KEY, or ELEVENLABS_API_KEY");
+    console.error("[voice/stream] MISSING API KEYS - DEEPGRAM:", !!deepgramKey, "GROK:", !!grokKey, "ELEVENLABS:", !!elevenlabsKey, "- Set these on the VPS (PM2 env or .env)");
     ws.close();
     return;
   }
 
   let pipeline: { sendAudio: (chunk: Buffer) => void; stop: () => void } | null = null;
+  let messageCount = 0;
 
   async function initPipeline() {
     try {
@@ -93,7 +95,9 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         },
         {
           onAudio: (buffer) => {
-            if (ws.readyState === 1) ws.send(Buffer.from(buffer));
+            if (ws.readyState !== 1) return;
+            const payload = Buffer.from(buffer).toString("base64");
+            ws.send(JSON.stringify({ event: "media", media: { payload } }));
           },
           onError: (err) => console.error("[voice/stream] Pipeline error:", err?.message ?? err),
         }
@@ -109,13 +113,19 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   initPipeline();
 
   ws.on("message", (data: Buffer | string) => {
+    messageCount++;
+    if (messageCount <= 3) {
+      const evt = typeof data === "string" ? (() => { try { return (JSON.parse(data) as { event?: string })?.event; } catch { return "?"; } })() : "binary";
+      console.log("[voice/stream] Telnyx msg #" + messageCount, "event=" + evt);
+    }
     let chunk: Buffer | null = null;
     if (Buffer.isBuffer(data)) {
       chunk = data;
     } else if (typeof data === "string") {
       try {
-        const msg = JSON.parse(data) as { event?: string; payload?: string };
-        if (msg.payload) chunk = Buffer.from(msg.payload, "base64");
+        const msg = JSON.parse(data) as { event?: string; media?: { payload?: string }; payload?: string };
+        const b64 = msg.media?.payload ?? msg.payload;
+        if (b64) chunk = Buffer.from(b64, "base64");
       } catch {
         // ignore non-JSON
       }

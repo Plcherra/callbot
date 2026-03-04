@@ -83,7 +83,17 @@ export async function POST(req: NextRequest) {
   }
 
   const event = parseTelnyxEvent(rawBody);
-  if (!event) return NextResponse.json({ received: true });
+  if (!event) {
+    console.warn("[telnyx/voice] Failed to parse event. Raw keys:", (() => {
+      try {
+        const p = JSON.parse(rawBody) as Record<string, unknown>;
+        return Object.keys(p);
+      } catch {
+        return [];
+      }
+    })());
+    return NextResponse.json({ received: true });
+  }
 
   const eventType = event.event_type;
   console.log("[telnyx/voice] Event:", eventType);
@@ -100,12 +110,18 @@ export async function POST(req: NextRequest) {
       from?: string;
       direction?: string;
     };
+    call_control_id?: string;
+    call_leg_id?: string;
+    to?: string;
+    from?: string;
+    direction?: string;
   };
-  const payload = data?.payload;
-  const callControlId = payload?.call_control_id ?? payload?.call_leg_id;
-  const to = payload?.to;
-  const from = payload?.from;
-  const direction = (payload?.direction ?? "").toLowerCase();
+  const payload = data?.payload ?? data;
+  const callControlId =
+    payload?.call_control_id ?? payload?.call_leg_id ?? data?.call_control_id ?? data?.call_leg_id;
+  const to = payload?.to ?? data?.to;
+  const from = payload?.from ?? data?.from;
+  const direction = ((payload?.direction ?? data?.direction) ?? "").toLowerCase();
 
   if (!callControlId) {
     console.error("[telnyx/voice] Missing call_control_id");

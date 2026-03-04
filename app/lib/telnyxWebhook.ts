@@ -43,10 +43,28 @@ export function validateTelnyxWebhook(
 
 /**
  * Parse Telnyx webhook event payload.
+ * Handles both legacy format and Standard Webhooks format.
+ * - Legacy: { event_type, data: { payload } }
+ * - Alternative: { data: { event_type, payload } }
  */
-export function parseTelnyxEvent(payload: string): { event_type: string; data: unknown } | null {
+export function parseTelnyxEvent(
+  payload: string
+): { event_type: string; data: { payload?: unknown; [k: string]: unknown } } | null {
   try {
-    return JSON.parse(payload) as { event_type: string; data: unknown };
+    const parsed = JSON.parse(payload) as Record<string, unknown>;
+    let eventType =
+      (parsed.event_type as string) ??
+      (parsed.data as Record<string, unknown>)?.event_type as string | undefined;
+    let data = (parsed.data ?? parsed) as { payload?: unknown; [k: string]: unknown };
+
+    if (!eventType && data?.payload && typeof data.payload === "object") {
+      const inner = data.payload as Record<string, unknown>;
+      eventType = inner.event_type as string | undefined;
+      if (inner.payload) data = { ...data, payload: inner.payload };
+    }
+
+    if (!eventType || typeof eventType !== "string") return null;
+    return { event_type: eventType, data };
   } catch {
     return null;
   }

@@ -16,7 +16,7 @@ async function streamStart(callControlId: string, streamUrl: string): Promise<vo
   const apiKey = process.env.TELNYX_API_KEY;
   if (!apiKey) throw new Error("TELNYX_API_KEY not set");
   const res = await fetch(
-    `${TELNYX_API}/call_control/${callControlId}/actions/stream_start`,
+    `${TELNYX_API}/calls/${encodeURIComponent(callControlId)}/actions/streaming_start`,
     {
       method: "POST",
       headers: {
@@ -28,7 +28,7 @@ async function streamStart(callControlId: string, streamUrl: string): Promise<vo
   );
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Telnyx stream_start failed: ${err}`);
+    throw new Error(`Telnyx streaming_start failed: ${err}`);
   }
 }
 
@@ -40,7 +40,7 @@ async function answerAndStream(
   if (!apiKey) throw new Error("TELNYX_API_KEY not set");
 
   const answerRes = await fetch(
-    `${TELNYX_API}/call_control/${callControlId}/actions/answer`,
+    `${TELNYX_API}/calls/${encodeURIComponent(callControlId)}/actions/answer`,
     {
       method: "POST",
       headers: {

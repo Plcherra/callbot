@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "node server.js",
+    "start": "tsx server.js",
     "start:next": "next start",
     "lint": "next lint",
     "test": "vitest",
@@ -36,6 +36,7 @@
     "stripe": "^17.4.0",
     "tailwind-merge": "^2.5.4",
     "telnyx": "^5.51.0",
+    "tsx": "^4.21.0",
     "ws": "^8.18.0",
     "zod": "^3.23.8"
   },

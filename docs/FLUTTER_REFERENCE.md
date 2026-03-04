@@ -35,6 +35,8 @@ All mobile endpoints require `Authorization: Bearer <access_token>` (Supabase se
 | GET | `/api/mobile/receptionists/[id]` | Get receptionist |
 | PATCH | `/api/mobile/receptionists/[id]` | Update receptionist (payment_settings, extra_instructions) |
 | POST | `/api/mobile/receptionists/[id]/delete` | Delete receptionist |
+| POST | `/api/mobile/receptionists/[id]/website` | Fetch website content and save. Body: `{ url }` |
+| GET | `/api/mobile/receptionists/[id]/prompt-preview?compact=true` | Get prompt preview |
 | POST | `/api/mobile/settings/plan-split` | Update inbound/outbound %. Body: `{ inbound_percent }` |
 | PATCH | `/api/mobile/settings/business` | Update business. Body: `{ business_name?, business_address? }` |
 | GET | `/api/quota-check` | Check outbound minutes (Bearer supported) |
@@ -80,3 +82,10 @@ flutter run --dart-define=API_BASE_URL=http://localhost:3000 \
 ```
 
 For production builds, use your deployed API URL.
+
+## Internal Beta Builds
+
+See [mobile/BETA_BUILD.md](../mobile/BETA_BUILD.md) for:
+- Android APK build and distribution
+- iOS TestFlight setup
+- End-to-end validation checklist (signup → checkout → receptionist → outbound call)

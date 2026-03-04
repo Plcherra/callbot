@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 
@@ -17,11 +18,12 @@ export type StaffRow = {
 };
 
 export async function listStaff(
-  receptionistId: string
+  receptionistId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ data: StaffRow[] } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("staff")
     .select("*")
@@ -33,13 +35,14 @@ export async function listStaff(
 
 export async function createStaff(
   receptionistId: string,
-  input: { name: string; role?: string; specialties?: unknown; photo_url?: string; calendar_id?: string; is_active?: boolean }
+  input: { name: string; role?: string; specialties?: unknown; photo_url?: string; calendar_id?: string; is_active?: boolean },
+  supabaseParam?: SupabaseClient
 ): Promise<{ data: StaffRow } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
   const name = input.name?.trim();
   if (!name) return { error: "Name is required." };
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("staff")
     .insert({
@@ -60,11 +63,12 @@ export async function createStaff(
 export async function updateStaff(
   receptionistId: string,
   staffId: string,
-  input: Partial<{ name: string; role: string; specialties: unknown; photo_url: string; calendar_id: string; is_active: boolean }>
+  input: Partial<{ name: string; role: string; specialties: unknown; photo_url: string; calendar_id: string; is_active: boolean }>,
+  supabaseParam?: SupabaseClient
 ): Promise<{ data: StaffRow } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.name !== undefined) updates.name = input.name.trim();
   if (input.role !== undefined) updates.role = input.role.trim() || null;
@@ -85,11 +89,12 @@ export async function updateStaff(
 
 export async function deleteStaff(
   receptionistId: string,
-  staffId: string
+  staffId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ ok: true } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { error } = await supabase
     .from("staff")
     .delete()

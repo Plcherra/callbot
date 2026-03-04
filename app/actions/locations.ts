@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 
@@ -17,11 +18,12 @@ export type LocationRow = {
 };
 
 export async function listLocations(
-  receptionistId: string
+  receptionistId: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ data: LocationRow[] } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("locations")
     .select("*")

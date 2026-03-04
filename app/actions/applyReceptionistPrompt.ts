@@ -1,5 +1,7 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@/app/lib/supabase/server";
 import { buildReceptionistPrompt } from "@/app/lib/buildReceptionistPrompt";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 import { listStaff } from "@/app/actions/staff";
@@ -14,21 +16,23 @@ import { getReceptionist } from "@/app/actions/receptionistSettings";
  */
 export async function getPromptPreview(
   receptionistId: string,
-  options?: { compact?: boolean }
+  options?: { compact?: boolean },
+  supabaseParam?: SupabaseClient
 ): Promise<{ prompt: string; charCount: number } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
 
-  const recResult = await getReceptionist(receptionistId);
+  const recResult = await getReceptionist(receptionistId, supabase);
   if ("error" in recResult) return { error: recResult.error };
   const rec = recResult.data;
 
   const [staffRes, servicesRes, locationsRes, promosRes, rulesRes] = await Promise.all([
-    listStaff(receptionistId),
-    listServices(receptionistId),
-    listLocations(receptionistId),
-    listPromos(receptionistId),
-    listReminderRules(receptionistId),
+    listStaff(receptionistId, supabase),
+    listServices(receptionistId, supabase),
+    listLocations(receptionistId, supabase),
+    listPromos(receptionistId, supabase),
+    listReminderRules(receptionistId, supabase),
   ]);
 
   const staff = "data" in staffRes ? staffRes.data : [];

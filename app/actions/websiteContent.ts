@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/app/lib/supabase/server";
 import { assertReceptionistOwnership } from "@/app/actions/receptionistOwnership";
 
@@ -28,9 +29,11 @@ function stripHtmlToText(html: string): string {
 
 export async function fetchAndSaveWebsiteContent(
   receptionistId: string,
-  url: string
+  url: string,
+  supabaseParam?: SupabaseClient
 ): Promise<{ ok: true } | { error: string }> {
-  const ownership = await assertReceptionistOwnership(receptionistId);
+  const supabase = supabaseParam ?? (await createClient());
+  const ownership = await assertReceptionistOwnership(receptionistId, supabase);
   if (!ownership.ok) return { error: ownership.error };
 
   const trimmed = url?.trim();
@@ -68,7 +71,6 @@ export async function fetchAndSaveWebsiteContent(
       return { error: "No text content could be extracted from the page." };
     }
 
-    const supabase = await createClient();
     const { error } = await supabase
       .from("receptionists")
       .update({

@@ -59,6 +59,12 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   const params = getStreamParams(request.search ?? request.url ?? "");
   const receptionistId = params.receptionist_id ?? "";
 
+  console.log("[voice/stream] WebSocket connected", {
+    receptionist_id: receptionistId,
+    call_sid: params.call_sid,
+    direction: params.direction,
+  });
+
   const deepgramKey = process.env.DEEPGRAM_API_KEY ?? "";
   const grokKey = process.env.GROK_API_KEY ?? "";
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY ?? "";
@@ -75,6 +81,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   async function initPipeline() {
     try {
       const { prompt, greeting } = await fetchPrompt(receptionistId);
+      console.log("[voice/stream] Pipeline init: greeting len=", greeting?.length ?? 0);
       const result = await runVoicePipeline(
         {
           deepgramApiKey: deepgramKey,
@@ -92,8 +99,9 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         }
       );
       pipeline = result;
+      console.log("[voice/stream] Pipeline ready, playing greeting");
     } catch (err) {
-      console.error("[voice/stream] Init failed:", err instanceof Error ? err.message : err);
+      console.error("[voice/stream] Init failed:", err instanceof Error ? err.message : err, err instanceof Error ? err.stack : "");
       ws.close();
     }
   }

@@ -86,6 +86,8 @@ export async function POST(req: NextRequest) {
   if (!event) return NextResponse.json({ received: true });
 
   const eventType = event.event_type;
+  console.log("[telnyx/voice] Event:", eventType);
+
   if (eventType !== "call.initiated" && eventType !== "call.answered") {
     return NextResponse.json({ received: true });
   }
@@ -112,6 +114,8 @@ export async function POST(req: NextRequest) {
 
   // Inbound: call.initiated, to = our DID. Outbound: call.answered, from = our DID.
   const ourDid = eventType === "call.initiated" ? to : from;
+  console.log("[telnyx/voice] Payload: to=", to, "from=", from, "ourDid=", ourDid, "direction=", direction);
+
   if (!ourDid) {
     console.error("[telnyx/voice] Missing to/from");
     return NextResponse.json({ error: "Missing payload" }, { status: 400 });
@@ -121,9 +125,11 @@ export async function POST(req: NextRequest) {
   const receptionist = await getReceptionistByPhoneNumber(supabase, ourDid);
 
   if (!receptionist) {
-    console.warn("[telnyx/voice] No receptionist for DID:", ourDid);
+    console.warn("[telnyx/voice] No receptionist for DID:", ourDid, "- check telnyx_phone_number / inbound_phone_number in DB");
     return NextResponse.json({ received: true });
   }
+
+  console.log("[telnyx/voice] Receptionist found:", receptionist.id, receptionist.name);
 
   const base =
     process.env.TELNYX_WEBHOOK_BASE_URL ||
@@ -138,11 +144,15 @@ export async function POST(req: NextRequest) {
   const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
   const streamUrl = `${wsBase}/api/voice/stream?receptionist_id=${receptionist.id}&call_sid=${callControlId}&caller_phone=${encodeURIComponent(callerPhone ?? "")}&direction=${dir}`;
 
+  console.log("[telnyx/voice] streamUrl=", streamUrl, "(Telnyx must be able to reach this)");
+
   try {
     if (eventType === "call.initiated") {
       await answerAndStream(callControlId, streamUrl);
+      console.log("[telnyx/voice] Answered and stream_start OK for", callControlId);
     } else {
       await streamStart(callControlId, streamUrl);
+      console.log("[telnyx/voice] stream_start OK for", callControlId);
     }
     return NextResponse.json({ received: true });
   } catch (err) {

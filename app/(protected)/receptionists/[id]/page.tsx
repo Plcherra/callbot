@@ -10,7 +10,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/app/components/ui/alert";
 import { getCurrentPeriod } from "@/app/lib/usage";
 import { DeleteReceptionistButton } from "@/app/components/receptionists/DeleteReceptionistButton";
 import { CallNowSection } from "@/app/components/receptionists/CallNowSection";
-import { OutboundCallSection } from "@/app/components/receptionists/OutboundCallSection";
 
 type Props = {
   params: Promise<{ id: string }>;
@@ -85,19 +84,13 @@ export default async function ReceptionistDetailPage({ params, searchParams }: P
       <p className="mt-1 text-muted-foreground">
         AI receptionist
         {receptionist.inbound_phone_number
-          ? ` · Your number: ${receptionist.inbound_phone_number}`
+          ? ` · Your business number: ${receptionist.inbound_phone_number}`
           : ` · ${receptionist.phone_number}`}
       </p>
 
       <CallNowSection
         inboundPhoneNumber={receptionist.inbound_phone_number}
         showCreatedAlert={created === "1"}
-        hint="Try asking it to book an appointment."
-      />
-
-      <OutboundCallSection
-        receptionistId={receptionist.id}
-        hasTelnyxNumber={Boolean(receptionist.telnyx_phone_number)}
       />
 
       <Card className="mt-8">
@@ -107,7 +100,7 @@ export default async function ReceptionistDetailPage({ params, searchParams }: P
         <CardContent className="space-y-2 text-sm">
           {receptionist.inbound_phone_number ? (
             <p>
-              <span className="font-medium">Your number:</span>{" "}
+              <span className="font-medium">Your business number:</span>{" "}
               {receptionist.inbound_phone_number}
             </p>
           ) : (

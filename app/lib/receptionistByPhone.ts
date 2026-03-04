@@ -18,7 +18,7 @@ function getLookupVariants(phone: string): string[] {
   if (us10) {
     variants.push(`+1${us10}`, `1${us10}`);
   }
-  return [...new Set(variants)];
+  return Array.from(new Set(variants));
 }
 
 /**
@@ -31,7 +31,7 @@ export async function getReceptionistByPhoneNumber(
 ): Promise<ReceptionistByPhone | null> {
   const variants = getLookupVariants(to);
 
-  for (const v of unique) {
+  for (const v of variants) {
     const { data: byTelnyx } = await supabase
       .from("receptionists")
       .select("id, name, user_id")

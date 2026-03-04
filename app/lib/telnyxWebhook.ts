@@ -64,7 +64,7 @@ export function parseTelnyxEvent(
     }
 
     if (!eventType || typeof eventType !== "string") return null;
-    return { event_type: eventType, data };
+    return { event_type: eventType as string, data };
   } catch {
     return null;
   }

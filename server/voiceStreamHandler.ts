@@ -64,6 +64,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   const callSid = params.call_sid ?? "";
 
   // Deduplicate: one WebSocket per call (Telnyx may retry; multiple pipelines hit ElevenLabs concurrency limit)
+  // Claim slot synchronously to avoid race when many connections arrive in parallel
   if (callSid) {
     const existing = activeByCallSid.get(callSid);
     if (existing && existing.readyState === 1) {
@@ -71,6 +72,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
       ws.close(1000, "Duplicate");
       return;
     }
+    activeByCallSid.set(callSid, ws);
   }
 
   const deepgramKey = process.env.DEEPGRAM_API_KEY ?? "";
@@ -86,12 +88,11 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   });
 
   if (!deepgramKey || !grokKey || !elevenlabsKey) {
+    if (callSid) activeByCallSid.delete(callSid);
     console.error("[voice/stream] MISSING API KEYS - DEEPGRAM:", !!deepgramKey, "GROK:", !!grokKey, "ELEVENLABS:", !!elevenlabsKey, "- Set these on the VPS (PM2 env or .env)");
     ws.close();
     return;
   }
-
-  if (callSid) activeByCallSid.set(callSid, ws);
 
   let pipeline: { sendAudio: (chunk: Buffer) => void; stop: () => void } | null = null;
   let messageCount = 0;

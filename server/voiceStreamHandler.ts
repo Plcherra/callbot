@@ -63,14 +63,14 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   const receptionistId = params.receptionist_id ?? "";
   const callSid = params.call_sid ?? "";
 
-  // Deduplicate: one WebSocket per call (Telnyx may retry; multiple pipelines hit ElevenLabs concurrency limit)
-  // Claim slot synchronously to avoid race when many connections arrive in parallel
+  // Deduplicate: one WebSocket per call (Telnyx retries create multiple connections)
+  // "Newest wins" - close any existing connection and replace with this one
   if (callSid) {
     const existing = activeByCallSid.get(callSid);
     if (existing && existing.readyState === 1) {
-      console.log("[voice/stream] Rejecting duplicate connection for call_sid=", callSid);
-      ws.close(1000, "Duplicate");
-      return;
+      console.log("[voice/stream] Replacing previous connection for call_sid=", callSid);
+      activeByCallSid.delete(callSid);
+      existing.close(1000, "Replaced");
     }
     activeByCallSid.set(callSid, ws);
   }
@@ -100,6 +100,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   async function initPipeline() {
     try {
       const { prompt, greeting } = await fetchPrompt(receptionistId);
+      if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) return;
       console.log("[voice/stream] Pipeline init: greeting len=", greeting?.length ?? 0);
       const result = await runVoicePipeline(
         {
@@ -119,11 +120,17 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
           onError: (err) => console.error("[voice/stream] Pipeline error:", err?.message ?? err),
         }
       );
+      if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) {
+        result.stop();
+        return;
+      }
       pipeline = result;
       console.log("[voice/stream] Pipeline ready, playing greeting");
     } catch (err) {
-      console.error("[voice/stream] Init failed:", err instanceof Error ? err.message : err, err instanceof Error ? err.stack : "");
-      ws.close();
+      if (ws.readyState === 1) {
+        console.error("[voice/stream] Init failed:", err instanceof Error ? err.message : err, err instanceof Error ? err.stack : "");
+        ws.close();
+      }
     }
   }
 
@@ -151,7 +158,10 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   });
 
   ws.on("close", () => {
-    if (callSid) activeByCallSid.delete(callSid);
+    // Only remove if we're still the active connection (weren't replaced)
+    if (callSid && activeByCallSid.get(callSid) === ws) {
+      activeByCallSid.delete(callSid);
+    }
     pipeline?.stop();
   });
 }

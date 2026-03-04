@@ -11,6 +11,7 @@ module.exports = {
       script: "npm",
       args: "run start",
       cwd: __dirname,
+      instances: 1, // Must be 1: voice deduplication uses in-memory Map per call_sid
       env_file: ".env",
       env: { NODE_ENV: "production" },
     },

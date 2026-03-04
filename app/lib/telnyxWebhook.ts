@@ -52,9 +52,9 @@ export function parseTelnyxEvent(
 ): { event_type: string; data: { payload?: unknown; [k: string]: unknown } } | null {
   try {
     const parsed = JSON.parse(payload) as Record<string, unknown>;
-    let eventType =
+    let eventType: string | undefined =
       (parsed.event_type as string) ??
-      (parsed.data as Record<string, unknown>)?.event_type as string | undefined;
+      ((parsed.data as Record<string, unknown>)?.event_type as string | undefined);
     let data = (parsed.data ?? parsed) as { payload?: unknown; [k: string]: unknown };
 
     if (!eventType && data?.payload && typeof data.payload === "object") {

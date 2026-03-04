@@ -131,9 +131,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing payload" }, { status: 400 });
   }
 
-  // Inbound: call.initiated, to = our DID. Outbound: call.answered, from = our DID.
-  const ourDid = eventType === "call.initiated" ? to : from;
+  // Inbound: our DID is "to" (they called us). Outbound: our DID is "from" (we called them).
+  const dir = direction.startsWith("outbound") ? "outbound" : "inbound";
+  const ourDid = dir === "outbound" ? from : to;
   console.log("[telnyx/voice] Payload: to=", to, "from=", from, "ourDid=", ourDid, "direction=", direction);
+
+  // For inbound, only act on call.initiated (answer + stream). call.answered is a no-op (already streamed).
+  if (eventType === "call.answered" && dir === "inbound") {
+    return NextResponse.json({ received: true });
+  }
 
   if (!ourDid) {
     console.error("[telnyx/voice] Missing to/from");
@@ -158,7 +164,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Misconfiguration" }, { status: 503 });
   }
 
-  const dir = direction.startsWith("inbound") ? "inbound" : "outbound";
   const callerPhone = eventType === "call.initiated" ? from : to;
   const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
   const streamUrl = `${wsBase}/api/voice/stream?receptionist_id=${receptionist.id}&call_sid=${callControlId}&caller_phone=${encodeURIComponent(callerPhone ?? "")}&direction=${dir}`;

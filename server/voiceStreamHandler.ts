@@ -8,6 +8,9 @@ import type WebSocket from "ws";
 import { runVoicePipeline } from "../app/lib/voicePipeline";
 
 const VOICE_API_KEY = process.env.VOICE_SERVER_API_KEY;
+
+/** Active WebSocket per call_sid to avoid duplicate pipelines (Telnyx retries, etc.) */
+const activeByCallSid = new Map<string, WebSocket>();
 const APP_URL = process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
 
 type StreamParams = {
@@ -58,6 +61,17 @@ async function fetchPrompt(receptionistId: string): Promise<{ prompt: string; gr
 export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: string; search?: string }): void {
   const params = getStreamParams(request.search ?? request.url ?? "");
   const receptionistId = params.receptionist_id ?? "";
+  const callSid = params.call_sid ?? "";
+
+  // Deduplicate: one WebSocket per call (Telnyx may retry; multiple pipelines hit ElevenLabs concurrency limit)
+  if (callSid) {
+    const existing = activeByCallSid.get(callSid);
+    if (existing && existing.readyState === 1) {
+      console.log("[voice/stream] Rejecting duplicate connection for call_sid=", callSid);
+      ws.close(1000, "Duplicate");
+      return;
+    }
+  }
 
   const deepgramKey = process.env.DEEPGRAM_API_KEY ?? "";
   const grokKey = process.env.GROK_API_KEY ?? "";
@@ -76,6 +90,8 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
     ws.close();
     return;
   }
+
+  if (callSid) activeByCallSid.set(callSid, ws);
 
   let pipeline: { sendAudio: (chunk: Buffer) => void; stop: () => void } | null = null;
   let messageCount = 0;
@@ -134,6 +150,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   });
 
   ws.on("close", () => {
+    if (callSid) activeByCallSid.delete(callSid);
     pipeline?.stop();
   });
 }

@@ -20,6 +20,11 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
+    // Do not pass WebSocket upgrade requests to Next.js (causes bind error)
+    if (req.headers.upgrade === "websocket") {
+      res.socket?.once("close", () => {});
+      return;
+    }
     const parsedUrl = parse(req.url || "/", true);
     handle(req, res, parsedUrl);
   });

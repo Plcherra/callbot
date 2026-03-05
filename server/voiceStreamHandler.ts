@@ -9,6 +9,10 @@ import { runVoicePipeline } from "../app/lib/voicePipeline";
 
 const VOICE_API_KEY = process.env.VOICE_SERVER_API_KEY;
 
+/** PCMU/mulaw silence: 0xFF. 20ms at 8kHz = 160 bytes. Keep-alive every 5s prevents Telnyx disconnect (>10s idle). */
+const SILENCE_PACKET = Buffer.alloc(160, 0xff);
+const KEEPALIVE_MS = 5000;
+
 /** Active WebSocket per call_sid to avoid duplicate pipelines (Telnyx retries, etc.) */
 const activeByCallSid = new Map<string, WebSocket>();
 const APP_URL = process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
@@ -86,6 +90,22 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
     direction: params.direction,
     api_keys: { DG: !!deepgramKey, Grok: !!grokKey, ElevenLabs: !!elevenlabsKey },
   });
+  console.log("[voice/stream] RTP stream open - sending silence packet");
+
+  function sendSilenceKeepalive() {
+    if (ws.readyState !== 1) return;
+    const payload = SILENCE_PACKET.toString("base64");
+    ws.send(JSON.stringify({ event: "media", media: { payload } }));
+  }
+  sendSilenceKeepalive();
+  const keepaliveInterval = setInterval(sendSilenceKeepalive, KEEPALIVE_MS);
+
+  let chunkReceived = false;
+  const noAudioTimeout = setTimeout(() => {
+    if (!chunkReceived) {
+      console.log("[voice/stream] No audio from Telnyx");
+    }
+  }, 5000);
 
   if (!deepgramKey || !grokKey || !elevenlabsKey) {
     if (callSid) activeByCallSid.delete(callSid);
@@ -138,10 +158,6 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
 
   ws.on("message", (data: Buffer | string) => {
     messageCount++;
-    if (messageCount <= 3) {
-      const evt = typeof data === "string" ? (() => { try { return (JSON.parse(data) as { event?: string })?.event; } catch { return "?"; } })() : "binary";
-      console.log("[voice/stream] Telnyx msg #" + messageCount, "event=" + evt);
-    }
     let chunk: Buffer | null = null;
     if (Buffer.isBuffer(data)) {
       chunk = data;
@@ -154,10 +170,16 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         // ignore non-JSON
       }
     }
-    if (chunk && pipeline) pipeline.sendAudio(chunk);
+    if (chunk) {
+      chunkReceived = true;
+      console.log("[voice/stream] RTP chunk len:", chunk.length);
+      if (pipeline) pipeline.sendAudio(chunk);
+    }
   });
 
   ws.on("close", () => {
+    clearInterval(keepaliveInterval);
+    clearTimeout(noAudioTimeout);
     // Only remove if we're still the active connection (weren't replaced)
     if (callSid && activeByCallSid.get(callSid) === ws) {
       activeByCallSid.delete(callSid);

@@ -5,15 +5,16 @@
  * Or: pm2 reload callbot --update-env (after initial start)
  */
 module.exports = {
-  apps: [
-    {
+  apps: [{
       name: "callbot",
-      script: "npm",
-      args: "run start",
-      cwd: __dirname,
-      instances: 1, // Must be 1: voice deduplication uses in-memory Map per call_sid
-      env_file: ".env",
-      env: { NODE_ENV: "production" },
-    },
-  ],
+      script: "./server.js",
+      interpreter: 'tsx',
+      exec_mode: "cluster",
+      instances: 'max', 
+      autorestart: true,
+      watch: false,
+      env: {
+      NODE_ENV: "production"
+    }
+  }]
 };

@@ -4,30 +4,42 @@
  */
 
 import { NextResponse } from "next/server";
-import Telnyx from "telnyx";
-
-const apiKey = process.env.TELNYX_API_KEY;
-const telnyx = apiKey ? new Telnyx({ apiKey }) : null;
 
 export async function POST(req: Request) {
-  console.log('Webhook POST received at', new Date().toISOString());  // <-- always log
+  console.log("Webhook POST received at", new Date().toISOString());
 
-  let body;
+  let body: unknown;
   try {
     body = await req.json();
   } catch (e) {
-    console.log('Bad JSON:', (e as Error).message);
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    console.log("Bad JSON:", (e as Error).message);
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   console.log("Webhook hit:", JSON.stringify(body, null, 2));
 
-  if (body?.data?.event_type === "call.initiated" && telnyx) {
-    const callControlId = body?.data?.payload?.call_control_id ?? body?.data?.call_control_id;
+  const b = body as { data?: { event_type?: string; payload?: { call_control_id?: string }; call_control_id?: string } };
+  if (b?.data?.event_type === "call.initiated") {
+    const callControlId = b?.data?.payload?.call_control_id ?? b?.data?.call_control_id;
 
     if (callControlId) {
-      await telnyx.calls.answer({ call_control_id: callControlId });
-      console.log("Answered");
+      const response = await fetch(
+        `https://api.telnyx.com/v2/calls/${encodeURIComponent(callControlId)}/actions/answer`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.TELNYX_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (response.ok) {
+        console.log("Answered via API");
+      } else {
+        console.log("Answer failed:", await response.text());
+      }
     }
   }
 

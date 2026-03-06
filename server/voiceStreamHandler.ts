@@ -9,13 +9,16 @@ import { runVoicePipeline } from "../app/lib/voicePipeline";
 
 const VOICE_API_KEY = process.env.VOICE_SERVER_API_KEY;
 
-/** PCMU/mulaw silence: 0xFF. 20ms at 8kHz = 160 bytes. Keep-alive every 5s prevents Telnyx disconnect (>10s idle). */
+/** PCMU/mulaw silence: 0xFF. 20ms at 8kHz = 160 bytes. Keep-alive every 2s prevents Telnyx disconnect. */
 const SILENCE_PACKET = Buffer.alloc(160, 0xff);
-const KEEPALIVE_MS = 5000;
+const KEEPALIVE_MS = 2000;
 
 /** Active WebSocket per call_sid to avoid duplicate pipelines (Telnyx retries, etc.) */
 const activeByCallSid = new Map<string, WebSocket>();
-const APP_URL = process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+const PORT = process.env.PORT || "3000";
+/** Prefer localhost to avoid external round-trip during prompt fetch (prevents 1006/timeout). */
+const PROMPT_BASE =
+  process.env.VOICE_PROMPT_BASE_URL || `http://127.0.0.1:${PORT}`;
 
 type StreamParams = {
   receptionist_id?: string;
@@ -39,27 +42,40 @@ function getStreamParams(urlOrSearch: string): StreamParams {
 
 async function fetchPrompt(receptionistId: string): Promise<{ prompt: string; greeting: string }> {
   const apiKey = VOICE_API_KEY;
-  if (!apiKey || !APP_URL) {
+  if (!apiKey) {
     return {
       prompt: "You are an AI receptionist. Be helpful and concise.",
       greeting: "Hello! Thanks for calling. How can I help you today?",
     };
   }
-  const base = APP_URL.replace(/\/$/, "");
-  const res = await fetch(`${base}/api/receptionist-prompt?receptionist_id=${receptionistId}`, {
-    headers: { "x-voice-server-key": apiKey },
-  });
-  if (!res.ok) {
+  const base = PROMPT_BASE.replace(/\/$/, "");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${base}/api/receptionist-prompt?receptionist_id=${receptionistId}`, {
+      headers: { "x-voice-server-key": apiKey },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      return {
+        prompt: "You are an AI receptionist. Be helpful and concise.",
+        greeting: "Hello! Thanks for calling. How can I help you today?",
+      };
+    }
+    const json = (await res.json()) as { prompt?: string; greeting?: string };
+    return {
+      prompt: json.prompt ?? "You are an AI receptionist. Be helpful and concise.",
+      greeting: json.greeting ?? "Hello! Thanks for calling. How can I help you today?",
+    };
+  } catch (err) {
+    clearTimeout(timeout);
+    console.warn("[voice/stream] fetchPrompt failed:", err instanceof Error ? err.message : err);
     return {
       prompt: "You are an AI receptionist. Be helpful and concise.",
       greeting: "Hello! Thanks for calling. How can I help you today?",
     };
   }
-  const json = (await res.json()) as { prompt?: string; greeting?: string };
-  return {
-    prompt: json.prompt ?? "You are an AI receptionist. Be helpful and concise.",
-    greeting: json.greeting ?? "Hello! Thanks for calling. How can I help you today?",
-  };
 }
 
 export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: string; search?: string }): void {

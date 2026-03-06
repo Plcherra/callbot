@@ -1,9 +1,11 @@
 /**
  * Telnyx voice webhook (API-only).
- * Answers incoming calls.
+ * Answers incoming calls and starts streaming.
  */
 
 import { NextResponse } from "next/server";
+import { createServiceRoleClient } from "@/app/lib/supabase/server";
+import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
 
 export async function POST(req: Request) {
   console.log("Webhook POST received at", new Date().toISOString());
@@ -18,15 +20,52 @@ export async function POST(req: Request) {
 
   console.log("Webhook hit:", JSON.stringify(body, null, 2));
 
-  const b = body as { data?: { event_type?: string; payload?: { call_control_id?: string }; call_control_id?: string } };
+  const b = body as {
+    data?: {
+      event_type?: string;
+      payload?: {
+        call_control_id?: string;
+        to?: string;
+        from?: string;
+      };
+      call_control_id?: string;
+    };
+  };
   if (b?.data?.event_type === "call.initiated") {
-    const callControlId = b?.data?.payload?.call_control_id ?? b?.data?.call_control_id;
+    const payload = b?.data?.payload ?? {};
+    const callControlId = payload?.call_control_id ?? b?.data?.call_control_id;
+    const toNumber = payload?.to ?? ""; // Our DID (they called us)
 
     if (callControlId) {
+      const supabase = createServiceRoleClient();
+      let receptionist = await getReceptionistByPhoneNumber(supabase, toNumber);
+      if (!receptionist) {
+        const { data: fallback } = await supabase
+          .from("receptionists")
+          .select("id")
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+        if (fallback) {
+          receptionist = { id: (fallback as { id: string }).id };
+          console.warn("[telnyx/voice] No receptionist for DID", toNumber, "- using fallback:", receptionist.id);
+        }
+      }
+      const receptionistId = receptionist?.id ?? "";
+      if (receptionist) {
+        console.log("[telnyx/voice] Receptionist:", receptionist.id, receptionist.name ?? "");
+      }
+
       const apiKey = process.env.TELNYX_API_KEY;
       const base = process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "https://echodesk.us";
       const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
-      const streamUrl = `${wsBase}/api/voice/stream?call_sid=${encodeURIComponent(callControlId)}`;
+      const params = new URLSearchParams({
+        call_sid: callControlId,
+        direction: "inbound",
+        caller_phone: payload?.from ?? "",
+      });
+      if (receptionistId) params.set("receptionist_id", receptionistId);
+      const streamUrl = `${wsBase}/api/voice/stream?${params.toString()}`;
 
       const answerRes = await fetch(
         `https://api.telnyx.com/v2/calls/${encodeURIComponent(callControlId)}/actions/answer`,

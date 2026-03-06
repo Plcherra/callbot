@@ -21,9 +21,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const receptionistId = req.nextUrl.searchParams.get("receptionist_id");
+  const receptionistId = req.nextUrl.searchParams.get("receptionist_id")?.trim();
   if (!receptionistId) {
-    return NextResponse.json({ error: "receptionist_id required" }, { status: 400 });
+    return NextResponse.json({
+      prompt: "You are an AI receptionist. Be helpful and concise.",
+      greeting: "Hello! Thanks for calling. How can I help you today?",
+    });
   }
 
   const supabase = createServiceRoleClient();

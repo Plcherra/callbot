@@ -119,6 +119,7 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
 
   async function initPipeline() {
     try {
+      console.log("[voice/stream] Fetching prompt for receptionist:", receptionistId);
       const { prompt, greeting } = await fetchPrompt(receptionistId);
       if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) return;
       console.log("[voice/stream] Pipeline init: greeting len=", greeting?.length ?? 0);
@@ -177,9 +178,14 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
     }
   });
 
-  ws.on("close", () => {
+  ws.on("error", (err) => {
+    console.error("[voice/stream] WebSocket error:", err?.message ?? err);
+  });
+
+  ws.on("close", (code, reason) => {
     clearInterval(keepaliveInterval);
     clearTimeout(noAudioTimeout);
+    console.log("[voice/stream] WebSocket closed:", code, reason?.toString() || "");
     // Only remove if we're still the active connection (weren't replaced)
     if (callSid && activeByCallSid.get(callSid) === ws) {
       activeByCallSid.delete(callSid);

@@ -12,7 +12,8 @@
     "app/lib/voicePipeline.ts",
     "app/lib/deepgram.ts",
     "app/lib/grok.ts",
-    "app/lib/elevenlabs.ts"
+    "app/lib/elevenlabs.ts",
+    "app/lib/promptCache.ts"
   ],
   "exclude": ["node_modules"]
 }

@@ -6,6 +6,7 @@
 
 import type WebSocket from "ws";
 import { runVoicePipeline } from "../app/lib/voicePipeline";
+import { getPrompt as getCachedPrompt, deletePrompt } from "../app/lib/promptCache";
 
 const VOICE_API_KEY = process.env.VOICE_SERVER_API_KEY;
 
@@ -152,8 +153,16 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         console.log("[voice/stream] Dummy test active - if you hear tone/silence, WS send works");
         return;
       }
-      console.log("[voice/stream] Step 1: Fetching prompt...");
-      const { prompt, greeting } = await fetchPrompt(receptionistId);
+      // Use pre-cached prompt from webhook (instant); fallback to fetch if missed
+      let promptData = callSid ? getCachedPrompt(callSid) : null;
+      if (promptData) {
+        console.log("[voice/stream] Using cached prompt (no blocking fetch)");
+        if (callSid) deletePrompt(callSid);
+      } else {
+        console.log("[voice/stream] Cache miss - fetching prompt...");
+        promptData = await fetchPrompt(receptionistId);
+      }
+      const { prompt, greeting } = promptData;
       if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) {
         console.log("[voice/stream] Aborted: WS closed or replaced");
         return;

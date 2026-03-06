@@ -1,11 +1,14 @@
 /**
  * Telnyx voice webhook (API-only).
  * Answers incoming calls and starts streaming.
+ * Pre-fetches receptionist prompt so WebSocket handler has it instantly (avoids 1006 timeout).
  */
 
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
+import { getReceptionistPrompt } from "@/app/lib/getReceptionistPrompt";
+import { setPrompt } from "@/app/lib/promptCache";
 
 export async function POST(req: Request) {
   console.log("Webhook POST received at", new Date().toISOString());
@@ -54,6 +57,15 @@ export async function POST(req: Request) {
       const receptionistId = receptionist?.id ?? "";
       if (receptionist) {
         console.log("[telnyx/voice] Receptionist:", receptionist.id, receptionist.name ?? "");
+      }
+
+      // Pre-fetch prompt before stream_start so WebSocket handler has it instantly (no 1006)
+      try {
+        const { prompt, greeting } = await getReceptionistPrompt(receptionistId);
+        setPrompt(callControlId, prompt, greeting);
+        console.log("[telnyx/voice] Prompt cached for call");
+      } catch (err) {
+        console.warn("[telnyx/voice] Prompt pre-fetch failed:", (err as Error)?.message);
       }
 
       const apiKey = process.env.TELNYX_API_KEY;

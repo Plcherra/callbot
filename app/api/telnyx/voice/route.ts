@@ -2,6 +2,7 @@
  * Telnyx voice webhook (API-only).
  * Answers incoming calls and starts streaming.
  * Pre-fetches receptionist prompt so WebSocket handler has it instantly (avoids 1006 timeout).
+ * Validates webhook signature when TELNYX_PUBLIC_KEY or TELNYX_WEBHOOK_SECRET is set.
  */
 
 import { NextResponse } from "next/server";
@@ -9,19 +10,50 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
 import { getReceptionistPrompt } from "@/app/lib/getReceptionistPrompt";
 import { setPrompt } from "@/app/lib/promptCache";
+import { validateTelnyxWebhook } from "@/app/lib/telnyxWebhook";
+import { getTelnyxWsBase } from "@/app/lib/env";
+import { log, warn, error } from "@/app/lib/logger";
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((v, k) => {
+    out[k] = v;
+  });
+  return out;
+}
 
 export async function POST(req: Request) {
-  console.log("Webhook POST received at", new Date().toISOString());
-
+  const rawBody = await req.text();
   let body: unknown;
   try {
-    body = await req.json();
+    body = rawBody ? (JSON.parse(rawBody) as unknown) : {};
   } catch (e) {
-    console.log("Bad JSON:", (e as Error).message);
+    log("telnyx/voice", "Bad JSON:", (e as Error).message);
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  console.log("Webhook hit:", JSON.stringify(body, null, 2));
+  const publicKey = process.env.TELNYX_PUBLIC_KEY?.trim();
+  const webhookSecret = process.env.TELNYX_WEBHOOK_SECRET?.trim();
+  const hasValidation = !!(publicKey || webhookSecret);
+
+  if (hasValidation) {
+    const signature = req.headers.get("t-signature") ?? req.headers.get("telnyx-signature");
+    const headers = headersToRecord(req.headers);
+    if (
+      !validateTelnyxWebhook(rawBody, signature, {
+        publicKey: publicKey || undefined,
+        webhookSecret: webhookSecret || undefined,
+        headers,
+      })
+    ) {
+      warn("telnyx/voice", "Webhook signature validation failed");
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+  } else {
+    warn("telnyx/voice", "TELNYX_PUBLIC_KEY or TELNYX_WEBHOOK_SECRET not set - webhook not verified");
+  }
+
+  log("telnyx/voice", "Webhook POST received, event_type:", (body as { data?: { event_type?: string } })?.data?.event_type);
 
   const b = body as {
     data?: {
@@ -51,26 +83,30 @@ export async function POST(req: Request) {
           .maybeSingle();
         if (fallback) {
           receptionist = { id: (fallback as { id: string }).id };
-          console.warn("[telnyx/voice] No receptionist for DID", toNumber, "- using fallback:", receptionist.id);
+          warn("telnyx/voice", "No receptionist for DID", toNumber, "- using fallback:", receptionist.id);
         }
       }
       const receptionistId = receptionist?.id ?? "";
       if (receptionist) {
-        console.log("[telnyx/voice] Receptionist:", receptionist.id, receptionist.name ?? "");
+        log("telnyx/voice", "Receptionist:", receptionist.id, receptionist.name ?? "");
       }
 
       // Pre-fetch prompt before stream_start so WebSocket handler has it instantly (no 1006)
       try {
         const { prompt, greeting } = await getReceptionistPrompt(receptionistId);
         setPrompt(callControlId, prompt, greeting);
-        console.log("[telnyx/voice] Prompt cached for call");
+        log("telnyx/voice", "Prompt cached for call");
       } catch (err) {
-        console.warn("[telnyx/voice] Prompt pre-fetch failed:", (err as Error)?.message);
+        warn("telnyx/voice", "Prompt pre-fetch failed:", (err as Error)?.message);
       }
 
       const apiKey = process.env.TELNYX_API_KEY;
-      const base = process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL || "https://echodesk.us";
-      const wsBase = base.replace(/^http/, "ws").replace(/\/$/, "");
+      if (!apiKey) {
+        error("telnyx/voice", "TELNYX_API_KEY not set - cannot answer call");
+        return NextResponse.json({ error: "Server misconfiguration" }, { status: 503 });
+      }
+
+      const wsBase = getTelnyxWsBase();
       const params = new URLSearchParams({
         call_sid: callControlId,
         direction: "inbound",
@@ -92,9 +128,9 @@ export async function POST(req: Request) {
       );
 
       if (answerRes.ok) {
-        console.log("Answered via API");
+        log("telnyx/voice", "Answered via API");
       } else {
-        console.log("Answer failed:", await answerRes.text());
+        error("telnyx/voice", "Answer failed:", await answerRes.text());
       }
 
       // Start streaming audio to WebSocket
@@ -114,9 +150,9 @@ export async function POST(req: Request) {
       );
 
       if (streamRes.ok) {
-        console.log("Stream started");
+        log("telnyx/voice", "Stream started");
       } else {
-        console.log("Stream start failed:", await streamRes.text());
+        error("telnyx/voice", "Stream start failed:", await streamRes.text());
       }
     }
   }

@@ -1,23 +1,36 @@
 /**
- * WebSocket handler for Telnyx audio streaming.
- * Receives audio from Telnyx, runs voice pipeline, sends TTS back.
+ * WebSocket handler for Telnyx bidirectional RTP streaming.
+ * Receives RTP from Telnyx → Deepgram STT → Grok LLM → ElevenLabs TTS → sends media back.
  * Run via custom server (server.js).
+ *
+ * 1006 / silence killer fixes:
+ * - Silence every 3s (Telnyx ~10s idle kill; community: 3s prevents 1006)
+ * - WebSocket ping every 10s (keeps connection alive through NAT/proxies)
+ * - Send silence packet IMMEDIATELY on connect, before async pipeline init
+ * - Comprehensive event logging (code, reason, timestamp)
  */
 
 import type WebSocket from "ws";
 import { runVoicePipeline } from "../app/lib/voicePipeline";
-import { getPrompt as getCachedPrompt, deletePrompt } from "../app/lib/promptCache";
+import { getPrompt as getCachedPrompt } from "../app/lib/promptCache";
 
 const VOICE_API_KEY = process.env.VOICE_SERVER_API_KEY;
 
-/** PCMU/mulaw silence: 0xFF. 20ms at 8kHz = 160 bytes. Keep-alive every 2s prevents Telnyx disconnect. */
+/** PCMU/mulaw silence: 0xFF. 20ms at 8kHz = 160 bytes. */
 const SILENCE_PACKET = Buffer.alloc(160, 0xff);
-const KEEPALIVE_MS = 2000;
+
+/** Silence interval: 3s. Telnyx docs imply ~10s idle kill; community fixes say 3s prevents 1006. */
+const SILENCE_INTERVAL_MS = 3000;
+
+/** WebSocket ping interval: 10s. Keeps connection alive through NAT/proxies. */
+const PING_INTERVAL_MS = 10000;
+
+/** No RTP heartbeat: log if no incoming audio for this long. */
+const NO_AUDIO_WARN_MS = 5000;
 
 /** Active WebSocket per call_sid to avoid duplicate pipelines (Telnyx retries, etc.) */
 const activeByCallSid = new Map<string, WebSocket>();
 const PORT = process.env.PORT || "3000";
-/** Prefer localhost to avoid external round-trip during prompt fetch (prevents 1006/timeout). */
 const PROMPT_BASE =
   process.env.VOICE_PROMPT_BASE_URL || `http://127.0.0.1:${PORT}`;
 
@@ -27,6 +40,10 @@ type StreamParams = {
   caller_phone?: string;
   direction?: string;
 };
+
+function ts(): string {
+  return new Date().toISOString();
+}
 
 function getStreamParams(urlOrSearch: string): StreamParams {
   const search = urlOrSearch.startsWith("?") ? urlOrSearch : `?${urlOrSearch}`;
@@ -79,19 +96,28 @@ async function fetchPrompt(receptionistId: string): Promise<{ prompt: string; gr
   }
 }
 
+/**
+ * Send Telnyx media: { event: 'media', media: { payload: base64 } }
+ * 160-byte 0xFF mulaw = silence.
+ */
+function sendMedia(ws: WebSocket, buffer: Buffer): void {
+  if (ws.readyState !== 1) return;
+  const payload = buffer.toString("base64");
+  ws.send(JSON.stringify({ event: "media", media: { payload } }));
+}
+
 export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: string; search?: string }): void {
   const params = getStreamParams(request.search ?? request.url ?? "");
   const receptionistId = params.receptionist_id ?? "";
   const callSid = params.call_sid ?? "";
 
-  // Deduplicate: one WebSocket per call (Telnyx retries create multiple connections)
-  // "Newest wins" - close any existing connection and replace with this one
+  // Deduplicate: one WebSocket per call
   if (callSid) {
     const existing = activeByCallSid.get(callSid);
     if (existing && existing.readyState === 1) {
-      console.log("[voice/stream] Replacing previous connection for call_sid=", callSid);
-      activeByCallSid.delete(callSid);
-      existing.close(1000, "Replaced");
+      console.log(`[voice/stream] ${ts()} CLOSE duplicate - rejecting call_sid=${callSid.slice(0, 20)}...`);
+      ws.close(1000, "Duplicate");
+      return;
     }
     activeByCallSid.set(callSid, ws);
   }
@@ -101,33 +127,58 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
   const elevenlabsKey = process.env.ELEVENLABS_API_KEY ?? "";
   const elevenlabsVoice = process.env.ELEVENLABS_VOICE_ID ?? "21m00Tcm4TlvDq8ikWAM";
 
-  console.log("[voice/stream] WebSocket connected", {
+  console.log(`[voice/stream] ${ts()} OPEN connected`, {
     receptionist_id: receptionistId,
-    call_sid: params.call_sid,
+    call_sid: callSid.slice(0, 24),
     direction: params.direction,
     api_keys: { DG: !!deepgramKey, Grok: !!grokKey, ElevenLabs: !!elevenlabsKey },
   });
-  console.log("[voice/stream] RTP stream open - sending silence packet");
 
-  function sendSilenceKeepalive() {
+  // --- CRITICAL: Send silence IMMEDIATELY before any async work ---
+  sendMedia(ws, SILENCE_PACKET);
+  console.log(`[voice/stream] ${ts()} silence sent (160 bytes mulaw 0xFF)`);
+
+  const silenceInterval = setInterval(() => {
     if (ws.readyState !== 1) return;
-    const payload = SILENCE_PACKET.toString("base64");
-    ws.send(JSON.stringify({ event: "media", media: { payload } }));
-  }
-  sendSilenceKeepalive();
-  const keepaliveInterval = setInterval(sendSilenceKeepalive, KEEPALIVE_MS);
+    sendMedia(ws, SILENCE_PACKET);
+  }, SILENCE_INTERVAL_MS);
 
-  let chunkReceived = false;
-  const noAudioTimeout = setTimeout(() => {
-    if (!chunkReceived) {
-      console.log("[voice/stream] No audio from Telnyx");
+  const pingInterval = setInterval(() => {
+    if (ws.readyState !== 1) return;
+    try {
+      ws.ping();
+    } catch {
+      /* ignore */
     }
-  }, 5000);
+  }, PING_INTERVAL_MS);
+
+  let lastRtpAt = Date.now();
+  let chunkReceived = false;
+  let noAudioLogged = false;
+  let lastSilenceLogAt = 0;
+  const noAudioChecker = setInterval(() => {
+    if (ws.readyState !== 1) return;
+    const elapsed = Date.now() - lastRtpAt;
+    if (!chunkReceived && elapsed >= NO_AUDIO_WARN_MS && !noAudioLogged) {
+      noAudioLogged = true;
+      console.log(`[voice/stream] ${ts()} heartbeat: No audio from Telnyx for ${Math.round(elapsed / 1000)}s`);
+    } else if (chunkReceived && elapsed >= NO_AUDIO_WARN_MS) {
+      if (Date.now() - lastSilenceLogAt >= 30000) {
+        lastSilenceLogAt = Date.now();
+        console.log(`[voice/stream] ${ts()} heartbeat: No RTP for ${Math.round(elapsed / 1000)}s (caller silent?)`);
+      }
+    }
+  }, NO_AUDIO_WARN_MS);
 
   if (!deepgramKey || !grokKey || !elevenlabsKey) {
+    clearInterval(silenceInterval);
+    clearInterval(pingInterval);
+    clearInterval(noAudioChecker);
     if (callSid) activeByCallSid.delete(callSid);
-    console.error("[voice/stream] MISSING API KEYS - DEEPGRAM:", !!deepgramKey, "GROK:", !!grokKey, "ELEVENLABS:", !!elevenlabsKey, "- Set these on the VPS (PM2 env or .env)");
-    ws.close();
+    console.error(
+      `[voice/stream] ${ts()} MISSING API KEYS DG=${!!deepgramKey} Grok=${!!grokKey} ElevenLabs=${!!elevenlabsKey}`
+    );
+    ws.close(1011, "Server misconfiguration");
     return;
   }
 
@@ -137,38 +188,32 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
 
   async function initPipeline() {
     try {
-      console.log("[voice/stream] OPENED - starting pipeline for receptionist:", receptionistId);
+      console.log(`[voice/stream] ${ts()} init starting receptionist=${receptionistId}`);
       if (dummyTest) {
-        console.log("[voice/stream] DUMMY TEST MODE - sending 1s mulaw silence every 2s (bypass pipeline)");
+        console.log("[voice/stream] DUMMY TEST - bypass pipeline, sending silence every 2s");
         const dummyInterval = setInterval(() => {
           if (ws.readyState !== 1) {
             clearInterval(dummyInterval);
             return;
           }
-          const dummyAudio = Buffer.alloc(8000, 0xff);
-          const payload = dummyAudio.toString("base64");
-          ws.send(JSON.stringify({ event: "media", media: { payload } }));
+          sendMedia(ws, Buffer.alloc(8000, 0xff));
         }, 2000);
         ws.once("close", () => clearInterval(dummyInterval));
-        console.log("[voice/stream] Dummy test active - if you hear tone/silence, WS send works");
         return;
       }
-      // Use pre-cached prompt from webhook (instant); fallback to fetch if missed
       let promptData = callSid ? getCachedPrompt(callSid) : null;
       if (promptData) {
-        console.log("[voice/stream] Using cached prompt (no blocking fetch)");
-        if (callSid) deletePrompt(callSid);
+        console.log(`[voice/stream] ${ts()} prompt cached`);
       } else {
-        console.log("[voice/stream] Cache miss - fetching prompt...");
+        console.log(`[voice/stream] ${ts()} prompt fetch...`);
         promptData = await fetchPrompt(receptionistId);
       }
       const { prompt, greeting } = promptData;
       if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) {
-        console.log("[voice/stream] Aborted: WS closed or replaced");
+        console.log(`[voice/stream] ${ts()} aborted (ws closed or replaced)`);
         return;
       }
-      console.log("[voice/stream] Step 2: Prompt fetched, greeting len=", greeting?.length ?? 0);
-      console.log("[voice/stream] Step 3: Creating voice pipeline (Deepgram+Grok+ElevenLabs)...");
+      console.log(`[voice/stream] ${ts()} pipeline create... greeting len=${greeting?.length ?? 0}`);
       const result = await runVoicePipeline(
         {
           deepgramApiKey: deepgramKey,
@@ -182,10 +227,9 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
           onAudio: (buffer) => {
             try {
               if (ws.readyState !== 1) return;
-              const payload = Buffer.from(buffer).toString("base64");
-              ws.send(JSON.stringify({ event: "media", media: { payload } }));
+              sendMedia(ws, Buffer.from(buffer));
             } catch (err) {
-              console.error("[voice/stream] onAudio send error:", err instanceof Error ? err.stack : err);
+              console.error("[voice/stream] onAudio error:", err instanceof Error ? err.stack : err);
             }
           },
           onError: (err) =>
@@ -197,21 +241,16 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         return;
       }
       pipeline = result;
-      console.log("[voice/stream] Pipeline ready, playing greeting");
+      console.log(`[voice/stream] ${ts()} pipeline ready, greeting playing`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const stack = err instanceof Error ? err.stack : "";
-      console.error("[voice/stream] Init FAILED:", msg);
-      console.error("[voice/stream] Stack:", stack);
-      if (ws.readyState === 1) {
-        ws.close(1011, "Pipeline init error");
-      }
+      console.error(`[voice/stream] ${ts()} init FAILED:`, msg, err instanceof Error ? err.stack : "");
+      if (ws.readyState === 1) ws.close(1011, "Pipeline init error");
     }
   }
 
   initPipeline().catch((err) => {
-    console.error("[voice/stream] Init pipeline REJECTED (unhandled):", err?.message ?? err);
-    console.error("[voice/stream] Stack:", err instanceof Error ? err.stack : "");
+    console.error(`[voice/stream] ${ts()} init REJECTED:`, err?.message ?? err);
     if (ws.readyState === 1) ws.close(1011, "Pipeline init rejected");
   });
 
@@ -219,38 +258,59 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
     try {
       messageCount++;
       let chunk: Buffer | null = null;
+      let eventType: string | undefined;
       if (Buffer.isBuffer(data)) {
         chunk = data;
       } else if (typeof data === "string") {
         try {
-          const msg = JSON.parse(data) as { event?: string; media?: { payload?: string }; payload?: string };
+          const msg = JSON.parse(data) as {
+            event?: string;
+            media?: { payload?: string };
+            payload?: string;
+          };
+          eventType = msg.event;
+          if (eventType === "connected" || eventType === "start") {
+            console.log(`[voice/stream] ${ts()} message event=${eventType}`);
+          }
           const b64 = msg.media?.payload ?? msg.payload;
           if (b64) chunk = Buffer.from(b64, "base64");
         } catch {
-          // ignore non-JSON
+          /* ignore non-JSON */
         }
       }
       if (chunk) {
         chunkReceived = true;
-        if (messageCount <= 3 || messageCount % 50 === 0) {
-          console.log("[voice/stream] Message received, type:", typeof data, "len:", chunk.length);
+        lastRtpAt = Date.now();
+        if (messageCount <= 5 || messageCount % 100 === 0) {
+          console.log(
+            `[voice/stream] ${ts()} chunk len=${chunk.length} msg#=${messageCount} ${eventType ? `event=${eventType}` : ""}`
+          );
         }
         if (pipeline) pipeline.sendAudio(chunk);
       }
     } catch (err) {
-      console.error("[voice/stream] Message processing error:", err instanceof Error ? err.stack : err);
+      console.error("[voice/stream] message error:", err instanceof Error ? err.stack : err);
     }
   });
 
   ws.on("error", (err) => {
-    console.error("[voice/stream] WebSocket ERROR:", err?.message ?? err, err instanceof Error ? err.stack : "");
+    console.error(`[voice/stream] ${ts()} WS ERROR:`, err?.message ?? err);
   });
 
   ws.on("close", (code, reason) => {
-    clearInterval(keepaliveInterval);
-    clearTimeout(noAudioTimeout);
-    console.log("[voice/stream] CLOSED - code:", code, "reason:", reason?.toString() || "none");
-    // Only remove if we're still the active connection (weren't replaced)
+    clearInterval(silenceInterval);
+    clearInterval(pingInterval);
+    clearInterval(noAudioChecker);
+    const reasonStr = reason?.toString() || "none";
+    const is1006 = code === 1006;
+    if (is1006) {
+      console.error(
+        `[voice/stream] ${ts()} CLOSE 1006 (abnormal) code=${code} reason=${reasonStr} ` +
+          `| Check: proxy_read_timeout, NAT, firewall, ngrok/public IP`
+      );
+    } else {
+      console.log(`[voice/stream] ${ts()} CLOSE code=${code} reason=${reasonStr}`);
+    }
     if (callSid && activeByCallSid.get(callSid) === ws) {
       activeByCallSid.delete(callSid);
     }

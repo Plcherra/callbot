@@ -7,6 +7,7 @@ import {
 } from "@/app/lib/telnyx";
 import { createClient } from "@/app/lib/supabase/server";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
+import { getTelnyxWebhookBase } from "@/app/lib/env";
 
 /**
  * Configure voice webhook on an existing Telnyx number (bring-your-own).
@@ -22,8 +23,7 @@ export async function configureExistingTelnyxNumber(
     return { success: false, error: "Not authenticated." };
   }
 
-  const webhookBase =
-    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  const webhookBase = getTelnyxWebhookBase();
   if (!webhookBase || isPlaceholderUrl(webhookBase)) {
     return {
       success: false,
@@ -31,8 +31,7 @@ export async function configureExistingTelnyxNumber(
     };
   }
   try {
-    const base = webhookBase.replace(/\/$/, "");
-    const voiceUrl = `${base}/api/telnyx/voice`;
+    const voiceUrl = `${webhookBase}/api/telnyx/voice`;
     await configureVoiceUrl(phoneNumberId, voiceUrl);
     return { success: true };
   } catch (err) {
@@ -57,8 +56,7 @@ export async function provisionTelnyxNumber(areaCode: string): Promise<
     return { success: false, error: "Not authenticated." };
   }
 
-  const webhookBase =
-    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  const webhookBase = getTelnyxWebhookBase();
   if (!webhookBase) {
     return {
       success: false,
@@ -75,8 +73,7 @@ export async function provisionTelnyxNumber(areaCode: string): Promise<
 
   try {
     const { id, phoneNumber } = await provisionNumber(areaCode);
-    const base = webhookBase.replace(/\/$/, "");
-    const voiceUrl = `${base}/api/telnyx/voice`;
+    const voiceUrl = `${webhookBase}/api/telnyx/voice`;
     await configureVoiceUrl(id, voiceUrl);
     return { success: true, id, phoneNumber };
   } catch (err) {

@@ -60,12 +60,15 @@ pm2 list
 If you use nginx, Cloudflare, or another proxy:
 
 - WebSocket requires `Upgrade: websocket` and `Connection: Upgrade`
-- nginx example:
+- nginx example (increase timeouts to avoid 1006 disconnects):
   ```nginx
   location /api/voice/stream {
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    proxy_connect_timeout 60s;
     proxy_pass http://localhost:3000;
   }
   ```

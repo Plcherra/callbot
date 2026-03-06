@@ -9,6 +9,7 @@ import {
 } from "@/app/actions/provisionTelnyxNumber";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
 import { normalizeToE164 } from "@/app/lib/phone";
+import { getTelnyxWebhookBase } from "@/app/lib/env";
 
 /** Wizard payload from AddReceptionistWizardModal */
 export type CreateReceptionistWizardData = {
@@ -100,8 +101,7 @@ async function createReceptionistFromWizard(
   if (!name) return { success: false, error: "Name is required." };
   if (!calendarId) return { success: false, error: "Calendar ID is required." };
 
-  const webhookBase =
-    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  const webhookBase = getTelnyxWebhookBase();
   if (!webhookBase || isPlaceholderUrl(webhookBase)) {
     return {
       success: false,
@@ -302,8 +302,7 @@ async function createReceptionistLegacy(
     };
   }
 
-  const webhookBase =
-    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  const webhookBase = getTelnyxWebhookBase();
   if (!webhookBase || isPlaceholderUrl(webhookBase)) {
     return {
       success: false,

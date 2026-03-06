@@ -10,6 +10,8 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { checkOutboundQuota } from "@/app/lib/quotaCheck";
 import { createOutboundCall } from "@/app/lib/telnyx";
 import { isPlaceholderUrl } from "@/app/lib/urlUtils";
+import { getTelnyxWebhookBase } from "@/app/lib/env";
+import { error } from "@/app/lib/logger";
 
 function toE164(phone: string): string {
   const digits = phone.replace(/\D/g, "");
@@ -58,8 +60,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const base =
-    process.env.TELNYX_WEBHOOK_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  const base = getTelnyxWebhookBase();
   if (!base?.trim() || isPlaceholderUrl(base)) {
     return NextResponse.json(
       { error: "TELNYX_WEBHOOK_BASE_URL not configured" },
@@ -71,12 +72,12 @@ export async function POST(req: NextRequest) {
     const { call_control_id } = await createOutboundCall({
       from: rec.telnyx_phone_number,
       to: toE164(toPhone),
-      webhookUrl: `${base.replace(/\/$/, "")}/api/telnyx/voice`,
+      webhookUrl: `${base}/api/telnyx/voice`,
     });
     return NextResponse.json({ call_control_id, ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[telnyx/outbound]", msg);
+    error("telnyx/outbound", msg);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

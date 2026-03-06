@@ -132,13 +132,34 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
 
   let pipeline: { sendAudio: (chunk: Buffer) => void; stop: () => void } | null = null;
   let messageCount = 0;
+  const dummyTest = process.env.VOICE_DUMMY_TEST === "1";
 
   async function initPipeline() {
     try {
-      console.log("[voice/stream] Fetching prompt for receptionist:", receptionistId);
+      console.log("[voice/stream] OPENED - starting pipeline for receptionist:", receptionistId);
+      if (dummyTest) {
+        console.log("[voice/stream] DUMMY TEST MODE - sending 1s mulaw silence every 2s (bypass pipeline)");
+        const dummyInterval = setInterval(() => {
+          if (ws.readyState !== 1) {
+            clearInterval(dummyInterval);
+            return;
+          }
+          const dummyAudio = Buffer.alloc(8000, 0xff);
+          const payload = dummyAudio.toString("base64");
+          ws.send(JSON.stringify({ event: "media", media: { payload } }));
+        }, 2000);
+        ws.once("close", () => clearInterval(dummyInterval));
+        console.log("[voice/stream] Dummy test active - if you hear tone/silence, WS send works");
+        return;
+      }
+      console.log("[voice/stream] Step 1: Fetching prompt...");
       const { prompt, greeting } = await fetchPrompt(receptionistId);
-      if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) return;
-      console.log("[voice/stream] Pipeline init: greeting len=", greeting?.length ?? 0);
+      if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) {
+        console.log("[voice/stream] Aborted: WS closed or replaced");
+        return;
+      }
+      console.log("[voice/stream] Step 2: Prompt fetched, greeting len=", greeting?.length ?? 0);
+      console.log("[voice/stream] Step 3: Creating voice pipeline (Deepgram+Grok+ElevenLabs)...");
       const result = await runVoicePipeline(
         {
           deepgramApiKey: deepgramKey,
@@ -150,11 +171,16 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
         },
         {
           onAudio: (buffer) => {
-            if (ws.readyState !== 1) return;
-            const payload = Buffer.from(buffer).toString("base64");
-            ws.send(JSON.stringify({ event: "media", media: { payload } }));
+            try {
+              if (ws.readyState !== 1) return;
+              const payload = Buffer.from(buffer).toString("base64");
+              ws.send(JSON.stringify({ event: "media", media: { payload } }));
+            } catch (err) {
+              console.error("[voice/stream] onAudio send error:", err instanceof Error ? err.stack : err);
+            }
           },
-          onError: (err) => console.error("[voice/stream] Pipeline error:", err?.message ?? err),
+          onError: (err) =>
+            console.error("[voice/stream] Pipeline error:", err?.message ?? err, err instanceof Error ? err.stack : ""),
         }
       );
       if (ws.readyState !== 1 || (callSid && activeByCallSid.get(callSid) !== ws)) {
@@ -164,44 +190,57 @@ export function handleVoiceStreamConnection(ws: WebSocket, request: { url?: stri
       pipeline = result;
       console.log("[voice/stream] Pipeline ready, playing greeting");
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : "";
+      console.error("[voice/stream] Init FAILED:", msg);
+      console.error("[voice/stream] Stack:", stack);
       if (ws.readyState === 1) {
-        console.error("[voice/stream] Init failed:", err instanceof Error ? err.message : err, err instanceof Error ? err.stack : "");
-        ws.close();
+        ws.close(1011, "Pipeline init error");
       }
     }
   }
 
-  initPipeline();
+  initPipeline().catch((err) => {
+    console.error("[voice/stream] Init pipeline REJECTED (unhandled):", err?.message ?? err);
+    console.error("[voice/stream] Stack:", err instanceof Error ? err.stack : "");
+    if (ws.readyState === 1) ws.close(1011, "Pipeline init rejected");
+  });
 
   ws.on("message", (data: Buffer | string) => {
-    messageCount++;
-    let chunk: Buffer | null = null;
-    if (Buffer.isBuffer(data)) {
-      chunk = data;
-    } else if (typeof data === "string") {
-      try {
-        const msg = JSON.parse(data) as { event?: string; media?: { payload?: string }; payload?: string };
-        const b64 = msg.media?.payload ?? msg.payload;
-        if (b64) chunk = Buffer.from(b64, "base64");
-      } catch {
-        // ignore non-JSON
+    try {
+      messageCount++;
+      let chunk: Buffer | null = null;
+      if (Buffer.isBuffer(data)) {
+        chunk = data;
+      } else if (typeof data === "string") {
+        try {
+          const msg = JSON.parse(data) as { event?: string; media?: { payload?: string }; payload?: string };
+          const b64 = msg.media?.payload ?? msg.payload;
+          if (b64) chunk = Buffer.from(b64, "base64");
+        } catch {
+          // ignore non-JSON
+        }
       }
-    }
-    if (chunk) {
-      chunkReceived = true;
-      console.log("[voice/stream] RTP chunk len:", chunk.length);
-      if (pipeline) pipeline.sendAudio(chunk);
+      if (chunk) {
+        chunkReceived = true;
+        if (messageCount <= 3 || messageCount % 50 === 0) {
+          console.log("[voice/stream] Message received, type:", typeof data, "len:", chunk.length);
+        }
+        if (pipeline) pipeline.sendAudio(chunk);
+      }
+    } catch (err) {
+      console.error("[voice/stream] Message processing error:", err instanceof Error ? err.stack : err);
     }
   });
 
   ws.on("error", (err) => {
-    console.error("[voice/stream] WebSocket error:", err?.message ?? err);
+    console.error("[voice/stream] WebSocket ERROR:", err?.message ?? err, err instanceof Error ? err.stack : "");
   });
 
   ws.on("close", (code, reason) => {
     clearInterval(keepaliveInterval);
     clearTimeout(noAudioTimeout);
-    console.log("[voice/stream] WebSocket closed:", code, reason?.toString() || "");
+    console.log("[voice/stream] CLOSED - code:", code, "reason:", reason?.toString() || "none");
     // Only remove if we're still the active connection (weren't replaced)
     if (callSid && activeByCallSid.get(callSid) === ws) {
       activeByCallSid.delete(callSid);

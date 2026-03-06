@@ -7,6 +7,11 @@ const path = require("path");
 const appRoot = path.resolve(__dirname);
 require("dotenv").config({ path: path.join(appRoot, ".env") });
 require("dotenv").config({ path: path.join(appRoot, ".env.local") });
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[CRASH] Unhandled rejection:", reason);
+  if (reason instanceof Error) console.error("[CRASH] Stack:", reason.stack);
+});
 const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");

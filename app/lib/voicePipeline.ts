@@ -43,6 +43,7 @@ export async function runVoicePipeline(
       : []),
   ];
 
+  console.log("[voicePipeline] Creating Deepgram live connection...");
   const dg = createDeepgramLive({
     apiKey: config.deepgramApiKey,
     encoding: "mulaw",
@@ -53,6 +54,7 @@ export async function runVoicePipeline(
   let isProcessing = false;
 
   dg.on("open", () => {
+    console.log("[voicePipeline] Deepgram connected - playing greeting");
     if (config.greeting) {
       generateAndSendTts(config.greeting, config, callbacks);
     }
@@ -72,6 +74,7 @@ export async function runVoicePipeline(
     if (!transcript) return;
 
     if (isFinal) {
+      if (transcript) console.log("[voicePipeline] STT final transcript:", transcript);
       pendingTranscript = transcript;
       if (!isProcessing) {
         processUserInput();
@@ -80,6 +83,7 @@ export async function runVoicePipeline(
   });
 
   dg.on("error", (err) => {
+    console.error("[voicePipeline] Deepgram error:", err instanceof Error ? err.message : err);
     callbacks.onError?.(err as Error);
   });
 
@@ -95,7 +99,9 @@ export async function runVoicePipeline(
         history.splice(2, history.length - MAX_HISTORY - 2);
       }
 
+      console.log("[voicePipeline] Calling Grok LLM...");
       const response = await chat(history, { apiKey: config.grokApiKey });
+      console.log("[voicePipeline] Grok response len:", response?.length ?? 0);
       history.push({ role: "assistant", content: response });
       callbacks.onResponse?.(response);
 
@@ -134,11 +140,13 @@ async function generateAndSendTts(
 ): Promise<void> {
   if (!text?.trim()) return;
   try {
+    console.log("[voicePipeline] TTS request, text len:", text.length);
     const buffer = await textToSpeech(text, {
       apiKey: config.elevenlabsApiKey,
       voiceId: config.elevenlabsVoiceId,
       outputFormat: "ulaw_8000",
     });
+    console.log("[voicePipeline] TTS audio generated, len:", buffer?.byteLength ?? 0);
     callbacks.onAudio?.(buffer);
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

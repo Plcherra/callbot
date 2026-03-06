@@ -43,7 +43,7 @@ app.prepare().then(() => {
   });
 
   wss.on("connection", (ws, request, search) => {
-    const { handleVoiceStreamConnection } = require("./server/voiceStreamHandler");
+    const { handleVoiceStreamConnection } = require("./dist-server/server/voiceStreamHandler");
     handleVoiceStreamConnection(ws, { search: search || undefined });
   });
 

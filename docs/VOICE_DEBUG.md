@@ -13,18 +13,18 @@ Phone call → Telnyx (webhook POST /api/telnyx/voice)
           → Audio sent back over WebSocket → Telnyx → Caller
 ```
 
-## Critical: Run with `tsx` (Not plain `node`)
+## Critical: Run the Custom Server (Not `next start`)
 
-The voice handler is TypeScript (`server/voiceStreamHandler.ts`). Use `npm start` (runs `tsx server.js`) or the ecosystem config.
+The voice handler is compiled from TypeScript to `dist-server/` during `npm run build`. Use `npm start` (runs `node server.js`) or the ecosystem config.
 
 The WebSocket at `/api/voice/stream` is **only** available when running the custom server:
 
 ```bash
-npm run build
+npm run build   # Compiles Next.js + server/voiceStreamHandler → dist-server/
 npm start
 ```
 
-With PM2, use the ecosystem config (uses tsx for TypeScript):
+With PM2, use the ecosystem config (runs plain Node, no tsx):
 
 ```bash
 pm2 delete callbot 2>/dev/null || true
@@ -32,7 +32,7 @@ pm2 start ecosystem.config.cjs
 pm2 save
 ```
 
-If callbot was previously started with `pm2 start server.js`, you must migrate: plain `node server.js` cannot load the TypeScript voiceStreamHandler (MODULE_NOT_FOUND).
+**Ensure `npm run build` runs before PM2 start** — the build compiles `server/voiceStreamHandler.ts` to `dist-server/`. Without it, you'll get `Cannot find module './dist-server/server/voiceStreamHandler'`.
 
 **Using `next start` alone will not enable WebSockets.** Telnyx will receive the stream_url but fail to connect.
 

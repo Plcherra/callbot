@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "outDir": "./dist-server",
+    "rootDir": ".",
+    "noEmit": false
+  },
+  "include": [
+    "server/**/*.ts",
+    "app/lib/voicePipeline.ts",
+    "app/lib/deepgram.ts",
+    "app/lib/grok.ts",
+    "app/lib/elevenlabs.ts"
+  ],
+  "exclude": ["node_modules"]
+}

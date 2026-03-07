@@ -18,18 +18,17 @@ export async function deleteReceptionist(
   if (!ownership.ok) return { success: false, error: ownership.error };
   const { data: rec } = await supabase
     .from("receptionists")
-    .select("telnyx_phone_number_id, twilio_phone_number_sid")
+    .select("telnyx_phone_number_id")
     .eq("id", receptionistId)
     .single();
 
   if (!rec) return { success: false, error: "Receptionist not found." };
 
-  const phoneId = rec.telnyx_phone_number_id ?? rec.twilio_phone_number_sid;
-  if (phoneId) {
+  if (rec.telnyx_phone_number_id) {
     try {
-      await releaseNumber(phoneId);
+      await releaseNumber(rec.telnyx_phone_number_id);
     } catch (e) {
-      console.warn("[deleteReceptionist] Failed to release phone number:", e);
+      console.warn("[deleteReceptionist] Failed to release Telnyx number:", e);
     }
   }
 

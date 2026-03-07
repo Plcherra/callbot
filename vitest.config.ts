@@ -9,8 +9,10 @@ export default defineConfig({
     globals: true,
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./"),
-    },
+    alias: [
+      { find: "@/shared", replacement: path.resolve(__dirname, "./src/shared") },
+      { find: "@/features", replacement: path.resolve(__dirname, "./src/features") },
+      { find: "@", replacement: path.resolve(__dirname, "./") },
+    ],
   },
 });

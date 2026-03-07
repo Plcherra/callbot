@@ -1,6 +1,6 @@
 # Error Monitoring (Production)
 
-For production, consider adding error tracking so you can see failures (e.g. Twilio/voice server errors, Stripe webhook issues) without exposing raw errors to users.
+For production, consider adding error tracking so you can see failures (e.g. Telnyx/voice server errors, Stripe webhook issues) without exposing raw errors to users.
 
 ## Sentry
 

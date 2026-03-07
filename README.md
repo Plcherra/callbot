@@ -27,7 +27,9 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). For voice, run `node server.js` for WebSocket support ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
+Open [http://localhost:3000](http://localhost:3000).
+
+**Voice testing**: `npm run dev` does not support WebSockets. For voice (incoming calls, AI assistant), use `npm run dev:voice` or `node server.js` instead ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)). Run `npm run build:server` first if `dist-server` is missing.
 
 ## Setup
 
@@ -48,7 +50,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 ### 2. Supabase
 
 1. Create a project and enable Email auth and Google OAuth.
-2. Run the migration: in Supabase SQL Editor, run `supabase/migrations/001_initial_schema.sql`.
+2. Run all migrations in order: in Supabase SQL Editor, run each file in `supabase/migrations/` (001 through 014), or use `supabase db push` if using Supabase CLI.
 3. Add redirect URL for Google OAuth: `http://localhost:3000/api/google/callback` (and your production URL).
 
 ### 3. Stripe
@@ -61,7 +63,7 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 1. Create a Telnyx account and set `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL`.
 2. Set Deepgram, ElevenLabs, Grok API keys (see [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
-3. Run `node server.js` for WebSocket voice support. Phone numbers are provisioned per receptionist when you create them.
+3. Run `npm run dev:voice` or `node server.js` for WebSocket voice support (requires `npm run build:server` first). Phone numbers are provisioned per receptionist when you create them.
 
 ### 5. Google OAuth
 
@@ -79,6 +81,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+- **Voice (WebSocket)**: `npm run dev:voice` or `npm run build:server && node server.js` – use instead of `npm run dev` when testing calls
 - **Tests**: `npm run test` or `npm run test:run`
 - **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Stripe permissions**: [docs/STRIPE_PERMISSIONS.md](docs/STRIPE_PERMISSIONS.md)

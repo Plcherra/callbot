@@ -1,12 +1,22 @@
 /**
  * Custom Next.js server with WebSocket support for /api/voice/stream.
  * Run: node server.js (instead of next start)
+ * Requires: npm run build:server (or npm run build) before first run.
  */
 
 const path = require("path");
+const fs = require("fs");
 const appRoot = path.resolve(__dirname);
 require("dotenv").config({ path: path.join(appRoot, ".env") });
 require("dotenv").config({ path: path.join(appRoot, ".env.local") });
+
+const voiceHandlerPath = path.join(appRoot, "dist-server", "server", "voiceStreamHandler.js");
+if (!fs.existsSync(voiceHandlerPath)) {
+  console.error(
+    "[CRASH] dist-server/server/voiceStreamHandler.js not found. Run 'npm run build:server' (or 'npm run build') first."
+  );
+  process.exit(1);
+}
 
 process.on("unhandledRejection", (reason, promise) => {
   console.error("[CRASH] Unhandled rejection:", reason);

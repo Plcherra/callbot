@@ -40,6 +40,30 @@ const SUBSCRIPTION_PLANS = [
     phoneExtraCents: 0,
     billingPlanId: "subscription_business" as const,
   },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    envKey: "STRIPE_PRICE_ENTERPRISE",
+    priceCents: 49900,
+    includedMinutes: 5000,
+    perMinuteCents: 20,
+    overageRateCents: 25,
+    paygRateCents: 20,
+    phoneExtraCents: 0,
+    billingPlanId: "subscription_enterprise" as const,
+  },
+  {
+    id: "dev_test",
+    name: "DEV test",
+    envKey: "STRIPE_PRICE_DEV_TEST",
+    priceCents: 100,
+    includedMinutes: 50,
+    perMinuteCents: 20,
+    overageRateCents: 20,
+    paygRateCents: 20,
+    phoneExtraCents: 0,
+    billingPlanId: "subscription_dev_test" as const,
+  },
 ] as const;
 
 const PAYG_PLAN = {
@@ -61,8 +85,8 @@ export type PlanId = SubscriptionPlanId | "payg";
 export const subscriptionPlans = SUBSCRIPTION_PLANS;
 export const paygPlan = PAYG_PLAN;
 
-/** Plans shown on landing and in signup. */
-export const publicSubscriptionPlanIds: PlanId[] = ["starter", "pro", "business", "payg"];
+/** Plans shown on landing and in signup. DEV test excluded (internal use). */
+export const publicSubscriptionPlanIds: PlanId[] = ["starter", "pro", "business", "enterprise", "payg"];
 
 export function getPublicSubscriptionPlans() {
   return [...SUBSCRIPTION_PLANS, PAYG_PLAN];

@@ -26,6 +26,24 @@ flutter run -d macos \
   --dart-define=SUPABASE_ANON_KEY=your_anon_key
 ```
 
+## Production builds
+
+Production and release builds **must** pass these via `--dart-define` (defaults are for local dev only):
+
+- `API_BASE_URL` — Next.js API URL (e.g. `https://your-app.com`)
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_ANON_KEY` — Supabase anon/public key
+
+Example:
+
+```bash
+flutter build apk --dart-define=API_BASE_URL=https://api.example.com \
+  --dart-define=SUPABASE_URL=https://xxx.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your_anon_key
+```
+
+If `SUPABASE_URL` or `SUPABASE_ANON_KEY` is empty, the app will fail at startup with a clear error.
+
 ## Deep Links
 
 - `echodesk://checkout?session_id=...` - Stripe Checkout return

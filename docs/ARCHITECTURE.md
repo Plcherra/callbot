@@ -86,3 +86,7 @@ flowchart TB
 - `server/voiceStreamHandler.ts` — Voice pipeline: Deepgram → Grok → ElevenLabs
 - `app/api/receptionist-prompt/route.ts` — Fetches built prompt for voice pipeline
 - `app/api/voice/calendar/route.ts` — Google Calendar actions
+
+## Scaling Considerations
+
+**Prompt cache**: The voice pipeline uses an in-memory prompt cache (`app/lib/promptCache.ts`) keyed by `call_control_id`. With a single `server.js` process this works: the webhook pre-fetches the prompt and the WebSocket handler reads it instantly, avoiding 1006 timeouts. With multiple instances behind a load balancer, the webhook may hit instance A while the WebSocket connects to instance B; instance B has no cached prompt and falls back to an HTTP fetch to `/api/receptionist-prompt`, adding latency. For production multi-instance deployments, consider a shared cache (e.g. Redis) keyed by `call_control_id`, or use sticky sessions so the same instance handles both the webhook and the WebSocket for a given call.

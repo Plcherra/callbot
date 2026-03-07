@@ -10,12 +10,6 @@ Configure these endpoints to run on a schedule (e.g. system cron, Vercel Cron, o
 | `/api/cron/reset-usage` | 1st of month, after payg-billing (e.g. 00:15 UTC) | Reset `user_plans.used_inbound_minutes` and `used_outbound_minutes` to 0. |
 | `/api/cron/usage` | Daily (e.g. 02:00 UTC) | Aggregate `call_usage` into `usage_snapshots` for dashboard display. |
 
-## Deprecated
-
-| Endpoint | Status |
-|----------|--------|
-| `/api/cron/billing` | Deprecated. Overage billing moved to payg-billing. Update your cron to use payg-billing instead. |
-
 ## Example (system cron)
 
 ```bash

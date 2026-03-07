@@ -8,6 +8,15 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { validateTelnyxWebhook, parseTelnyxEvent } from "@/app/lib/telnyxWebhook";
 import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
 import { insertCallUsage } from "@/app/lib/callUsage";
+import { warn } from "@/app/lib/logger";
+
+function headersToRecord(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((v, k) => {
+    out[k] = v;
+  });
+  return out;
+}
 
 function roundToSixSecondIncrements(seconds: number): number {
   const increments = Math.ceil(seconds / 6);
@@ -17,16 +26,23 @@ function roundToSixSecondIncrements(seconds: number): number {
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("t-signature") ?? req.headers.get("telnyx-signature");
-  const publicKey = process.env.TELNYX_PUBLIC_KEY;
-  const webhookSecret = process.env.TELNYX_WEBHOOK_SECRET;
+  const publicKey = process.env.TELNYX_PUBLIC_KEY?.trim();
+  const webhookSecret = process.env.TELNYX_WEBHOOK_SECRET?.trim();
+  const hasValidation = !!(publicKey || webhookSecret);
 
-  if (
-    !validateTelnyxWebhook(rawBody, signature, {
-      publicKey: publicKey ?? undefined,
-      webhookSecret: webhookSecret ?? undefined,
-    })
-  ) {
-    return new NextResponse("Forbidden", { status: 403 });
+  if (hasValidation) {
+    const headers = headersToRecord(req.headers);
+    if (
+      !validateTelnyxWebhook(rawBody, signature, {
+        publicKey: publicKey || undefined,
+        webhookSecret: webhookSecret || undefined,
+        headers,
+      })
+    ) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+  } else {
+    warn("telnyx/cdr", "TELNYX_PUBLIC_KEY or TELNYX_WEBHOOK_SECRET not set - webhook not verified");
   }
 
   const event = parseTelnyxEvent(rawBody);

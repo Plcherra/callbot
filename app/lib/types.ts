@@ -22,7 +22,7 @@ export type Receptionist = {
   updated_at?: string;
 };
 
-/** Whether the receptionist has a callable number (Twilio). */
+/** Whether the receptionist has a callable number (inbound_phone_number set). */
 export function hasCallableNumber(r: Pick<Receptionist, "inbound_phone_number">): boolean {
   return Boolean(r.inbound_phone_number?.trim());
 }

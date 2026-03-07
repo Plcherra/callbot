@@ -9,7 +9,9 @@
   },
   "include": [
     "server/**/*.ts",
-    "app/lib/voicePipeline.ts",
+    "server/voice/**/*.ts",
+    "app/lib/voicePipeline/**/*.ts",
+    "app/lib/calendarTools.ts",
     "app/lib/deepgram.ts",
     "app/lib/grok.ts",
     "app/lib/elevenlabs.ts",

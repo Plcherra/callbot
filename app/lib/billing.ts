@@ -6,6 +6,8 @@ const SUBSCRIPTION_PLAN_IDS = [
   "subscription_starter",
   "subscription_pro",
   "subscription_business",
+  "subscription_enterprise",
+  "subscription_dev_test",
 ] as const;
 
 function getPreviousMonthPeriod(): { period_start: string; period_end: string } {

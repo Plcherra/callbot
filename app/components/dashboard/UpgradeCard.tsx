@@ -22,6 +22,8 @@ const PLAN_NAMES: Record<PlanId, string> = {
   starter: "Starter",
   pro: "Pro",
   business: "Business",
+  enterprise: "Enterprise",
+  dev_test: "DEV test",
   payg: "Pay As You Go",
 };
 

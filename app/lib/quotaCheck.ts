@@ -1,6 +1,7 @@
 /**
- * Quota check for outbound calls.
+ * Quota check for outbound and inbound calls.
  * Before initiating outbound, check remaining outbound minutes; block if 0.
+ * Before answering inbound, check remaining inbound minutes; reject if 0.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -8,6 +9,40 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type QuotaCheckResult =
   | { allowed: true; remainingMinutes: number }
   | { allowed: false; reason: string };
+
+/**
+ * Check if user has remaining inbound minutes.
+ * For PAYG users: always allowed (no quota).
+ * For fixed plans: check allocated_inbound_minutes - used_inbound_minutes.
+ */
+export async function checkInboundQuota(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<QuotaCheckResult> {
+  const { data: plan } = await supabase
+    .from("user_plans")
+    .select("billing_plan, allocated_inbound_minutes, used_inbound_minutes")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!plan) {
+    return { allowed: true, remainingMinutes: Infinity }; // No plan = allow (e.g. free tier)
+  }
+
+  if (plan.billing_plan === "subscription_payg") {
+    return { allowed: true, remainingMinutes: Infinity };
+  }
+
+  const allocated = plan.allocated_inbound_minutes ?? 0;
+  const used = Number(plan.used_inbound_minutes ?? 0);
+  const remaining = Math.max(0, allocated - used);
+
+  if (remaining <= 0) {
+    return { allowed: false, reason: "No inbound minutes remaining this period" };
+  }
+
+  return { allowed: true, remainingMinutes: remaining };
+}
 
 /**
  * Check if user has remaining outbound minutes.

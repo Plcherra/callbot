@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "106939181070",
+    "project_id": "echodesk-73e57",
+    "storage_bucket": "echodesk-73e57.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106939181070:android:e5661f14d2b032fd7d745f",
+        "android_client_info": {
+          "package_name": "com.echodesk.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgRHbALnfAeEbPS-vQyP_R2GJnlasWNt4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

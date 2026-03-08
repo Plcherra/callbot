@@ -1,8 +1,15 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 /// App configuration. Uses dart-define in production, or defaults for local dev.
-/// Run with: flutter run --dart-define=API_BASE_URL=https://your-api.com
+/// Debug: http://localhost:3000 | Release: https://echodesk.us (or pass API_BASE_URL)
+/// Run: flutter run --dart-define=API_BASE_URL=https://echodesk.us
+/// Build: flutter build apk --dart-define=API_BASE_URL=https://echodesk.us ...
 class Env {
-  static const String apiBaseUrl =
-      String.fromEnvironment('API_BASE_URL', defaultValue: 'http://localhost:3000');
+  static String get apiBaseUrl {
+    const env = String.fromEnvironment('API_BASE_URL', defaultValue: '');
+    if (env.isNotEmpty) return env;
+    return kReleaseMode ? 'https://echodesk.us' : 'http://localhost:3000';
+  }
   static const String supabaseUrl =
       String.fromEnvironment('SUPABASE_URL', defaultValue: '');
   static const String supabaseAnonKey =

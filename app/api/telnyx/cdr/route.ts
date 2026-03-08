@@ -8,6 +8,7 @@ import { createServiceRoleClient } from "@/app/lib/supabase/server";
 import { validateTelnyxWebhook, parseTelnyxEvent } from "@/app/lib/telnyxWebhook";
 import { getReceptionistByPhoneNumber } from "@/app/lib/receptionistByPhone";
 import { insertCallUsage } from "@/app/lib/callUsage";
+import { sendCallPush } from "@/app/lib/sendCallPush";
 import { warn } from "@/app/lib/logger";
 
 function headersToRecord(headers: Headers): Record<string, string> {
@@ -138,6 +139,17 @@ export async function POST(req: NextRequest) {
       p_direction: direction,
       p_minutes: billedMinutes,
     });
+  }
+
+  // Send call_ended push to user's devices so Flutter can dismiss call UI
+  if (receptionist.user_id && (eventType === "call.call-ended" || eventType === "call.hangup")) {
+    sendCallPush(
+      supabase,
+      receptionist.user_id,
+      callControlId,
+      receptionist.name ?? "Receptionist",
+      "call_ended"
+    ).catch((e) => console.error("[telnyx/cdr] call_ended push failed:", e));
   }
 
   return NextResponse.json({ received: true });

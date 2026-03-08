@@ -9,22 +9,19 @@ import time
 from typing import Any
 
 
-def validate_telnyx_webhook(
-    payload: bytes | str,
-    signature: str | None,
-    *,
-    webhook_secret: str | None = None,
+def _validate_hmac(
+    payload: bytes,
+    signature: str,
+    webhook_secret: str,
 ) -> bool:
     """
-    Validate Telnyx webhook signature.
-    Supports HMAC-SHA256 with TELNYX_WEBHOOK_SECRET.
+    Validate Telnyx webhook signature via HMAC-SHA256.
     Header format: t=timestamp,h=base64signature
     Message: timestamp + '.' + raw_body
     """
     if not webhook_secret or not signature or not signature.strip():
         return False
 
-    body = payload if isinstance(payload, bytes) else payload.encode("utf-8")
     secret = webhook_secret.encode("utf-8")
 
     try:
@@ -45,10 +42,90 @@ def validate_telnyx_webhook(
         if abs(time.time() - ts) > 60:
             return False
 
-        message = t_val.encode() + b"." + body
+        message = t_val.encode() + b"." + payload
         expected = hmac.new(secret, message, hashlib.sha256).digest()
         sig_bytes = base64.b64decode(h_val)
 
         return hmac.compare_digest(sig_bytes, expected)
     except Exception:
         return False
+
+
+def _validate_ed25519(
+    payload: bytes,
+    timestamp: str,
+    signature_b64: str,
+    public_key_pem: str,
+) -> bool:
+    """
+    Validate Telnyx webhook signature via Ed25519 (Standard Webhooks format).
+    Headers: telnyx-timestamp, telnyx-signature-ed25519
+    Signed payload: timestamp + '.' + body
+    """
+    if not public_key_pem or not timestamp or not signature_b64:
+        return False
+
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+        # Accept PEM or raw base64 public key
+        public_key_bytes = public_key_pem.encode("utf-8") if isinstance(public_key_pem, str) else public_key_pem
+        if public_key_bytes.startswith(b"-----"):
+            public_key = serialization.load_pem_public_key(public_key_bytes)
+        else:
+            raw = base64.b64decode(public_key_pem)
+            public_key = Ed25519PublicKey.from_public_bytes(raw)
+
+        if not isinstance(public_key, Ed25519PublicKey):
+            return False
+
+        # Timestamp check (±60s)
+        ts = int(timestamp)
+        if abs(time.time() - ts) > 60:
+            return False
+
+        signed_payload = timestamp.encode("utf-8") + b"." + payload
+        signature = base64.b64decode(signature_b64)
+
+        public_key.verify(signature, signed_payload)
+        return True
+    except (InvalidSignature, ValueError, Exception):
+        return False
+
+
+def validate_telnyx_webhook(
+    payload: bytes | str,
+    signature: str | None,
+    *,
+    webhook_secret: str | None = None,
+    public_key: str | None = None,
+    timestamp_header: str | None = None,
+    ed25519_signature_header: str | None = None,
+) -> bool:
+    """
+    Validate Telnyx webhook signature.
+    Supports:
+    - Ed25519: when public_key and ed25519_signature_header are set
+    - HMAC-SHA256: when webhook_secret and signature (t=...,h=...) are set
+    """
+    body = payload if isinstance(payload, bytes) else payload.encode("utf-8")
+
+    # Try Ed25519 first if we have the public key and the Ed25519 header
+    if public_key and ed25519_signature_header and timestamp_header:
+        if _validate_ed25519(
+            body,
+            timestamp_header,
+            ed25519_signature_header,
+            public_key,
+        ):
+            return True
+        # Ed25519 failed; don't fall through to HMAC with wrong format
+        return False
+
+    # Fall back to HMAC
+    if webhook_secret and signature:
+        return _validate_hmac(body, signature, webhook_secret)
+
+    return False

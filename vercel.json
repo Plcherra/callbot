@@ -1,7 +1,0 @@
-{
-  "crons": [
-    { "path": "/api/cron/payg-billing", "schedule": "0 0 1 * *" },
-    { "path": "/api/cron/reset-usage", "schedule": "5 0 1 * *" },
-    { "path": "/api/cron/usage", "schedule": "0 2 * * *" }
-  ]
-}

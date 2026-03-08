@@ -14,6 +14,8 @@ import 'screens/receptionists/create_receptionist_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/checkout/checkout_screen.dart';
 import 'screens/help/help_screen.dart';
+import 'screens/call/active_call_screen.dart';
+import 'services/call_service.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -97,6 +99,19 @@ GoRouter createAppRouter() {
       GoRoute(
         path: '/help',
         builder: (context, state) => const HelpScreen(),
+      ),
+      GoRoute(
+        path: '/call/:callSid',
+        builder: (context, state) {
+          final callSid = state.pathParameters['callSid'] ?? '';
+          final receptionistId = state.uri.queryParameters['receptionist_id'] ?? '';
+          final caller = state.uri.queryParameters['caller'] ?? '';
+          return ActiveCallScreen(
+            callSid: callSid,
+            receptionistId: receptionistId,
+            caller: caller,
+          );
+        },
       ),
     ],
   );

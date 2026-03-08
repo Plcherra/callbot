@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
+import '../../strings.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -77,21 +78,21 @@ class SettingsScreen extends StatelessWidget {
         } else {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Could not open billing portal')),
+              const SnackBar(content: Text(AppStrings.couldNotOpenBilling)),
             );
           }
         }
       } else {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final err = data['error'] as String? ?? 'Failed';
+        final err = data['error'] as String? ?? AppStrings.billingError;
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
         }
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          const SnackBar(content: Text(AppStrings.couldNotOpenBilling)),
         );
       }
     }
@@ -110,10 +111,10 @@ class SettingsScreen extends StatelessWidget {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         }
       }
-    } catch (e) {
+    } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          const SnackBar(content: Text(AppStrings.couldNotConnectCalendar)),
         );
       }
     }

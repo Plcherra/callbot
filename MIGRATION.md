@@ -73,6 +73,8 @@ Required dart-defines for production: `SUPABASE_URL`, `SUPABASE_ANON_KEY`. Optio
 - `TELNYX_API_KEY`, `TELNYX_WEBHOOK_SECRET`, `TELNYX_WEBHOOK_BASE_URL`
 - `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`
 - `VOICE_SERVER_API_KEY` (for prompt/calendar API auth)
+- `APP_API_BASE_URL` – Next.js app URL (e.g. `https://echodesk.us`). Backend calls this for FCM push and quota checks.
+- `INTERNAL_API_KEY` – Shared secret with Next.js for `/api/internal/send-call-push` and `/api/internal/check-inbound-quota`.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` (for calendar)
 
 ## Removed (Node Voice Stack)

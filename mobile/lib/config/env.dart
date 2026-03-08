@@ -16,4 +16,8 @@ class Env {
       String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
   static const String deepLinkScheme =
       String.fromEnvironment('DEEP_LINK_SCHEME', defaultValue: 'echodesk');
+
+  /// Voice backend WebSocket base URL (optional - for listen-in, e.g. wss://voice.echodesk.us).
+  static const String voiceWsBaseUrl =
+      String.fromEnvironment('VOICE_WS_BASE_URL', defaultValue: '');
 }

@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
+import '../../strings.dart';
 import '../receptionists/create_receptionist_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -82,10 +83,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
         }
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          const SnackBar(content: Text(AppStrings.couldNotConnectCalendar)),
         );
       }
     }

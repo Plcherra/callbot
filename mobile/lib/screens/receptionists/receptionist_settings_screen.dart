@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/api_client.dart';
+import '../../strings.dart';
 
 class ReceptionistSettingsScreen extends StatefulWidget {
   final String receptionistId;
@@ -477,9 +478,9 @@ class _WebsiteTabState extends State<_WebsiteTab> {
                           ),
                         );
                       }
-                    } catch (e) {
+                    } catch (_) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
+                        const SnackBar(content: Text(AppStrings.couldNotFetchWebsite)),
                       );
                     }
                     setState(() => _loading = false);
@@ -576,9 +577,9 @@ class _InstructionsTabState extends State<_InstructionsTab> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Saved')),
                       );
-                    } catch (e) {
+                    } catch (_) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
+                        const SnackBar(content: Text(AppStrings.couldNotSaveSettings)),
                       );
                     }
                     setState(() => _saving = false);

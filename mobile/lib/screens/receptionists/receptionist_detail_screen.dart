@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/receptionist.dart';
+import '../../strings.dart';
 import '../../services/api_client.dart';
 
 class ReceptionistDetailScreen extends StatefulWidget {
@@ -227,13 +228,37 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                 ),
               ),
             ),
-            if (_callHistory.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'Call history',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
+            const SizedBox(height: 24),
+            Text(
+              'Call history',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            if (_callHistory.isEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Icon(Icons.phone_missed_outlined, size: 48, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No calls yet',
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "When customers call your AI receptionist, they'll appear here.",
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
               ..._callHistory.map((call) {
                 final start = call['started_at'] != null
                     ? DateTime.tryParse(call['started_at'] as String)
@@ -270,7 +295,6 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                   ),
                 );
               }),
-            ],
             const SizedBox(height: 24),
             Row(
               children: [
@@ -316,10 +340,10 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                   '/api/mobile/receptionists/${r.id}/delete',
                 );
                 if (context.mounted) context.go('/receptionists');
-              } catch (e) {
+              } catch (_) {
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $e')),
+                    const SnackBar(content: Text(AppStrings.couldNotDeleteReceptionist)),
                   );
                 }
               }

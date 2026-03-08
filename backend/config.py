@@ -23,8 +23,8 @@ class Settings(BaseSettings):
 
     # Telnyx
     telnyx_api_key: str = ""
-    telnyx_public_key: str = ""
-    telnyx_webhook_secret: str = ""
+    telnyx_public_key: str = ""  # For Ed25519 webhook verification
+    telnyx_webhook_secret: str = ""  # For HMAC webhook verification
     telnyx_webhook_base_url: str = ""
 
     # Voice AI
@@ -37,9 +37,15 @@ class Settings(BaseSettings):
     voice_server_api_key: str = ""
     voice_prompt_base_url: str = ""
 
-    # App API (Next.js) for FCM push
+    # App API (Next.js) for FCM push (fallback when not using backend FCM)
     app_api_base_url: str = ""
     internal_api_key: str = ""
+
+    # Cron: optional, for triggering Next.js billing cron from this backend
+    cron_secret: str = ""
+
+    # Firebase (for backend FCM push)
+    firebase_service_account_key: str = ""  # JSON string of service account credentials
 
     # Google Calendar
     google_client_id: str = ""

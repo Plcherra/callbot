@@ -24,8 +24,16 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (type != 'incoming_call' && type != 'call_ended') return;
   final callSid = data['call_sid'] ?? data['callSid'];
   final receptionistName = data['receptionist_name'] ?? data['receptionistName'];
+  final receptionistId = data['receptionist_id'] ?? data['receptionistId'] ?? '';
+  final caller = data['caller'] ?? data['callerNumber'] ?? '';
   if (callSid != null && callSid.isNotEmpty) {
-    await CallService().handlePushCallEvent(type!, callSid, receptionistName);
+    await CallService().handlePushCallEvent(
+      type!,
+      callSid,
+      receptionistName,
+      receptionistId: receptionistId?.toString() ?? '',
+      caller: caller?.toString() ?? '',
+    );
   }
 }
 
@@ -162,7 +170,15 @@ class PushService {
       final callSid = data['call_sid'] as String? ?? data['callSid'] as String?;
       final receptionistName =
           data['receptionist_name'] as String? ?? data['receptionistName'] as String?;
-      CallService().handlePushCallEvent(type, callSid, receptionistName);
+      final receptionistId = (data['receptionist_id'] ?? data['receptionistId'] ?? '') as String;
+      final caller = (data['caller'] ?? data['callerNumber'] ?? '') as String;
+      CallService().handlePushCallEvent(
+        type,
+        callSid,
+        receptionistName,
+        receptionistId: receptionistId,
+        caller: caller,
+      );
     }
   }
 
@@ -188,7 +204,7 @@ class PushService {
       title,
       body,
       details,
-      payload: data.toString(),
+      payload: jsonEncode(data),
     );
   }
 

@@ -1,11 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../services/api_client.dart';
+import '../../config/env.dart';
 
 class SignupScreen extends StatefulWidget {
   final String? planId;
@@ -60,17 +57,14 @@ class _SignupScreenState extends State<SignupScreen> {
       _isLoading = true;
     });
     try {
-      final res = await ApiClient.get(
-        '/api/mobile/google-auth-url',
-        queryParams: {'return_to': 'mobile'},
+      final redirectUrl = '${Env.deepLinkScheme}://auth-callback';
+      await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: redirectUrl,
       );
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final url = data['url'] as String?;
-        if (url != null && await canLaunchUrl(Uri.parse(url))) {
-          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-        }
-      }
+      // OAuth opens browser; on return, Supabase recovers session and router redirects to dashboard
+    } on AuthException catch (e) {
+      setState(() => _error = e.message);
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {

@@ -65,6 +65,9 @@ Pass via `--dart-define` when running:
 
 ## Google OAuth for Mobile
 
+**Sign-in (Login/Signup):** The mobile app uses Supabase `signInWithOAuth(OAuthProvider.google)` with `redirectTo: echodesk://auth-callback`. Add `echodesk://auth-callback` (or `{DEEP_LINK_SCHEME}://auth-callback`) to your Supabase project's Authentication → URL Configuration → Redirect URLs.
+
+**Calendar connection (post-login):**
 1. Add redirect URI in Google Cloud Console: `https://your-api.com/api/google/callback` (same as web).
 2. Mobile calls `GET /api/mobile/google-auth-url?return_to=mobile`.
 3. Mobile opens the returned URL in browser.

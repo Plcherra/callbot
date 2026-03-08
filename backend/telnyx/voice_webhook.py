@@ -17,36 +17,65 @@ logger = logging.getLogger(__name__)
 TELNYX_API = "https://api.telnyx.com/v2"
 
 
-async def _send_call_push(
+async def _send_incoming_call_push(
     user_id: str,
     call_control_id: str,
+    caller: str,
+    receptionist_id: str,
     receptionist_name: str,
-    event_type: str = "incoming_call",
 ) -> None:
-    """Send FCM push to user's devices via Next.js internal API."""
+    """Send FCM push for incoming call. Prefer backend firebase-admin, fallback to Next.js API."""
+    if (settings.firebase_service_account_key or "").strip():
+        try:
+            from push import send_incoming_call_push
+            sent = await asyncio.to_thread(
+                send_incoming_call_push,
+                user_id=user_id,
+                call_sid=call_control_id,
+                caller=caller,
+                receptionist_id=receptionist_id or "",
+                receptionist_name=receptionist_name,
+            )
+            if sent > 0:
+                return
+        except Exception as e:
+            logger.warning("Backend FCM push failed: %s, trying Next.js fallback", e)
+
+    # Fallback: Next.js internal API
     base = (settings.app_api_base_url or "").strip().rstrip("/")
     key = (settings.internal_api_key or "").strip()
     if not base or not key:
+        logger.warning("Call push skipped: no Firebase and no APP_API_BASE_URL/INTERNAL_API_KEY")
         return
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.post(
-                f"{base}/api/internal/send-call-push",
-                headers={"x-internal-api-key": key, "Content-Type": "application/json"},
-                json={
-                    "user_id": user_id,
-                    "call_sid": call_control_id,
-                    "receptionist_name": receptionist_name,
-                    "type": event_type,
-                },
-            )
-            if r.is_success:
-                data = r.json()
-                logger.info("Call push sent: %s", data)
-            else:
-                logger.warning("Call push failed: %s %s", r.status_code, r.text)
-    except Exception as e:
-        logger.warning("Call push error: %s", e)
+    payload = {
+        "user_id": user_id,
+        "call_sid": call_control_id,
+        "caller": caller,
+        "receptionist_id": receptionist_id or "",
+        "receptionist_name": receptionist_name,
+        "type": "incoming_call",
+    }
+    await _send_call_push_via_nextjs(base, key, payload)
+
+
+async def _send_call_push_via_nextjs(base: str, key: str, payload: dict) -> None:
+    """Send FCM push via Next.js internal API. Retries once on failure."""
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.post(
+                    f"{base}/api/internal/send-call-push",
+                    headers={"x-internal-api-key": key, "Content-Type": "application/json"},
+                    json=payload,
+                )
+                if r.is_success:
+                    logger.info("Call push sent via Next.js: %s", r.json())
+                    return
+                logger.warning("Call push failed (attempt %d): %s %s", attempt + 1, r.status_code, r.text)
+        except Exception as e:
+            logger.warning("Call push error (attempt %d): %s", attempt + 1, e)
+        if attempt == 0:
+            await asyncio.sleep(0.5)
 
 
 def _get_receptionist_by_phone(supabase, to_number: str) -> dict | None:
@@ -137,7 +166,13 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
     # Send FCM push to user's mobile devices (fire-and-forget)
     if user_id:
         asyncio.create_task(
-            _send_call_push(user_id, call_control_id, receptionist_name, "incoming_call")
+            _send_incoming_call_push(
+                user_id=user_id,
+                call_control_id=call_control_id,
+                caller=from_number,
+                receptionist_id=receptionist_id,
+                receptionist_name=receptionist_name,
+            )
         )
 
     # Pre-fetch and cache prompt

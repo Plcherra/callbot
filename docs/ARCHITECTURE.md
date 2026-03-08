@@ -8,12 +8,18 @@ High-level architecture for the AI receptionist subscription platform.
 flowchart TB
     subgraph Client [Client]
         Browser[Browser]
+        Flutter[Flutter App]
     end
 
     subgraph NextJS [Next.js App]
         Pages[Pages / Server Components]
         Actions[Server Actions]
         API[API Routes]
+        CDR[CDR Webhook]
+    end
+
+    subgraph Backend [Python FastAPI Voice Backend]
+        VoiceWebhook[Voice Webhook]
         VoiceWS[Voice WebSocket]
     end
 
@@ -29,18 +35,21 @@ flowchart TB
 
     Browser --> Pages
     Browser --> Actions
+    Flutter --> API
     Pages --> Supabase
     Actions --> Supabase
     Actions --> Stripe
     API --> Supabase
     API --> GCal
 
-    Telnyx -->|call.initiated| API
+    Telnyx -->|call.initiated| VoiceWebhook
     Telnyx -->|WebSocket audio| VoiceWS
+    Telnyx -->|call.call-ended| CDR
     VoiceWS --> Deepgram
     VoiceWS --> Grok
     VoiceWS --> ElevenLabs
-    VoiceWS -->|Fetch prompt / Calendar| API
+    VoiceWebhook -->|Fetch prompt / quota / FCM| API
+    VoiceWS -->|Calendar tools| API
 ```
 
 ## Data Flow
@@ -62,11 +71,12 @@ flowchart TB
 ### Incoming Call
 
 1. Caller dials DID → Telnyx receives call
-2. Telnyx webhooks `call.initiated` to `/api/telnyx/voice`
-3. Next.js answers call and starts stream to WebSocket at `/api/voice/stream`
-4. Voice pipeline: Deepgram STT → Grok LLM → ElevenLabs TTS (ulaw 8kHz)
-5. Calendar actions via `/api/voice/calendar`
-6. On hangup, Telnyx CDR webhook → `/api/telnyx/cdr` → `call_usage` insert
+2. Telnyx webhooks `call.initiated` to the **FastAPI backend** at `/api/telnyx/voice`
+3. Backend checks inbound quota (via Next.js internal API), sends FCM push, answers call, starts Telnyx streaming
+4. Telnyx connects WebSocket to **FastAPI backend** at `/api/voice/stream`
+5. Voice pipeline (in backend): Deepgram STT → Grok LLM → ElevenLabs TTS (ulaw 8kHz)
+6. Calendar actions via Next.js `/api/voice/calendar` (called by backend with `VOICE_SERVER_API_KEY`)
+7. On hangup, Telnyx CDR webhook → **Next.js** `/api/telnyx/cdr` → `call_usage` insert, `call_ended` FCM push
 
 ## Key Tables
 
@@ -80,13 +90,29 @@ flowchart TB
 
 ## Key Files
 
-- `app/api/telnyx/voice/route.ts` — Incoming call webhook, answer + stream to WebSocket
-- `app/api/telnyx/cdr/route.ts` — CDR webhook, inserts call_usage
-- `app/api/voice/stream` — WebSocket handler (via server.js)
-- `server/voiceStreamHandler.ts` — Voice pipeline: Deepgram → Grok → ElevenLabs
-- `app/api/receptionist-prompt/route.ts` — Fetches built prompt for voice pipeline
-- `app/api/voice/calendar/route.ts` — Google Calendar actions
+| Component | Path |
+|-----------|------|
+| Voice webhook + WebSocket | `backend/main.py`, `backend/telnyx/voice_webhook.py`, `backend/voice/handler.py` |
+| Voice pipeline | `backend/voice/pipeline.py`, `backend/voice/deepgram_client.py`, `backend/voice/grok_client.py`, `backend/voice/elevenlabs_client.py` |
+| CDR webhook | `app/api/telnyx/cdr/route.ts` |
+| Prompt API | `app/api/receptionist-prompt/route.ts` |
+| Calendar API | `app/api/voice/calendar/route.ts` |
+| Internal APIs (FCM, quota) | `app/api/internal/send-call-push/route.ts`, `app/api/internal/check-inbound-quota/route.ts` |
+
+## Running Backend and Next.js Together
+
+```bash
+# Terminal 1: Next.js dashboard
+npm run dev
+
+# Terminal 2: Python voice backend
+cd backend && uvicorn main:app --reload --port 8000
+```
+
+Set `TELNYX_WEBHOOK_BASE_URL` to the public URL of the FastAPI backend (e.g. `http://localhost:8000` for local, or `https://voice.echodesk.us` in production).
+
+See [MIGRATION.md](../MIGRATION.md) for deployment and env setup.
 
 ## Scaling Considerations
 
-**Prompt cache**: The voice pipeline uses an in-memory prompt cache (`app/lib/promptCache.ts`) keyed by `call_control_id`. With a single `server.js` process this works: the webhook pre-fetches the prompt and the WebSocket handler reads it instantly, avoiding 1006 timeouts. With multiple instances behind a load balancer, the webhook may hit instance A while the WebSocket connects to instance B; instance B has no cached prompt and falls back to an HTTP fetch to `/api/receptionist-prompt`, adding latency. For production multi-instance deployments, consider a shared cache (e.g. Redis) keyed by `call_control_id`, or use sticky sessions so the same instance handles both the webhook and the WebSocket for a given call.
+**Prompt cache**: The voice pipeline uses an in-memory prompt cache (`prompts/fetch.py`) keyed by `call_control_id`. With a single FastAPI process this works: the webhook pre-fetches the prompt and the WebSocket handler reads it instantly. With multiple instances behind a load balancer, the webhook may hit instance A while the WebSocket connects to instance B; instance B falls back to an HTTP fetch to Next.js `/api/receptionist-prompt`, adding latency. For production multi-instance deployments, consider a shared cache (e.g. Redis) or sticky sessions.

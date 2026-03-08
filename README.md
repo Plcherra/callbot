@@ -29,7 +29,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-**Voice testing**: `npm run dev` does not support WebSockets. For voice (incoming calls, AI assistant), use `npm run dev:voice` or `node server.js` instead ([docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)). Run `npm run build:server` first if `dist-server` is missing.
+**Voice testing**: Voice (incoming calls, AI assistant) runs on a separate Python FastAPI backend. Run `uvicorn backend.main:app --reload --port 8000` and set `TELNYX_WEBHOOK_BASE_URL` to its URL. See [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md) and [MIGRATION.md](MIGRATION.md).
 
 ## Setup
 
@@ -61,9 +61,9 @@ Copy `.env.local.example` to `.env.local` and fill in:
 
 ### 4. Telnyx and voice AI
 
-1. Create a Telnyx account and set `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL`.
+1. Create a Telnyx account and set `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL` (point to your FastAPI backend URL).
 2. Set Deepgram, ElevenLabs, Grok API keys (see [docs/VOICE_SETUP.md](docs/VOICE_SETUP.md)).
-3. Run `npm run dev:voice` or `node server.js` for WebSocket voice support (requires `npm run build:server` first). Phone numbers are provisioned per receptionist when you create them.
+3. Run the Python voice backend: `cd backend && uvicorn main:app --reload --port 8000`. Phone numbers are provisioned per receptionist when you create them.
 
 ### 5. Google OAuth
 
@@ -81,7 +81,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-- **Voice (WebSocket)**: `npm run dev:voice` or `npm run build:server && node server.js` – use instead of `npm run dev` when testing calls
+- **Voice**: Run the Python backend in a separate terminal: `cd backend && uvicorn main:app --reload --port 8000` (see [MIGRATION.md](MIGRATION.md))
 - **Tests**: `npm run test` or `npm run test:run`
 - **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Stripe permissions**: [docs/STRIPE_PERMISSIONS.md](docs/STRIPE_PERMISSIONS.md)

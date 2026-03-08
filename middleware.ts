@@ -38,7 +38,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Exclude api/voice (WebSocket) and api/receptionist-prompt (internal) - middleware can cause bind error on these
-    "/((?!_next/static|_next/image|favicon.ico|api/voice|api/receptionist-prompt|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Exclude api/voice (WebSocket), api/receptionist-prompt (internal), monitoring (Sentry tunnel)
+    "/((?!_next/static|_next/image|favicon.ico|api/voice|api/receptionist-prompt|monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

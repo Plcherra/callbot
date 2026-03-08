@@ -18,6 +18,7 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -65,13 +66,30 @@ async def voice_stream(ws):
 async def telnyx_voice(request: Request):
     raw = await request.body()
     sig = request.headers.get("t-signature") or request.headers.get("telnyx-signature") or request.headers.get("x-telnyx-signature")
-    if settings.telnyx_webhook_secret and sig:
-        if not validate_telnyx_webhook(raw, sig, webhook_secret=settings.telnyx_webhook_secret):
+    ed25519_sig = request.headers.get("telnyx-signature-ed25519")
+    timestamp = request.headers.get("telnyx-timestamp")
+
+    verified = False
+    if settings.telnyx_public_key and ed25519_sig and timestamp:
+        verified = validate_telnyx_webhook(
+            raw,
+            None,
+            public_key=settings.telnyx_public_key,
+            timestamp_header=timestamp,
+            ed25519_signature_header=ed25519_sig,
+        )
+        if not verified:
+            raise HTTPException(status_code=403, detail="Invalid Ed25519 signature")
+    elif settings.telnyx_webhook_secret and sig:
+        verified = validate_telnyx_webhook(raw, sig, webhook_secret=settings.telnyx_webhook_secret)
+        if not verified:
             raise HTTPException(status_code=403, detail="Invalid signature")
     elif settings.telnyx_webhook_secret:
         logger.warning("TELNYX_WEBHOOK_SECRET set but no signature header")
+    elif settings.telnyx_public_key and not (ed25519_sig and timestamp):
+        logger.warning("TELNYX_PUBLIC_KEY set but telnyx-signature-ed25519/telnyx-timestamp headers missing")
     else:
-        logger.warning("Telnyx webhook not verified - TELNYX_WEBHOOK_SECRET not set")
+        logger.warning("Telnyx webhook not verified - TELNYX_WEBHOOK_SECRET or TELNYX_PUBLIC_KEY not set")
 
     try:
         body = __import__("json").loads(raw.decode("utf-8"))
@@ -126,6 +144,39 @@ async def voice_calendar(
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
     return await handle_calendar_request(body)
+
+
+@app.get("/api/cron/payg-billing")
+async def cron_payg_billing(
+    authorization: str = Header(None, alias="Authorization"),
+):
+    """
+    Proxy to Next.js payg-billing cron. Run on 1st of month.
+    Requires APP_API_BASE_URL and CRON_SECRET in backend .env.
+    """
+    base = (settings.app_api_base_url or "").rstrip("/")
+    secret = settings.cron_secret
+    if not base or not secret:
+        raise HTTPException(
+            status_code=503,
+            detail="Cron not configured: set APP_API_BASE_URL and CRON_SECRET",
+        )
+    auth_val = authorization or ""
+    if not auth_val.startswith("Bearer ") or auth_val[7:] != secret:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    url = f"{base}/api/cron/payg-billing"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.get(url, headers={"Authorization": f"Bearer {secret}"})
+        try:
+            body = r.json()
+        except Exception:
+            body = {"raw": r.text[:500]}
+        return {"ok": r.status_code == 200, "status": r.status_code, "body": body}
+    except Exception as e:
+        logger.exception("Cron payg-billing proxy failed")
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 if __name__ == "__main__":

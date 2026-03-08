@@ -19,6 +19,8 @@ export async function POST(req: NextRequest) {
   const userId = body.user_id as string | undefined;
   const callSid = body.call_sid as string | undefined;
   const receptionistName = (body.receptionist_name as string) ?? "Receptionist";
+  const receptionistId = (body.receptionist_id as string) ?? "";
+  const caller = (body.caller as string) ?? "";
   const type = body.type as string;
 
   if (!userId?.trim() || !callSid?.trim()) {
@@ -39,7 +41,8 @@ export async function POST(req: NextRequest) {
       userId,
       callSid,
       receptionistName,
-      type as "incoming_call" | "call_ended"
+      type as "incoming_call" | "call_ended",
+      { caller, receptionistId }
     );
     return NextResponse.json({ sent });
   } catch (err) {

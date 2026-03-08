@@ -26,6 +26,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="echodesk" android:host="checkout" />
                 <data android:scheme="echodesk" android:host="google-callback" />
+                <data android:scheme="echodesk" android:host="auth-callback" />
             </intent-filter>
         </activity>
         <meta-data

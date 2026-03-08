@@ -19,8 +19,8 @@ function getPreviousMonthPeriod(): { period_start: string; period_end: string } 
   };
 }
 
-/** Minimum PAYG invoice: $5/month when user has usage. */
-const PAYG_MIN_CENTS = 500;
+/** Minimum invoice: $5 when subtotal would be less. */
+const MIN_INVOICE_CENTS = 500;
 
 /**
  * Invoice PAYG users for the previous month.
@@ -83,7 +83,8 @@ export async function invoicePaygForPreviousMonth(
     }
 
     const paygRateCents = 20;
-    const amountCents = Math.max(PAYG_MIN_CENTS, Math.ceil(totalMinutes * paygRateCents));
+    const subtotalCents = Math.ceil(totalMinutes * paygRateCents);
+    const amountCents = Math.max(MIN_INVOICE_CENTS, subtotalCents);
 
     try {
       const invoice = await stripe.invoices.create({
@@ -174,7 +175,8 @@ export async function invoiceOverageForFixedPlans(
     }
 
     const rate = p.overage_rate_cents ?? 25;
-    const amountCents = Math.ceil(overageMinutes * rate);
+    const subtotalCents = Math.ceil(overageMinutes * rate);
+    const amountCents = Math.max(MIN_INVOICE_CENTS, subtotalCents);
 
     try {
       const invoice = await stripe.invoices.create({

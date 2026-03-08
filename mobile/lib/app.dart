@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'app_router.dart';
+import 'services/call_service.dart';
 import 'services/deep_link_handler.dart';
 
 class EchodeskApp extends StatefulWidget {
@@ -21,6 +22,15 @@ class _EchodeskAppState extends State<EchodeskApp> {
   void initState() {
     super.initState();
     _router = createAppRouter();
+    CallService().onCallAccepted = (callSid, receptionistId, caller) {
+      final q = <String, String>{};
+      if (receptionistId.isNotEmpty) q['receptionist_id'] = receptionistId;
+      if (caller.isNotEmpty) q['caller'] = caller;
+      final path = q.isEmpty
+          ? '/call/$callSid'
+          : '/call/$callSid?${Uri(queryParameters: q).query}';
+      _router.go(path);
+    };
     _deepLinkHandler.init((msg) {
       _scaffoldKey.currentState?.showSnackBar(SnackBar(content: Text(msg)));
     });

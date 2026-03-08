@@ -55,6 +55,9 @@ class DeepLinkHandler {
         final err = uri.queryParameters['error'] ?? 'Connection failed';
         onMessage('Calendar: $err');
       }
+    } else if (uri.host == 'auth-callback') {
+      // Supabase OAuth redirect; session is recovered automatically by Supabase
+      onMessage('Signed in successfully');
     } else if (uri.host == 'settings') {
       onMessage('Billing updated');
     }

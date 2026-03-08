@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
@@ -20,6 +21,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _totalUsageMinutes = 0;
   int? _includedMinutes;
   int _overageMinutes = 0;
+  int? _remainingMinutes;
+  bool _isPayg = false;
   bool _loading = true;
   String? _error;
 
@@ -74,7 +77,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       // Usage: query usage_snapshots for current period (same logic as web dashboard)
       int usageMin = 0, overage = 0;
       int? included;
+      int? remaining;
       final meta = profileRes?['billing_plan_metadata'] as Map<String, dynamic>?;
+      final billingPlan = profileRes?['billing_plan'] as String?;
+      final isPayg = billingPlan == 'subscription_payg';
       if (meta != null && meta['included_minutes'] != null) {
         included = meta['included_minutes'] as int;
       }
@@ -97,6 +103,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           overage += (row['overage_minutes'] as int?) ?? 0;
         }
         usageMin = (totalSeconds / 60).ceil();
+        if (included != null && !isPayg) {
+          remaining = (included - usageMin).clamp(0, included);
+        }
       }
 
       setState(() {
@@ -107,14 +116,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _totalUsageMinutes = usageMin;
         _includedMinutes = included;
         _overageMinutes = overage;
+        _remainingMinutes = remaining;
+        _isPayg = isPayg;
         _loading = false;
       });
+      if (!_loading && _error == null) {
+        _maybeShowWelcomeOverlay();
+      }
     } catch (e) {
       setState(() {
         _error = e.toString();
         _loading = false;
       });
     }
+  }
+
+  static const _kWelcomeSeenKey = 'dashboard_welcome_seen';
+
+  Future<void> _maybeShowWelcomeOverlay() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kWelcomeSeenKey) == true) return;
+      if (!mounted) return;
+      _showWelcomeDialog(prefs);
+    } catch (_) {}
+  }
+
+  void _showWelcomeDialog(SharedPreferences prefs) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Welcome to Echodesk'),
+        content: const Text(
+          'Create your first receptionist to get a dedicated phone number. '
+          'Your AI will answer calls and book appointments into your calendar.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              prefs.setBool(_kWelcomeSeenKey, true);
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Got it'),
+          ),
+          FilledButton(
+            onPressed: () {
+              prefs.setBool(_kWelcomeSeenKey, true);
+              Navigator.of(ctx).pop();
+              if (mounted) context.push('/receptionists/create');
+            },
+            child: const Text('Create receptionist'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -297,11 +353,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               value: _includedMinutes != null
                   ? '$_totalUsageMinutes / $_includedMinutes'
                   : '$_totalUsageMinutes',
+              remainingSubtext: _remainingMinutes != null && _remainingMinutes! > 0
+                  ? '$_remainingMinutes min remaining'
+                  : null,
               overageSubtext:
                   _overageMinutes > 0 ? '$_overageMinutes overage' : null,
               overageWarning: _includedMinutes != null &&
                   _totalUsageMinutes >= _includedMinutes! &&
                   _totalUsageMinutes > 0,
+              lowMinutesWarning: _remainingMinutes != null &&
+                  _remainingMinutes! > 0 &&
+                  _remainingMinutes! <= 30,
             ),
           ],
         ),
@@ -349,14 +411,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
+  final String? remainingSubtext;
   final String? overageSubtext;
   final bool overageWarning;
+  final bool lowMinutesWarning;
 
   const _StatCard({
     required this.label,
     required this.value,
+    this.remainingSubtext,
     this.overageSubtext,
     this.overageWarning = false,
+    this.lowMinutesWarning = false,
   });
 
   @override
@@ -392,10 +458,23 @@ class _StatCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Over cap; overage may be billed.',
+                    'Over cap; overage may be billed at \$0.25/min.',
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.amber.shade700,
+                    ),
+                  ),
+                )
+              else if (remainingSubtext != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    remainingSubtext!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: lowMinutesWarning
+                          ? Colors.orange.shade700
+                          : Colors.green.shade700,
                     ),
                   ),
                 ),

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
+import '../../strings.dart';
 import '../../services/api_client.dart';
 import 'receptionist_detail_screen.dart';
 import 'create_receptionist_screen.dart';
@@ -111,7 +112,7 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
                   if (res.statusCode >= 200 && res.statusCode < 300) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Call initiated')),
+                        const SnackBar(content: Text(AppStrings.callInitiated)),
                       );
                     }
                   } else {
@@ -122,10 +123,10 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
                       );
                     }
                   }
-                } catch (e) {
+                } catch (_) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error: $e')),
+                      const SnackBar(content: Text(AppStrings.couldNotStartCall)),
                     );
                   }
                 }

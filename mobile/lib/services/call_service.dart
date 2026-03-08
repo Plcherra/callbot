@@ -8,6 +8,9 @@ import 'package:flutter_callkit_incoming/entities/ios_params.dart';
 import 'package:flutter_callkit_incoming/entities/notification_params.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 
+/// Callback when user taps Accept on incoming call UI.
+typedef OnCallAccepted = void Function(String callSid, String receptionistId, String caller);
+
 class CallService {
   static final CallService _instance = CallService._();
   factory CallService() => _instance;
@@ -15,6 +18,7 @@ class CallService {
   CallService._();
 
   bool _initialized = false;
+  OnCallAccepted? onCallAccepted;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -27,11 +31,11 @@ class CallService {
     if (event == null) return;
     switch (event.event) {
       case Event.actionCallIncoming:
-        // Incoming call shown
         break;
       case Event.actionCallStart:
         break;
       case Event.actionCallAccept:
+        _handleCallAccepted(event);
         break;
       case Event.actionCallDecline:
         break;
@@ -46,31 +50,49 @@ class CallService {
     }
   }
 
+  void _handleCallAccepted(CallEvent event) {
+    final body = event.body;
+    if (body == null) return;
+    final callSid = body['id'] ?? body['call_sid'] ?? '';
+    final extra = body['extra'] as Map<String, dynamic>?;
+    final receptionistId = extra?['receptionist_id']?.toString() ?? '';
+    final caller = extra?['caller']?.toString() ?? '';
+    if (callSid.isNotEmpty) {
+      onCallAccepted?.call(callSid, receptionistId, caller);
+    }
+  }
+
   /// Show incoming call UI when backend pushes call alert.
-  /// The AI has already answered - this is for staff awareness.
   Future<void> handlePushCallEvent(
     String type,
     String? callSid,
-    String? receptionistName,
-  ) async {
+    String? receptionistName, {
+    String receptionistId = '',
+    String caller = '',
+  }) async {
     if (callSid == null || callSid.isEmpty) return;
 
     if (type == 'incoming_call') {
+      final displayName = caller.isNotEmpty
+          ? '${receptionistName ?? 'Receptionist'} – $caller'
+          : (receptionistName ?? 'Incoming call');
       await showIncomingCallUI(
         callId: callSid,
-        callerName: receptionistName ?? 'Incoming call',
-        callerNumber: '',
+        callerName: displayName,
+        callerNumber: caller,
+        receptionistId: receptionistId,
       );
     } else if (type == 'call_ended') {
       await endCall(callSid);
     }
   }
 
-  /// Display native incoming call UI (CallKit on iOS, custom on Android).
+  /// Display native incoming call UI (CallKit on iOS, ConnectionService on Android).
   Future<void> showIncomingCallUI({
     required String callId,
     required String callerName,
     required String callerNumber,
+    String receptionistId = '',
   }) async {
     try {
       final params = CallKitParams(
@@ -89,7 +111,11 @@ class CallService {
           callbackText: 'Call back',
         ),
         duration: 30000,
-        extra: <String, dynamic>{'call_sid': callId},
+        extra: <String, dynamic>{
+          'call_sid': callId,
+          'receptionist_id': receptionistId,
+          'caller': callerNumber,
+        },
         headers: <String, dynamic>{},
         android: const AndroidParams(
           isCustomNotification: false,

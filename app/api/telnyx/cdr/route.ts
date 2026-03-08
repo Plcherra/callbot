@@ -148,7 +148,8 @@ export async function POST(req: NextRequest) {
       receptionist.user_id,
       callControlId,
       receptionist.name ?? "Receptionist",
-      "call_ended"
+      "call_ended",
+      { receptionistId: receptionist.id ?? "" }
     ).catch((e) => console.error("[telnyx/cdr] call_ended push failed:", e));
   }
 

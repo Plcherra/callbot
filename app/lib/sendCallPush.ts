@@ -20,12 +20,18 @@ function getMessaging(): admin.messaging.Messaging | null {
   return admin.messaging();
 }
 
+export type SendCallPushOptions = {
+  caller?: string;
+  receptionistId?: string;
+};
+
 export async function sendCallPush(
   supabase: SupabaseClient,
   userId: string,
   callSid: string,
   receptionistName: string,
-  type: "incoming_call" | "call_ended"
+  type: "incoming_call" | "call_ended",
+  options?: SendCallPushOptions
 ): Promise<{ sent: number }> {
   const messaging = getMessaging();
   if (!messaging) return { sent: 0 };
@@ -41,18 +47,26 @@ export async function sendCallPush(
   const title = type === "incoming_call" ? "Incoming call" : "Call ended";
   const bodyText =
     type === "incoming_call"
-      ? `${receptionistName} – Incoming call`
+      ? `${receptionistName} – Call from ${options?.caller ?? "Unknown"}`
       : `Call with ${receptionistName} ended`;
+
+  const data: Record<string, string> = {
+    type,
+    call_sid: callSid,
+    receptionist_name: receptionistName,
+    receptionist_id: options?.receptionistId ?? "",
+    caller: options?.caller ?? "",
+  };
 
   const message: admin.messaging.MulticastMessage = {
     tokens,
     notification: { title, body: bodyText },
-    data: { type, call_sid: callSid, receptionist_name: receptionistName },
+    data,
     android: {
       priority: "high",
       notification: { channelId: "echodesk_calls" },
     },
-    apns: { payload: { aps: { sound: "default" } } },
+    apns: { payload: { aps: { sound: type === "incoming_call" ? "default" : undefined } } },
   };
 
   const result = await messaging.sendEachForMulticast(message);

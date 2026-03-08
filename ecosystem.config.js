@@ -18,9 +18,9 @@ module.exports = {
     },
     {
       name: 'callbot-voice',
-      script: 'python3',
-      args: '-m uvicorn main:app --host 0.0.0.0 --port 8000',
-      cwd: path.join(__dirname, 'backend'),
+      script: path.join(__dirname, 'backend', 'start.sh'),
+      interpreter: 'bash',
+      cwd: __dirname,
     },
   ],
 };

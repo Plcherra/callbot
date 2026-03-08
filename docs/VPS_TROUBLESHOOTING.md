@@ -1,0 +1,127 @@
+# VPS Troubleshooting: Calls & Server Actions
+
+## "When I call nothing happens"
+
+**Calls are handled by the Python FastAPI backend, not Next.js.** Next.js (PM2 `callbot`) is the dashboard only. You need both running.
+
+### 1. Is the Python voice backend running?
+
+The voice pipeline (Telnyx webhook, Deepgram, Grok, ElevenLabs) lives in `backend/`. It must run on port 8000.
+
+**Option A: Use ecosystem.config.js (runs both Next.js and voice)**
+
+```bash
+cd ~/apps/callbot
+pm2 delete callbot 2>/dev/null; pm2 delete callbot-voice 2>/dev/null
+pm2 start ecosystem.config.js
+pm2 save
+```
+
+**Option B: Start voice backend separately**
+
+```bash
+cd ~/apps/callbot/backend
+pip install -r requirements.txt
+pm2 start "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000" --name callbot-voice
+pm2 save
+```
+
+Verify both are running: `pm2 status` should show `callbot` and `callbot-voice` online.
+
+### 2. Where does Telnyx send the webhook?
+
+Telnyx sends `call.initiated` to `TELNYX_WEBHOOK_BASE_URL/api/telnyx/voice`.
+
+- If `TELNYX_WEBHOOK_BASE_URL=https://echodesk.us`, nginx must proxy `/api/telnyx/voice` and `/api/voice/stream` (WebSocket) to the Python backend on port 8000.
+- Or use a subdomain: `TELNYX_WEBHOOK_BASE_URL=https://voice.echodesk.us` and point that subdomain to port 8000.
+
+### 3. Example nginx config (same domain)
+
+```nginx
+# Proxy voice routes to Python backend
+location /api/telnyx/voice {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+location /api/voice/stream {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+}
+```
+
+### 4. Telnyx Portal
+
+In Telnyx Portal → Connections → your Voice connection → Event Webhook URL must be:
+
+- `https://echodesk.us/api/telnyx/voice` (if using same-domain proxy)
+
+or
+
+- `https://voice.echodesk.us/api/telnyx/voice` (if using subdomain)
+
+### 5. Python backend env
+
+The backend needs its own `.env` (e.g. `backend/.env` or project root) with:
+
+- `TELNYX_API_KEY`, `TELNYX_WEBHOOK_SECRET`, `TELNYX_WEBHOOK_BASE_URL`
+- `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY`
+- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `APP_API_BASE_URL` = Next.js URL (e.g. `https://echodesk.us`) for FCM push
+- `INTERNAL_API_KEY` = shared secret with Next.js
+
+---
+
+## "Failed to find Server Action" errors
+
+### 1. Env at build time
+
+`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` must be set **before** `npm run build`:
+
+```bash
+# Generate key
+openssl rand -base64 32
+
+# Add to .env (in project root, where you run npm run build)
+echo 'NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<paste_output_above>' >> .env
+npm run build
+```
+
+### 2. PM2 must load .env
+
+If you use a `.env` file, PM2 does not load it by default. Options:
+
+**Option A: Use ecosystem config**
+
+Create `ecosystem.config.js` in project root:
+
+```js
+require('dotenv').config({ path: '.env' });
+module.exports = {
+  apps: [{
+    name: 'callbot',
+    script: 'node_modules/next/dist/bin/next',
+    args: 'start',
+    cwd: __dirname,
+    env: process.env,
+  }]
+};
+```
+
+Then: `pm2 start ecosystem.config.js` (or `pm2 delete callbot && pm2 start ecosystem.config.js`).
+
+**Option B: dotenv-cli**
+
+```bash
+npm install -g dotenv-cli
+pm2 start "dotenv -e .env -- npm run start" --name callbot
+```
+
+### 3. Hard refresh
+
+After redeploying, users with old cached pages may still see the error. Ask them to hard refresh (Ctrl+Shift+R) or clear cache.

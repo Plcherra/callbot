@@ -32,6 +32,7 @@ Reference for all environment variables used by the echodesk app. See `.env.loca
 | `NEXT_PUBLIC_GOOGLE_REDIRECT_URI` | Yes for Calendar | OAuth redirect URI |
 | `NEXT_PUBLIC_APP_URL` | Yes | App base URL |
 | `CRON_SECRET` | Yes for cron | Bearer token for cron endpoints |
+| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | **Yes for PM2/VPS** | Base64 AES key so Server Action IDs stay stable across rebuilds. Prevents "Failed to find Server Action" errors. Generate: `openssl rand -base64 32` |
 | `NEXT_PUBLIC_POSTHOG_*` | Optional | PostHog analytics |
 
 ## Secrets Rotation
@@ -56,6 +57,15 @@ The Python voice backend calls Next.js internal APIs for FCM push (incoming call
 
 1. **STRIPE_WEBHOOK_SECRET**: Create a new webhook endpoint in Stripe Dashboard → Developers → Webhooks. Copy the new signing secret. Update env, redeploy, then delete the old endpoint.
 2. **STRIPE_SECRET_KEY**: Use Stripe's key rotation if available, or create a restricted key. Update env and restart.
+
+### NEXT_SERVER_ACTIONS_ENCRYPTION_KEY (PM2 / VPS)
+
+Required when self-hosting with PM2 or any multi-process setup. Without it, Next.js generates new Server Action IDs on each build, causing "Failed to find Server Action" when users have cached pages.
+
+1. Generate: `openssl rand -base64 32`
+2. Add to `.env.local` (or your deployment env) **before** running `npm run build`
+3. Rebuild and redeploy
+4. Users may need a hard refresh (Ctrl+Shift+R) after deploy if they had old pages open
 
 ### CRON_SECRET
 

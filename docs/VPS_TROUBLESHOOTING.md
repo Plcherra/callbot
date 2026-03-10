@@ -37,8 +37,10 @@ Telnyx sends `call.initiated` to `TELNYX_WEBHOOK_BASE_URL/api/telnyx/voice`.
 
 ### 3. Example nginx config (same domain)
 
+These `location` blocks must come **before** any general `proxy_pass` to port 3000. Add inside your `server { ... }` for echodesk.us:
+
 ```nginx
-# Proxy voice routes to Python backend
+# Proxy voice routes to Python backend (port 8000)
 location /api/telnyx/voice {
     proxy_pass http://127.0.0.1:8000;
     proxy_http_version 1.1;
@@ -46,7 +48,7 @@ location /api/telnyx/voice {
     proxy_set_header X-Real-IP $remote_addr;
 }
 
-location /api/voice/stream {
+location /api/voice/ {
     proxy_pass http://127.0.0.1:8000;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -54,6 +56,22 @@ location /api/voice/stream {
     proxy_set_header Host $host;
 }
 ```
+
+### 3b. Quick diagnostics
+
+```bash
+# 1. Test voice backend directly on the VPS
+curl -s http://127.0.0.1:8000/health
+
+# 2. Test via nginx (from VPS or your machine)
+curl -s https://echodesk.us/api/telnyx/voice -X POST -H "Content-Type: application/json" -d '{}'
+
+# 3. Check nginx config
+sudo cat /etc/nginx/sites-enabled/* | grep -A5 "telnyx/voice"
+```
+
+- If (1) works but (2) returns 404 → nginx is not proxying to 8000.
+- If (2) returns 200 or 403 → nginx is correct; check Telnyx Portal webhook URL.
 
 ### 4. Telnyx Portal
 

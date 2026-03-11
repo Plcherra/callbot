@@ -89,7 +89,7 @@ The backend needs its own `.env` (e.g. `backend/.env` or project root) with:
 
 - `TELNYX_API_KEY`, `TELNYX_WEBHOOK_SECRET`, `TELNYX_WEBHOOK_BASE_URL`
 - `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY`
-- `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - `APP_API_BASE_URL` = Next.js URL (e.g. `https://echodesk.us`) for FCM push
 - `INTERNAL_API_KEY` = shared secret with Next.js
 

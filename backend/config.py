@@ -17,9 +17,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Supabase
+    # Supabase (backend uses SUPABASE_URL or falls back to NEXT_PUBLIC_SUPABASE_URL)
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    next_public_supabase_url: str = ""
 
     # Telnyx
     telnyx_api_key: str = ""

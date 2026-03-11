@@ -6,7 +6,7 @@ from config import settings
 
 
 def create_service_role_client() -> Client:
-    url = (settings.supabase_url or settings.next_public_supabase_url or "").strip()
+    url = settings.get_supabase_url()
     key = (settings.supabase_service_role_key or "").strip()
     if not url or not key:
         raise ValueError(

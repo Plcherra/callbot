@@ -155,6 +155,24 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 ---
 
+### 8. Call Answered but Silence (WebSocket 403 / Stream Failed)
+
+**Symptom:** Call answers, then silence. Logs show:
+- `Answered call <id>` ✓
+- `WebSocket /api/voice/stream... 403` and `connection rejected (403 Forbidden)`
+- `Stream start failed: "Failed to connect to destination"` (Telnyx code 90046)
+
+**Cause:** Telnyx connects to the stream URL (`wss://echodesk.us/api/voice/stream?...`) to send/receive audio. The WebSocket is being rejected. Common causes:
+
+1. **Nginx not routing /api/voice/** – WebSocket goes to Next.js instead of Python. Run `./deploy/scripts/fix-nginx-voice.sh` so `location ^~ /api/voice/` proxies to port 8000.
+2. **Cloudflare Tunnel** – Cloudflare Tunnel can block or mishandle WebSocket upgrades. Use a direct connection for the stream:
+   - Add a DNS A record for a subdomain (e.g. `stream.echodesk.us`) pointing to your VPS IP.
+   - Set `TELNYX_STREAM_BASE_URL=https://stream.echodesk.us` so Telnyx connects directly to your server, bypassing the tunnel.
+
+**Verify:** Check `pm2 logs callbot-voice` for `Stream URL for <id>: wss://...` – that is the URL Telnyx uses. It must be reachable from the internet and route to the Python backend.
+
+---
+
 ## Cloudflare Tunnel Bypassing Nginx
 
 **Symptom:** `fix-nginx-voice.sh` ran successfully, but `curl https://echodesk.us/api/telnyx/voice` still returns HTML. Localhost test (`curl -sk https://127.0.0.1/api/telnyx/voice -H "Host: echodesk.us"`) returns JSON.

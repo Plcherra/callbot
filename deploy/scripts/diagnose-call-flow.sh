@@ -73,9 +73,14 @@ NGINX_CONF="/etc/nginx/sites-enabled/callbot"
 if [ -f "$NGINX_CONF" ]; then
   echo "Callbot config: $NGINX_CONF exists"
   if grep -q "location /api/telnyx/voice" "$NGINX_CONF" 2>/dev/null; then
-    echo "  Voice location blocks: present"
+    echo "  /api/telnyx/voice: present"
   else
-    echo "  Voice location blocks: MISSING - run fix-nginx-voice.sh"
+    echo "  /api/telnyx/voice: MISSING"
+  fi
+  if grep -q "location /api/voice/" "$NGINX_CONF" 2>/dev/null; then
+    echo "  /api/voice/ (WebSocket): present"
+  else
+    echo "  /api/voice/ (WebSocket): MISSING - run fix-nginx-voice.sh"
   fi
 else
   echo "Callbot config not found at $NGINX_CONF"

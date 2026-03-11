@@ -2,6 +2,16 @@
 
 Common errors and what fixed them. Cursor can use this to avoid suggesting already-tried wrong fixes.
 
+## Pre-start validation
+
+Before debugging, run the infrastructure validation script:
+
+```bash
+./deploy/scripts/validate-infra-before-start.sh
+```
+
+It checks Cloudflare Tunnel, nginx, Telnyx config, env vars, and PM2/ports. Use `--fix` to attempt auto-corrections. See [VALIDATION_SCRIPT.md](VALIDATION_SCRIPT.md).
+
 ## Incoming calls not answered / No activity in PM2 logs
 
 **Symptom:** Caller dials DID, nothing happens. Mobile shows "Voice: Connected" and "No calls yet". No activity when checking PM2 logs.
@@ -101,10 +111,32 @@ The `backend/start.sh` automatically activates the venv when present. If `python
 3. nginx `location /api/voice/` needs `Upgrade` and `Connection` headers for WebSocket
 4. Backend validates keys at startup; if missing, it fails — add to .env, restart
 
+## Call answered but silence (WebSocket 403)
+
+**Symptom:** Call picks up but no audio. Logs: `WebSocket /api/voice/stream 403`, `Stream start failed: Failed to connect to destination`.
+
+**Cause:** Telnyx cannot connect to the WebSocket stream. Often due to nginx not routing `/api/voice/` to Python, or Cloudflare Tunnel blocking WebSockets.
+
+**Fixes:**
+1. Run `./deploy/scripts/fix-nginx-voice.sh` so nginx proxies `/api/voice/` to port 8000.
+2. If using Cloudflare Tunnel: add `TELNYX_STREAM_BASE_URL=https://your-vps-ip-or-direct-domain` (a URL Telnyx can reach without the tunnel). See [CALL_FLOW_DIAGNOSTIC.md](CALL_FLOW_DIAGNOSTIC.md#8-call-answered-but-silence-websocket-403--stream-failed).
+
 ## Telnyx 403 Forbidden on webhook
 
 **Symptom:** Telnyx sends webhook, we return 403.
 
+**Verification precedence chain** (in order):
+
+1. **Ed25519** — Preferred. Requires `TELNYX_PUBLIC_KEY` and headers `telnyx-signature-ed25519` + `telnyx-timestamp`.
+2. **Skip verification** — Only when headers are stripped by proxy (e.g. Cloudflare Tunnel). Set `TELNYX_SKIP_VERIFY=1`. **Use `TELNYX_ALLOWED_IPS` for defense-in-depth.**
+3. **HMAC fallback** — Legacy. Requires `TELNYX_WEBHOOK_SECRET` and header `x-telnyx-signature` (or `t-signature`).
+
 **Fixes:**
-1. Set `TELNYX_PUBLIC_KEY` (Ed25519 from Portal) or `TELNYX_WEBHOOK_SECRET` for signature verification. See telnyx-integration.md.
-2. **Behind Cloudflare / proxy:** If headers `telnyx-signature-ed25519` and `telnyx-timestamp` are stripped, verification fails. Set `TELNYX_SKIP_VERIFY=1` on the VPS to accept webhooks without verification. (Less secure; prefer fixing header forwarding if possible.)
+
+1. Set `TELNYX_PUBLIC_KEY` (Ed25519 from Portal) or `TELNYX_WEBHOOK_SECRET` for signature verification. See [TELNYX_SETUP.md](TELNYX_SETUP.md).
+2. **Behind Cloudflare / proxy:** If headers `telnyx-signature-ed25519` and `telnyx-timestamp` are stripped, verification fails. Options:
+   - **Preferred:** Fix header forwarding in nginx/Cloudflare so Telnyx headers are passed through.
+   - **Fallback:** Set `TELNYX_SKIP_VERIFY=1` to accept without verification. Less secure; **always set `TELNYX_ALLOWED_IPS`** (comma-separated Telnyx outbound IPs) for defense-in-depth.
+3. **Rate limiting (429):** After 10 failed verification attempts per IP in 60 seconds, we return 429. Wait ~60s before retrying. Ensure correct signature and headers.
+
+**Nginx:** To forward Telnyx headers, use `proxy_pass_request_headers on` (default) and avoid stripping `telnyx-*` headers.

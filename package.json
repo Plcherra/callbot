@@ -9,7 +9,9 @@
     "lint": "next lint",
     "test": "vitest",
     "test:run": "vitest run",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "validate:env": "tsx scripts/validate-env.ts",
+    "validate:env:crosscheck": "tsx scripts/validate-env-crosscheck.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -194,6 +194,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
     if receptionist_id:
         params += f"&receptionist_id={receptionist_id}"
     stream_url = f"{ws_base}/api/voice/stream?{params}"
+    logger.info("Stream URL for %s: %s", call_control_id, stream_url)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         # Answer

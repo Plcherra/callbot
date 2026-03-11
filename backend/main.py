@@ -25,7 +25,12 @@ from fastapi.responses import JSONResponse
 from config import settings
 from voice.handler import handle_voice_stream_connection
 from telnyx.voice_webhook import handle_voice_webhook
-from telnyx.webhook import validate_telnyx_webhook
+from telnyx.voice_webhook_verify import (
+    check_rate_limit,
+    get_client_ip,
+    record_verification_failure,
+    verify_webhook_request,
+)
 from calendar_api.calendar_handler import handle_calendar_request
 from prompts.fetch import _build_from_supabase_sync
 from supabase_client import create_service_role_client
@@ -41,6 +46,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     try:
         settings.validate_voice_keys()
+        settings.validate_supabase()
+        settings.validate_telnyx()
+        if settings.telnyx_skip_verify:
+            logger.warning(
+                "SECURITY: TELNYX_SKIP_VERIFY is enabled. Webhook signature verification is DISABLED. "
+                "Use only when headers are stripped by proxy (e.g. Cloudflare Tunnel). "
+                "Ensure TELNYX_ALLOWED_IPS is set for defense-in-depth."
+            )
     except ValueError as e:
         logger.error("Startup validation failed: %s", e)
         raise
@@ -62,44 +75,73 @@ async def voice_stream(ws):
     await handle_voice_stream_connection(ws)
 
 
-@app.post("/api/telnyx/voice")
+@app.post(
+    "/api/telnyx/voice",
+    responses={
+        200: {"description": "Webhook processed successfully"},
+        400: {"description": "Invalid JSON body"},
+        403: {
+            "description": "Webhook signature verification failed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": "Webhook signature verification failed",
+                        "code": "webhook_verification_failed",
+                    }
+                }
+            },
+        },
+        429: {"description": "Too many invalid signature attempts; try again later"},
+    },
+)
 async def telnyx_voice(request: Request):
     raw = await request.body()
-    sig = request.headers.get("t-signature") or request.headers.get("telnyx-signature") or request.headers.get("x-telnyx-signature")
-    ed25519_sig = request.headers.get("telnyx-signature-ed25519")
-    timestamp = request.headers.get("telnyx-timestamp")
+    headers = {k: v for k, v in request.headers.items()}
+    client_ip = get_client_ip(headers, request.client.host if request.client else None)
+    user_agent = headers.get("user-agent") or headers.get("User-Agent")
 
-    verified = False
-    if settings.telnyx_skip_verify:
-        logger.warning("TELNYX_SKIP_VERIFY=1: accepting webhook without signature verification")
-    elif settings.telnyx_public_key and ed25519_sig and timestamp:
-        verified = validate_telnyx_webhook(
-            raw,
-            None,
-            public_key=settings.telnyx_public_key,
-            timestamp_header=timestamp,
-            ed25519_signature_header=ed25519_sig,
+    ed25519_sig = headers.get("telnyx-signature-ed25519")
+    timestamp = headers.get("telnyx-timestamp")
+    hmac_sig = (
+        headers.get("t-signature")
+        or headers.get("telnyx-signature")
+        or headers.get("x-telnyx-signature")
+    )
+
+    # Rate limit check before verification
+    if await check_rate_limit(client_ip):
+        logger.warning(
+            "Telnyx webhook rate limited: too many failed attempts",
+            extra={"client_ip": client_ip},
         )
-        if not verified:
-            raise HTTPException(status_code=403, detail="Invalid Ed25519 signature")
-    elif settings.telnyx_webhook_secret and sig:
-        verified = validate_telnyx_webhook(raw, sig, webhook_secret=settings.telnyx_webhook_secret)
-        if not verified:
-            raise HTTPException(status_code=403, detail="Invalid signature")
-    elif settings.telnyx_webhook_secret:
-        logger.warning("TELNYX_WEBHOOK_SECRET set but no signature header")
-    elif settings.telnyx_public_key and not (ed25519_sig and timestamp):
-        logger.warning("TELNYX_PUBLIC_KEY set but telnyx-signature-ed25519/telnyx-timestamp headers missing")
-    else:
-        logger.warning("Telnyx webhook not verified - TELNYX_WEBHOOK_SECRET or TELNYX_PUBLIC_KEY not set")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many invalid signature attempts; try again later",
+        )
+
+    result = verify_webhook_request(
+        raw,
+        ed25519_sig=ed25519_sig,
+        timestamp=timestamp,
+        hmac_sig=hmac_sig,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    if not result.verified:
+        record_verification_failure(client_ip)
+        raise HTTPException(
+            status_code=403,
+            detail=result.detail,
+        )
 
     try:
         body = __import__("json").loads(raw.decode("utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    result = await handle_voice_webhook(body, raw)
-    return JSONResponse(result)
+    result_response = await handle_voice_webhook(body, raw)
+    return JSONResponse(result_response)
 
 
 @app.get("/api/receptionist-prompt")

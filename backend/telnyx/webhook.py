@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 
-def _validate_hmac(
+def verify_hmac(
     payload: bytes,
     signature: str,
     webhook_secret: str,
@@ -51,7 +51,7 @@ def _validate_hmac(
         return False
 
 
-def _validate_ed25519(
+def verify_ed25519(
     payload: bytes,
     timestamp: str,
     signature_b64: str,
@@ -114,7 +114,7 @@ def validate_telnyx_webhook(
 
     # Try Ed25519 first if we have the public key and the Ed25519 header
     if public_key and ed25519_signature_header and timestamp_header:
-        if _validate_ed25519(
+        if verify_ed25519(
             body,
             timestamp_header,
             ed25519_signature_header,
@@ -126,6 +126,25 @@ def validate_telnyx_webhook(
 
     # Fall back to HMAC
     if webhook_secret and signature:
-        return _validate_hmac(body, signature, webhook_secret)
+        return verify_hmac(body, signature, webhook_secret)
 
     return False
+
+
+def should_skip_verification(
+    ed25519_headers_present: bool,
+    skip_verify_enabled: bool,
+) -> tuple[bool, str]:
+    """
+    Determine if webhook verification should be skipped.
+
+    Skip is only allowed when:
+    - Ed25519 headers are missing (stripped by proxy)
+    - AND TELNYX_SKIP_VERIFY=true
+
+    Returns:
+        (skip: bool, reason: str)
+    """
+    if not ed25519_headers_present and skip_verify_enabled:
+        return (True, "skip_verification")
+    return (False, "verification_required")

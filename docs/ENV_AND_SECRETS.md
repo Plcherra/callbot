@@ -14,9 +14,10 @@ Reference for all environment variables used by the echodesk app. See `.env.loca
 | `STRIPE_WEBHOOK_SECRET` | Yes | Webhook signing secret for `/api/stripe/webhook` |
 | `STRIPE_PRICE_*` | Yes | Price IDs for Starter, Pro, Business, PAYG plans |
 | `TELNYX_API_KEY` | Yes | Telnyx API key for Call Control and provisioning |
-| `TELNYX_PUBLIC_KEY` | Optional | Telnyx webhook verification (Ed25519 public key, PEM or base64) |
-| `TELNYX_WEBHOOK_SECRET` | Optional | Telnyx webhook verification (HMAC secret) |
-| `TELNYX_SKIP_VERIFY` | Optional | Set to `1` to skip webhook signature verification (use when Cloudflare/proxy strips headers; less secure) |
+| `TELNYX_PUBLIC_KEY` | Optional | Telnyx webhook verification (Ed25519 public key, PEM or base64). **Preferred** method. |
+| `TELNYX_WEBHOOK_SECRET` | Optional | Telnyx webhook verification (HMAC secret). Legacy fallback when Ed25519 headers unavailable; Telnyx sends `x-telnyx-signature`. |
+| `TELNYX_SKIP_VERIFY` | Optional | Set to `1` to skip webhook signature verification. Use only when proxy (e.g. Cloudflare Tunnel) strips headers. **Always set `TELNYX_ALLOWED_IPS`** for defense-in-depth. |
+| `TELNYX_ALLOWED_IPS` | Optional | Comma-separated IPs allowed when `TELNYX_SKIP_VERIFY=1`. Empty = no allowlist. Add Telnyx outbound IPs for extra security. |
 | `TELNYX_WEBHOOK_BASE_URL` | Yes | Public app URL for webhooks (e.g. `https://echodesk.us`) |
 | `TELNYX_CONNECTION_ID` | Yes for outbound | Call Control connection ID for outbound calls |
 | `DEEPGRAM_API_KEY` | Yes | Deepgram STT API key |

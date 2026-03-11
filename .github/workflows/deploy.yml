@@ -34,7 +34,8 @@ jobs:
             echo 'Latest commit: $(git rev-parse HEAD)'
             npm ci || { echo 'npm ci failed'; exit 1; }
             npm run build || { echo 'Build failed'; exit 1; }
-            pip3 install -r backend/requirements.txt || { echo 'pip install failed'; exit 1; }
+            [ -d venv ] || python3 -m venv venv || { echo 'venv creation failed - run: sudo apt install python3-venv'; exit 1; }
+            ./venv/bin/pip install -r backend/requirements.txt || { echo 'pip install failed'; exit 1; }
             pm2 delete callbot 2>/dev/null || true
             pm2 delete callbot-voice 2>/dev/null || true
             pm2 start ecosystem.config.cjs || { echo 'PM2 start failed'; exit 1; }

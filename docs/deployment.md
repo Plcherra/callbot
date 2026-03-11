@@ -13,7 +13,7 @@ How the server is provisioned, what runs where, and how deploy works.
 ## Server Provisioning (Hetzner VPS)
 
 - Ubuntu/Debian
-- Nginx, Node.js, Python 3, PM2
+- Nginx, Node.js, Python 3, `python3-venv` (`sudo apt install python3-venv`), PM2
 - Domain: echodesk.us → VPS IP
 
 ## Deploy Methods
@@ -25,7 +25,7 @@ On push to `main`, `.github/workflows/deploy.yml`:
 1. SSH to VPS
 2. `cd $APP_PATH`, git pull
 3. `npm ci && npm run build`
-4. `pip3 install -r backend/requirements.txt`
+4. Create venv and install: `python3 -m venv venv && ./venv/bin/pip install -r backend/requirements.txt`
 5. `pm2 delete callbot callbot-voice`
 6. `pm2 start ecosystem.config.cjs`
 7. `pm2 save`

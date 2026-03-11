@@ -24,6 +24,19 @@ Common errors and what fixed them. Cursor can use this to avoid suggesting alrea
 2. Or adjust `ssl_certificate` path in nginx config if using different cert location
 3. Renew: `./deploy/scripts/renew-cert.sh`
 
+## pip install: externally-managed-environment (PEP 668)
+
+**Symptom:** `pip3 install -r backend/requirements.txt` fails with "This environment is externally managed".
+
+**Cause:** Debian/Ubuntu blocks system-wide pip installs (PEP 668).
+
+**Fix:** Use a virtual environment:
+```bash
+python3 -m venv venv
+./venv/bin/pip install -r backend/requirements.txt
+```
+The `backend/start.sh` automatically activates the venv when present. If `python3 -m venv` fails, install: `sudo apt install python3-venv`.
+
 ## Uvicorn / callbot-voice not running
 
 **Symptom:** PM2 shows only `callbot`; no `callbot-voice`. Port 8000 not listening.

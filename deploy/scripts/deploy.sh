@@ -16,8 +16,9 @@ echo "Root: $ROOT"
 npm ci
 npm run build
 
-# Backend deps
-pip3 install -r backend/requirements.txt
+# Backend deps (use venv to avoid PEP 668 externally-managed-environment)
+[ -d venv ] || python3 -m venv venv
+./venv/bin/pip install -r backend/requirements.txt
 
 # PM2
 pm2 delete callbot 2>/dev/null || true

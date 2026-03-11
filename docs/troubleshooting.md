@@ -105,4 +105,6 @@ The `backend/start.sh` automatically activates the venv when present. If `python
 
 **Symptom:** Telnyx sends webhook, we return 403.
 
-**Fix:** Set `TELNYX_PUBLIC_KEY` (Ed25519 from Portal) or `TELNYX_WEBHOOK_SECRET` for signature verification. See telnyx-integration.md.
+**Fixes:**
+1. Set `TELNYX_PUBLIC_KEY` (Ed25519 from Portal) or `TELNYX_WEBHOOK_SECRET` for signature verification. See telnyx-integration.md.
+2. **Behind Cloudflare / proxy:** If headers `telnyx-signature-ed25519` and `telnyx-timestamp` are stripped, verification fails. Set `TELNYX_SKIP_VERIFY=1` on the VPS to accept webhooks without verification. (Less secure; prefer fixing header forwarding if possible.)

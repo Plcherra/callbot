@@ -135,11 +135,13 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 ### 6. Webhook Verification Fails (403)
 
-**Symptom:** Telnyx gets 403. Logs may show signature verification failure.
+**Symptom:** Telnyx gets 403. Logs may show signature verification failure or "telnyx-signature-ed25519/telnyx-timestamp headers missing".
 
-**Cause:** `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` is wrong or not set.
+**Cause:** `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` is wrong/not set, or Cloudflare/proxy strips the verification headers.
 
-**Fix:** Telnyx Portal → Account → Public Key. Add `TELNYX_PUBLIC_KEY=<base64>` to VPS env. Reload: `pm2 reload callbot-voice --update-env`
+**Fixes:**
+- Telnyx Portal → Account → Public Key. Add `TELNYX_PUBLIC_KEY=<base64>` to VPS env. Reload: `pm2 reload callbot-voice --update-env`
+- **Cloudflare workaround:** Set `TELNYX_SKIP_VERIFY=1` to accept webhooks without signature verification when headers are stripped. Less secure; use only as a last resort.
 
 ---
 

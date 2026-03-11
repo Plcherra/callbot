@@ -16,6 +16,7 @@ Reference for all environment variables used by the echodesk app. See `.env.loca
 | `TELNYX_API_KEY` | Yes | Telnyx API key for Call Control and provisioning |
 | `TELNYX_PUBLIC_KEY` | Optional | Telnyx webhook verification (Ed25519 public key, PEM or base64) |
 | `TELNYX_WEBHOOK_SECRET` | Optional | Telnyx webhook verification (HMAC secret) |
+| `TELNYX_SKIP_VERIFY` | Optional | Set to `1` to skip webhook signature verification (use when Cloudflare/proxy strips headers; less secure) |
 | `TELNYX_WEBHOOK_BASE_URL` | Yes | Public app URL for webhooks (e.g. `https://echodesk.us`) |
 | `TELNYX_CONNECTION_ID` | Yes for outbound | Call Control connection ID for outbound calls |
 | `DEEPGRAM_API_KEY` | Yes | Deepgram STT API key |

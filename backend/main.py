@@ -70,7 +70,9 @@ async def telnyx_voice(request: Request):
     timestamp = request.headers.get("telnyx-timestamp")
 
     verified = False
-    if settings.telnyx_public_key and ed25519_sig and timestamp:
+    if settings.telnyx_skip_verify:
+        logger.warning("TELNYX_SKIP_VERIFY=1: accepting webhook without signature verification")
+    elif settings.telnyx_public_key and ed25519_sig and timestamp:
         verified = validate_telnyx_webhook(
             raw,
             None,

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     telnyx_public_key: str = ""  # For Ed25519 webhook verification
     telnyx_webhook_secret: str = ""  # For HMAC webhook verification
     telnyx_webhook_base_url: str = ""
+    telnyx_skip_verify: bool = False  # Skip webhook signature verification (use when Cloudflare/proxy strips headers)
 
     # Voice AI
     deepgram_api_key: str = ""

@@ -83,7 +83,12 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - **Voice**: Run the Python backend in a separate terminal: `cd backend && uvicorn main:app --reload --port 8000` (see [MIGRATION.md](MIGRATION.md))
 - **Tests**: `npm run test` or `npm run test:run`
-- **Architecture**: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- **Architecture**: [docs/architecture.md](docs/architecture.md)
+- **Deployment**: [docs/deployment.md](docs/deployment.md)
+- **Environment**: [docs/environment.md](docs/environment.md)
+- **Telnyx integration**: [docs/telnyx-integration.md](docs/telnyx-integration.md)
+- **Troubleshooting**: [docs/troubleshooting.md](docs/troubleshooting.md)
+- **Nginx config**: [docs/nginx-explained.md](docs/nginx-explained.md)
 - **Stripe permissions**: [docs/STRIPE_PERMISSIONS.md](docs/STRIPE_PERMISSIONS.md)
 - **Error monitoring**: [docs/ERROR_MONITORING.md](docs/ERROR_MONITORING.md)
 

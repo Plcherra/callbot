@@ -1,8 +1,11 @@
-# Complete nginx config for echodesk.us
-# Copy to VPS: sudo cp docs/nginx-callbot-complete.conf /etc/nginx/sites-available/callbot
-# Or paste contents into: sudo nano /etc/nginx/sites-available/callbot
+# Callbot nginx config template
+# Domain: echodesk.us
 #
-# Adjust ssl_certificate paths if different. Then: sudo nginx -t && sudo systemctl reload nginx
+# Install: sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
+# Enable:  sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
+# Test:    sudo nginx -t && sudo systemctl reload nginx
+#
+# Before first use: ensure SSL cert exists (see deploy/scripts/renew-cert.sh)
 
 server {
     listen 80;

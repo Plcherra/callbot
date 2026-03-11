@@ -17,7 +17,11 @@ class Env {
   static const String deepLinkScheme =
       String.fromEnvironment('DEEP_LINK_SCHEME', defaultValue: 'echodesk');
 
-  /// Voice backend WebSocket base URL (optional - for listen-in, e.g. wss://voice.echodesk.us).
-  static const String voiceWsBaseUrl =
-      String.fromEnvironment('VOICE_WS_BASE_URL', defaultValue: '');
+  /// Voice backend WebSocket base URL (for listen-in on active call screen).
+  /// Defaults to wss://echodesk.us in release; override with VOICE_WS_BASE_URL.
+  static String get voiceWsBaseUrl {
+    const env = String.fromEnvironment('VOICE_WS_BASE_URL', defaultValue: '');
+    if (env.isNotEmpty) return env;
+    return kReleaseMode ? 'wss://echodesk.us' : '';
+  }
 }

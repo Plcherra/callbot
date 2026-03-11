@@ -5,9 +5,9 @@ This document describes the voice pipeline: Telnyx + Deepgram STT + Grok LLM + E
 ## Overview
 
 - **Phone numbers**: Telnyx provisions and manages DIDs
-- **Call handling**: Telnyx webhooks route incoming calls; Next.js answers and streams to WebSocket
+- **Call handling**: Telnyx webhooks route incoming calls; **Python FastAPI backend** answers and streams to WebSocket
 - **AI pipeline**: Deepgram (STT) → Grok (LLM) → ElevenLabs (TTS) — all via external APIs
-- **Prompts**: Built from Supabase data, fetched via `/api/receptionist-prompt`
+- **Prompts**: Built from Supabase data, fetched by the Python backend
 
 ## Prerequisites
 
@@ -15,16 +15,19 @@ This document describes the voice pipeline: Telnyx + Deepgram STT + Grok LLM + E
 - Deepgram API key (console.deepgram.com)
 - ElevenLabs API key (elevenlabs.io)
 - Grok API key (x.ai/developer)
-- Next.js app deployed
+- Next.js app deployed (dashboard)
+- Python voice backend (FastAPI/uvicorn on port 8000)
 
 ## Environment Variables
+
+Set in project root `.env` or `.env.local` (both Next.js and Python backend read from here):
 
 ```env
 # Telnyx
 TELNYX_API_KEY=
-TELNYX_WEBHOOK_BASE_URL=https://your-app.com
+TELNYX_WEBHOOK_BASE_URL=https://echodesk.us
 
-# Voice AI
+# Voice AI (used by Python backend)
 DEEPGRAM_API_KEY=
 ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
@@ -32,23 +35,31 @@ GROK_API_KEY=
 
 # Auth for prompt/calendar APIs
 VOICE_SERVER_API_KEY=optional_secret
+
+# Backend → Next.js internal APIs (FCM push, quota check)
+APP_API_BASE_URL=https://echodesk.us
+INTERNAL_API_KEY=shared_secret
 ```
 
 ## Running the App
 
-Use the custom server for WebSocket support:
+**Production (PM2):**
 
 ```bash
 npm run build
-node server.js
+pm2 start ecosystem.config.cjs
 ```
 
-For production, run `node server.js` (or `npm start`) via PM2. The server handles both HTTP and WebSocket at `/api/voice/stream`.
+This starts both `callbot` (Next.js on 3000) and `callbot-voice` (Python on 8000).
 
-## Local Development
+**Local development:**
 
 ```bash
-npm run dev   # or node server.js for WebSocket
+# Terminal 1: Next.js dashboard
+npm run dev
+
+# Terminal 2: Python voice backend
+cd backend && uvicorn main:app --reload --port 8000
 ```
 
 Expose with ngrok or Cloudflare Tunnel. Set `TELNYX_WEBHOOK_BASE_URL` to your public URL.
@@ -62,7 +73,9 @@ Expose with ngrok or Cloudflare Tunnel. Set `TELNYX_WEBHOOK_BASE_URL` to your pu
 
 ## Troubleshooting
 
-- **No audio**: Verify DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, GROK_API_KEY
-- **WebSocket not connecting**: Use `node server.js`, not `next start`
-- **Prompt not loading**: Verify VOICE_SERVER_API_KEY and x-voice-server-key header
-- **Call usage not recorded**: Configure Telnyx CDR webhook to `/api/telnyx/cdr`
+- **No audio**: Verify DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, GROK_API_KEY in backend env
+- **WebSocket not connecting**: Ensure callbot-voice is running on 8000; nginx proxies /api/voice/* to 8000 with Upgrade headers
+- **Prompt not loading**: Verify VOICE_SERVER_API_KEY; backend fetches from Supabase directly
+- **Call usage not recorded**: Configure Telnyx CDR webhook to `https://echodesk.us/api/telnyx/cdr` (Next.js)
+
+See [VOICE_DEBUG.md](VOICE_DEBUG.md) for detailed troubleshooting.

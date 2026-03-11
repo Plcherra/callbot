@@ -45,26 +45,25 @@ TELNYX_WEBHOOK_BASE_URL=https://echodesk.us
 
 **Option B: PM2 ecosystem file**
 
+The ecosystem config loads `.env` and `.env.local` from the project root. Prefer Option A (files in app root). To override via ecosystem:
+
 ```bash
-ls ecosystem.config.js   # or ecosystem.config.json
-nano ecosystem.config.js
+ls ecosystem.config.cjs
+nano ecosystem.config.cjs
 ```
 
-Add `env` block or update it:
+Add `env` block to an app:
 
 ```js
-module.exports = {
-  apps: [{
-    name: 'callbot',
-    script: 'server.js',
-    cwd: '/path/to/app',
-    env: {
-      NODE_ENV: 'production',
-      TELNYX_API_KEY: 'your_key_here',
-      TELNYX_WEBHOOK_BASE_URL: 'https://echodesk.us',
-      // ... rest of vars
-    }
-  }]
+{
+  name: 'callbot',
+  script: '...',
+  env: {
+    NODE_ENV: 'production',
+    TELNYX_API_KEY: 'your_key_here',
+    TELNYX_WEBHOOK_BASE_URL: 'https://echodesk.us',
+    // ... rest of vars
+  }
 }
 ```
 
@@ -79,17 +78,19 @@ pm2 show callbot
 ## 4. Restart the app
 
 ```bash
-pm2 reload callbot --update-env
+pm2 reload callbot callbot-voice --update-env
 pm2 save
 ```
 
 ## 5. Verify
 
 ```bash
+pm2 list
 pm2 logs callbot --lines 20
+pm2 logs callbot-voice --lines 20
 ```
 
-Check that the app starts without "TELNYX_API_KEY must be set" or similar.
+Check that both apps start without "TELNYX_API_KEY must be set" or similar.
 
 ## Quick checklist for "Create Receptionist"
 

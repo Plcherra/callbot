@@ -101,6 +101,16 @@ The backend needs its own `.env` (e.g. `backend/.env` or project root) with:
 
 `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` must be set **before** `npm run build`:
 
+**Option A: Use the setup script (recommended)**
+
+```bash
+./deploy/scripts/setup-server-actions-key.sh
+npm run build
+pm2 restart callbot
+```
+
+**Option B: Manual**
+
 ```bash
 # Generate key
 openssl rand -base64 32
@@ -109,6 +119,8 @@ openssl rand -base64 32
 echo 'NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<paste_output_above>' >> .env
 npm run build
 ```
+
+The deploy script (`deploy/scripts/deploy.sh`) will fail with clear instructions if the key is missing.
 
 ### 2. PM2 must load .env
 

@@ -12,6 +12,22 @@ ROOT="$(pwd)"
 echo "=== Callbot deploy ==="
 echo "Root: $ROOT"
 
+# Server Actions key required at build time (prevents "Failed to find Server Action" errors)
+check_key() {
+  for f in "$ROOT/.env" "$ROOT/.env.local"; do
+    [ -f "$f" ] || continue
+    val=$(grep "^NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=" "$f" 2>/dev/null | cut -d= -f2- | tr -d '\r')
+    [ -n "$val" ] && return 0
+  done
+  return 1
+}
+if ! check_key; then
+  echo "ERROR: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY is not set in .env or .env.local"
+  echo "Run: ./deploy/scripts/setup-server-actions-key.sh"
+  echo "Then redeploy."
+  exit 1
+fi
+
 # Build Next.js
 npm ci
 npm run build

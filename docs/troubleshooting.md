@@ -17,12 +17,25 @@ Common errors and what fixed them. Cursor can use this to avoid suggesting alrea
 
 ## Cert path not found (/etc/letsencrypt/live/echodesk.us)
 
-**Symptom:** nginx fails to start, cert path missing.
+**Symptom:** nginx fails to start: `cannot load certificate ... No such file or directory`.
 
 **Fixes:**
-1. Obtain cert: `sudo certbot certonly --nginx -d echodesk.us -d www.echodesk.us`
-2. Or adjust `ssl_certificate` path in nginx config if using different cert location
-3. Renew: `./deploy/scripts/renew-cert.sh`
+
+**Option A: Get the cert first (recommended)**
+```bash
+sudo systemctl stop nginx
+sudo certbot certonly --standalone -d echodesk.us -d www.echodesk.us --agree-tos -m your@email.com
+sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
+sudo nginx -t && sudo systemctl start nginx
+```
+
+**Option B: Use HTTP-only config until cert exists**
+```bash
+sudo cp deploy/nginx/callbot-http-only.conf.template /etc/nginx/sites-available/callbot
+sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl start nginx
+```
+App will work over HTTP. Get cert later with Option A, then switch to `callbot.conf.template`.
 
 ## pip install: externally-managed-environment (PEP 668)
 

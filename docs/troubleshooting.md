@@ -2,6 +2,17 @@
 
 Common errors and what fixed them. Cursor can use this to avoid suggesting already-tried wrong fixes.
 
+## Incoming calls not answered / No activity in PM2 logs
+
+**Symptom:** Caller dials DID, nothing happens. Mobile shows "Voice: Connected" and "No calls yet". No activity when checking PM2 logs.
+
+**First steps:**
+1. **Check the right logs:** Voice events go to `pm2 logs callbot-voice`, not `pm2 logs callbot`.
+2. **Run diagnostics:** `./deploy/scripts/diagnose-call-flow.sh` (on VPS from project root)
+3. **Full audit:** See [CALL_FLOW_AUDIT.md](CALL_FLOW_AUDIT.md) for end-to-end flow, failure points, and fixes
+
+Common causes (in order): nginx routes `/api/telnyx/voice` to Next.js (returns HTML); callbot-voice not running; `TELNYX_WEBHOOK_BASE_URL` missing or set to localhost.
+
 ## Nginx 404 / HTML when hitting /api/telnyx/voice
 
 **Symptom:** `curl -X POST https://echodesk.us/api/telnyx/voice -d '{}'` returns HTML (Next.js 404) instead of JSON.
@@ -9,11 +20,12 @@ Common errors and what fixed them. Cursor can use this to avoid suggesting alrea
 **Cause:** Nginx is not proxying `/api/telnyx/voice` to port 8000; request hits Next.js instead.
 
 **Fixes:**
-1. Voice `location` blocks must come **before** `location /` in nginx config
-2. Check: `sudo nginx -t` — syntax errors prevent config load
-3. Check: `sudo ls /etc/nginx/sites-enabled/` — callbot config must be symlinked
-4. Restart: `sudo systemctl reload nginx`
-5. See `docs/nginx-explained.md` for correct config
+1. Use `location ^~ /api/telnyx/voice` and `location ^~ /api/voice/` — the `^~` modifier forces highest priority so requests don't fall through to `location /`
+2. Voice `location` blocks must come **before** `location /` in nginx config
+3. Check: `sudo nginx -t` — syntax errors prevent config load
+4. Check: `sudo ls /etc/nginx/sites-enabled/` — callbot config must be symlinked
+5. Restart: `sudo systemctl reload nginx`
+6. See `docs/nginx-explained.md` for correct config (use `^~` on API locations)
 
 ## Cert path not found (/etc/letsencrypt/live/echodesk.us)
 

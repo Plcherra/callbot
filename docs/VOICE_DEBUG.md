@@ -2,6 +2,8 @@
 
 This guide helps debug the flow: **Telnyx → Deepgram → ElevenLabs → Grok → Telnyx**.
 
+**For "incoming calls not answered" with no PM2 activity**, run `./deploy/scripts/diagnose-call-flow.sh` and see [CALL_FLOW_AUDIT.md](CALL_FLOW_AUDIT.md) for the full audit.
+
 ## Pipeline Overview
 
 ```

@@ -16,7 +16,8 @@ class DefaultFirebaseOptions {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        return ios;
+      case TargetPlatform.macOS:
+        return ios; // Reuse iOS config for macOS desktop
       default:
         throw UnsupportedError(
           'DefaultFirebaseOptions are not supported for this platform.',

@@ -58,3 +58,5 @@ Phone call → Telnyx → Python backend (webhook + WebSocket) → Deepgram/Grok
 - `/api/telnyx/voice` and `/api/voice/*` **must** hit the Python backend (port 8000)
 - `/api/telnyx/outbound`, `/api/telnyx/cdr`, `/api/internal/*` hit Next.js (port 3000)
 - Nginx routes by path; voice locations must be defined **before** the catch-all `/`
+
+**Troubleshooting:** If incoming calls are not answered, see [CALL_FLOW_AUDIT.md](CALL_FLOW_AUDIT.md) and run `./deploy/scripts/diagnose-call-flow.sh` on the VPS.

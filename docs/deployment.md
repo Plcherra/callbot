@@ -69,3 +69,7 @@ sudo nginx -t && sudo systemctl reload nginx
 - `.env` and `.env.local` in project root
 - PM2 ecosystem loads them via dotenv before starting apps
 - Both Next.js and Python backend read from project root
+
+## Call flow diagnostics
+
+If incoming calls are not answered: run `./deploy/scripts/diagnose-call-flow.sh` on the VPS and see [CALL_FLOW_AUDIT.md](CALL_FLOW_AUDIT.md).

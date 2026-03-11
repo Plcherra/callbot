@@ -1,0 +1,183 @@
+# Call Flow Chain – Where It Can Fail
+
+When you call the Telnyx number and it doesn't pick up, the failure is somewhere in this chain. Use this guide to trace it.
+
+## End-to-End Flow
+
+```mermaid
+flowchart TD
+    subgraph external [External]
+        Caller[Caller dials DID]
+        Telnyx[Telnyx Network]
+    end
+
+    subgraph telnyx_config [Telnyx Config]
+        VoiceApp[Voice API Application]
+        WebhookURL[Event Webhook URL]
+    end
+
+    subgraph routing [Your Server]
+        Nginx[Nginx :443]
+        NextJS[Next.js :3000]
+        Python[Python :8000]
+    end
+
+    subgraph backend [Backend Logic]
+        Lookup[Receptionist lookup]
+        Answer[Answer + stream_start]
+        WS[WebSocket Handler]
+    end
+
+    subgraph pipeline [Voice Pipeline]
+        Deepgram[Deepgram]
+        Grok[Grok]
+        ElevenLabs[ElevenLabs]
+    end
+
+    Caller --> Telnyx
+    Telnyx --> VoiceApp
+    VoiceApp -->|POST to Webhook URL| WebhookURL
+    WebhookURL --> Nginx
+    Nginx -->|MUST go to 8000| Python
+    Nginx -.->|WRONG: goes to 3000| NextJS
+    Python --> Lookup
+    Lookup --> Answer
+    Answer --> Telnyx
+    Telnyx -->|WebSocket stream| Nginx
+    Nginx --> Python
+    Python --> WS
+    WS --> Deepgram --> Grok --> ElevenLabs
+```
+
+## Failure Points (Most Likely First)
+
+### 1. Telnyx Voice API Application – Wrong Webhook URL
+
+**Symptom:** Call rings but never answers. No activity in `pm2 logs callbot-voice`.
+
+**Cause:** Your numbers are on a Voice API Application whose Event Webhook URL points to an **old URL** from before the migration (e.g. Next.js route, different domain, or localhost).
+
+**Fix:**
+1. [Telnyx Portal](https://portal.telnyx.com) → **Real-Time Communications** → **Voice** → **Voice API Applications**
+2. Open the application that your numbers use
+3. Set **Event Webhook URL** to: `https://echodesk.us/api/telnyx/voice`
+4. Save
+
+---
+
+### 2. Nginx – Voice Routed to Next.js Instead of Python
+
+**Symptom:** Telnyx sends webhooks but gets HTML/404. No Python logs.
+
+**Cause:** Nginx sends `/api/telnyx/voice` to Next.js (port 3000). Next.js has no such route and returns HTML.
+
+**Verify:**
+```bash
+curl -s -X POST https://echodesk.us/api/telnyx/voice -H "Content-Type: application/json" -d '{}' | head -c 200
+```
+- **Bad:** `<html>`, `<!DOCTYPE` → Nginx routing to Next.js
+- **Good:** `{"success":true}` or similar JSON
+
+**Fix:** Run on VPS:
+```bash
+./deploy/scripts/fix-nginx-voice.sh
+```
+
+---
+
+### 3. callbot-voice Not Running
+
+**Symptom:** Port 8000 not listening. No Python logs at all.
+
+**Verify:**
+```bash
+pm2 list
+ss -tlnp | grep 8000
+curl -s http://127.0.0.1:8000/health
+```
+
+**Fix:** Start the full stack:
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+---
+
+### 4. TELNYX_WEBHOOK_BASE_URL Wrong (Stream URL)
+
+**Symptom:** Webhook is received, "Answered" appears in logs, but call drops or no audio. No WebSocket connect.
+
+**Cause:** Python builds `stream_url` from `TELNYX_WEBHOOK_BASE_URL`. If it's `http://localhost:8000`, Telnyx tries `ws://localhost:8000/...` from their servers and fails.
+
+**Fix:** In `.env` or `.env.local` on VPS:
+```
+TELNYX_WEBHOOK_BASE_URL=https://echodesk.us
+```
+Then: `pm2 reload callbot-voice --update-env`
+
+---
+
+### 5. Receptionist Lookup Fails
+
+**Symptom:** Logs show "No receptionist for DID" or fallback. Call may still work via fallback, but can cause issues.
+
+**Cause:** `telnyx_phone_number` or `inbound_phone_number` in Supabase doesn't match the DID format Telnyx sends (E.164, +1, etc.).
+
+**Verify in Supabase:**
+```sql
+SELECT id, name, telnyx_phone_number, inbound_phone_number, status
+FROM receptionists WHERE status = 'active';
+```
+
+Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.py` for lookup variants.
+
+---
+
+### 6. Webhook Verification Fails (403)
+
+**Symptom:** Telnyx gets 403. Logs may show signature verification failure.
+
+**Cause:** `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` is wrong or not set.
+
+**Fix:** Telnyx Portal → Account → Public Key. Add `TELNYX_PUBLIC_KEY=<base64>` to VPS env. Reload: `pm2 reload callbot-voice --update-env`
+
+---
+
+### 7. Inbound Quota Exceeded
+
+**Symptom:** Call rejected. Logs: "Inbound quota exceeded for user X".
+
+**Cause:** User has used their plan's included minutes.
+
+**Fix:** Check usage in dashboard; upgrade plan or wait for reset.
+
+---
+
+## Pre-Migration Accounts
+
+If the account and assistant were created **before** switching to Flutter + Python:
+
+1. **Telnyx webhook** – Almost certainly still points to the old stack. Update the Voice API Application Event Webhook URL (step 1 above).
+2. **Nginx** – May never have been updated to route voice to Python. Run `fix-nginx-voice.sh` (step 2).
+3. **Receptionist** – Should still work; lookup uses `telnyx_phone_number` / `inbound_phone_number`. Verify in Supabase.
+
+---
+
+## Quick Diagnostic
+
+Run on the VPS from project root:
+
+```bash
+./deploy/scripts/diagnose-call-flow.sh
+```
+
+Then check voice logs:
+
+```bash
+pm2 logs callbot-voice --lines 50
+```
+
+When you place a test call, watch for:
+- `Answered call <id>` – webhook reached Python and answered
+- `Stream started for <id>` – Telnyx connected to WebSocket
+- Any errors (403, 503, receptionist not found, etc.)

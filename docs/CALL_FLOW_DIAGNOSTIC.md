@@ -153,6 +153,26 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 ---
 
+## Cloudflare Tunnel Bypassing Nginx
+
+**Symptom:** `fix-nginx-voice.sh` ran successfully, but `curl https://echodesk.us/api/telnyx/voice` still returns HTML. Localhost test (`curl -sk https://127.0.0.1/api/telnyx/voice -H "Host: echodesk.us"`) returns JSON.
+
+**Cause:** Traffic reaches your server via **Cloudflare Tunnel** (cloudflared) instead of directly to nginx. The tunnel may be configured to forward `echodesk.us` directly to `http://localhost:3000` (Next.js), bypassing nginx.
+
+**Fix:** Update your Cloudflare Tunnel ingress configuration. Point the tunnel at **nginx** (port 80 or 443), not Next.js:
+
+```yaml
+# config.yml - tunnel ingress
+ingress:
+  - hostname: echodesk.us
+    service: http://127.0.0.1:80    # nginx, NOT :3000
+  - service: http_status:404
+```
+
+Then restart the tunnel: `sudo systemctl restart cloudflared` (or equivalent).
+
+---
+
 ## Pre-Migration Accounts
 
 If the account and assistant were created **before** switching to Flutter + Python:

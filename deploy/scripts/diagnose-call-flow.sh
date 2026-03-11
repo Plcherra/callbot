@@ -37,16 +37,33 @@ echo "--- 3. Backend health (local) ---"
 curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health 2>/dev/null | xargs -I{} echo "HTTP {} (200 = ok)" || echo "Backend not reachable on 8000"
 echo ""
 
-# 4. Nginx routing (voice webhook)
-echo "--- 4. Nginx routing: POST $BASE_URL/api/telnyx/voice ---"
-echo "Expect: JSON response. HTML/404 = nginx routes to Next.js (wrong)."
+# 4a. Nginx localhost test (bypasses external routing)
+echo "--- 4a. Nginx localhost (direct) ---"
+echo "If this works but 4b fails, traffic bypasses nginx (e.g. Cloudflare Tunnel to :3000)."
+LOCAL_RESP=$(curl -sk -X POST "https://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 150)
+if echo "$LOCAL_RESP" | grep -q '<!DOCTYPE\|<html'; then
+  echo "FAIL: Local nginx returns HTML. Run: bash deploy/scripts/fix-nginx-voice.sh"
+  echo "Sample: $(echo "$LOCAL_RESP" | head -c 80)..."
+else
+  echo "OK: Local nginx returns JSON: $(echo "$LOCAL_RESP" | head -c 80)"
+fi
+echo ""
+
+# 4b. Nginx routing via public URL
+echo "--- 4b. Nginx via $BASE_URL ---"
+echo "Expect: JSON. HTML = wrong routing or traffic bypasses nginx."
 RESP=$(curl -s -X POST "$BASE_URL/api/telnyx/voice" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 200)
 if echo "$RESP" | grep -q '<!DOCTYPE\|<html'; then
-  echo "FAIL: Got HTML (routing to Next.js). Fix nginx: ./deploy/scripts/fix-nginx-voice.sh"
+  echo "FAIL: Got HTML"
+  if echo "$LOCAL_RESP" | grep -q 'success'; then
+    echo "  -> Localhost works but public fails. Traffic may bypass nginx (Cloudflare Tunnel?)."
+    echo "  -> If using cloudflared: point tunnel at http://127.0.0.1:80 (nginx), not :3000."
+  else
+    echo "  -> Run: bash deploy/scripts/fix-nginx-voice.sh"
+  fi
   echo "Sample: $(echo "$RESP" | head -c 80)..."
 else
-  echo "OK: Got non-HTML response (likely JSON)"
-  echo "Sample: $(echo "$RESP" | head -c 100)"
+  echo "OK: Got JSON: $(echo "$RESP" | head -c 100)"
 fi
 echo ""
 

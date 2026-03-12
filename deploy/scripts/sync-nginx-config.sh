@@ -20,11 +20,12 @@ if [ ! -d "$LANDING_ROOT" ]; then
   echo "WARNING: $LANDING_ROOT not found. Create landing/dist before deploy."
 fi
 
-if [ -f "$SSL_CERT" ]; then
+# Use sudo so cert check works when run by deploy/user (letsencrypt dir may restrict access)
+if [ -f "$SSL_CERT" ] || sudo test -f "$SSL_CERT" 2>/dev/null; then
   echo "SSL cert found: using full config (port 80 redirect + 443)"
   sed "s|{{LANDING_ROOT}}|$LANDING_ROOT|g" "$FULL_TEMPLATE" | sudo tee "$NGINX_SITE" > /dev/null
 else
-  echo "SSL cert not found at $SSL_CERT – using http-only config"
+  echo "SSL cert not found at $SSL_CERT – using http-only config (no 443; wss://stream.echodesk.us will fail)"
   sed "s|{{LANDING_ROOT}}|$LANDING_ROOT|g" "$HTTP_TEMPLATE" | sudo tee "$NGINX_SITE" > /dev/null
 fi
 

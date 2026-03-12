@@ -1,10 +1,16 @@
 #!/bin/bash
+# DEPRECATED: Next.js has been removed. This script is no longer needed.
+# Architecture is now Python FastAPI + static landing. Server Actions do not apply.
+#
 # Setup NEXT_SERVER_ACTIONS_ENCRYPTION_KEY for Next.js Server Actions on VPS.
 # Run once on the server to fix "Failed to find Server Action" errors.
 # Must be run BEFORE npm run build.
 #
 # Usage: ./deploy/scripts/setup-server-actions-key.sh
 # Or from project root: bash deploy/scripts/setup-server-actions-key.sh
+
+echo "DEPRECATED: Next.js removed. This script is no longer needed."
+exit 0
 
 set -e
 

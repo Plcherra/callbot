@@ -17,8 +17,8 @@ echo "Root: $ROOT"
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install -r backend/requirements.txt
 
-# Node deps for PM2 ecosystem (dotenv for env loading)
-npm install
+# Node deps for PM2 ecosystem config (dotenv for env loading). Minimal - no Next.js.
+npm install 2>/dev/null || true
 
 # Validate env vars before start
 echo "=== Validating environment ==="

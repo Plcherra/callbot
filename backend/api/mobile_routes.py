@@ -365,6 +365,25 @@ async def create_receptionist(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
+@router.get("/receptionists/{receptionist_id}")
+async def get_receptionist(request: Request, receptionist_id: str):
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_receptionist_ownership(receptionist_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    r = supabase.table("receptionists").select(
+        "id, name, phone_number, inbound_phone_number, calendar_id, status, "
+        "website_url, extra_instructions, payment_settings, created_at"
+    ).eq("id", receptionist_id).single().execute()
+    if not r.data:
+        return JSONResponse({"error": "Receptionist not found"}, status_code=404)
+    return r.data
+
+
 @router.patch("/receptionists/{receptionist_id}")
 async def update_receptionist(request: Request, receptionist_id: str):
     user, supabase = _require_auth(request)

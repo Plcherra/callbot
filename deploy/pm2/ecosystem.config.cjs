@@ -1,12 +1,12 @@
 /**
- * PM2 ecosystem config for callbot.
- * Runs Next.js dashboard + Python voice backend (FastAPI/uvicorn).
+ * PM2 ecosystem config for callbot (deploy copy).
+ * Python FastAPI backend only (voice + mobile API + Stripe + OAuth).
+ * Landing page served as static files by nginx.
  *
  * Usage (from project root):
  *   pm2 start deploy/pm2/ecosystem.config.cjs
  *   # or: pm2 start ecosystem.config.cjs (root copy)
  *
- * Ensure npm run build runs before starting.
  * Env: .env and .env.local in project root.
  */
 const path = require("path");
@@ -19,25 +19,18 @@ require("dotenv").config({ path: path.join(ROOT, ".env.local") });
 module.exports = {
   apps: [
     {
-      name: "callbot",
-      script: path.join(ROOT, "node_modules", "next", "dist", "bin", "next"),
-      args: "start",
-      cwd: ROOT,
-      exec_mode: "fork",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      env: { NODE_ENV: "production" },
-    },
-    {
       name: "callbot-voice",
-      script: path.join(ROOT, "backend", "start.sh"),
-      interpreter: "bash",
+      script: path.join(ROOT, "venv", "bin", "python"),
+      args: "-m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info",
       cwd: ROOT,
+      interpreter: null,
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
       watch: false,
+      env: {
+        PYTHONUNBUFFERED: "1",
+      },
     },
   ],
 };

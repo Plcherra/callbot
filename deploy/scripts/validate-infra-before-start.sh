@@ -156,22 +156,24 @@ check_nginx() {
   ok "nginx is active"
 
   if ! sudo nginx -t &>/dev/null; then
-    fail "nginx_config" "nginx config invalid" "Run: sudo nginx -t to see errors, then fix config"
+    fail "nginx_config" "nginx config invalid" "Run: ./deploy/scripts/sync-nginx-config.sh (syncs from repo; uses http-only if no SSL cert)"
     return 1
   fi
   ok "nginx config valid"
 
-  # Local voice route (bypasses external routing)
-  LOCAL_RESP=$(curl -sk -X POST "https://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
+  # Local voice route (try http first – works with both full SSL and http-only configs)
+  LOCAL_RESP=$(curl -s -X POST "http://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
+  [ -z "$LOCAL_RESP" ] && LOCAL_RESP=$(curl -sk -X POST "https://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
   if echo "$LOCAL_RESP" | grep -qE '<!DOCTYPE|<html'; then
     if [ "$FIX_MODE" = true ]; then
       ok "Attempting --fix: running fix-nginx-voice.sh"
       "$ROOT/deploy/scripts/fix-nginx-voice.sh" || true
-      LOCAL_RESP=$(curl -sk -X POST "https://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
+      LOCAL_RESP=$(curl -s -X POST "http://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
+      [ -z "$LOCAL_RESP" ] && LOCAL_RESP=$(curl -sk -X POST "https://127.0.0.1/api/telnyx/voice" -H "Host: $DOMAIN" -H "Content-Type: application/json" -d '{}' 2>/dev/null | head -c 500)
     fi
     if echo "$LOCAL_RESP" | grep -qE '<!DOCTYPE|<html'; then
       fail "nginx_voice_local" "Local nginx returns HTML for /api/telnyx/voice (wrong routing)" \
-        "Run: ./deploy/scripts/fix-nginx-voice.sh"
+        "Run: ./deploy/scripts/sync-nginx-config.sh"
       return 1
     fi
   fi
@@ -189,7 +191,7 @@ check_nginx() {
         "If using cloudflared: point tunnel at http://127.0.0.1:80 (nginx), not :3000. Else: ./deploy/scripts/diagnose-call-flow.sh"
     else
       fail "nginx_voice_public" "Public URL returns HTML for /api/telnyx/voice" \
-        "Run: ./deploy/scripts/fix-nginx-voice.sh"
+        "Run: ./deploy/scripts/sync-nginx-config.sh"
     fi
     return 1
   fi

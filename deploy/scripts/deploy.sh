@@ -49,6 +49,10 @@ pm2 delete callbot-voice 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
 
+# Sync nginx config from repo (fixes "nginx config invalid" when VPS config is stale or missing cert)
+echo "=== Syncing nginx config ==="
+bash ./deploy/scripts/sync-nginx-config.sh
+
 # Pre-start infrastructure validation (fail deploy if critical checks fail)
 EXTRA_FLAGS=""
 [ -n "${GITHUB_ACTIONS:-}" ] && EXTRA_FLAGS="--ci"

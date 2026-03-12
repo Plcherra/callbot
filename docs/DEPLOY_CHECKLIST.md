@@ -25,7 +25,7 @@ Generate Server Actions key: `openssl rand -base64 32`
 |-------|---------|-----|
 | PM2 running | `pm2 list` | `pm2 start ecosystem.config.cjs` |
 | Voice backend healthy | `curl -s http://127.0.0.1:8000/health` | Restart: `pm2 restart callbot-voice` |
-| Nginx voice routes | `grep -A1 "location /api/telnyx/voice" /etc/nginx/sites-enabled/callbot` | `./deploy/scripts/fix-nginx-voice.sh` |
+| Nginx voice routes | `grep -A1 "location /api/telnyx/voice" /etc/nginx/sites-enabled/callbot` | `./deploy/scripts/sync-nginx-config.sh` |
 | Tunnel → nginx | Check cloudflared config | Ingress must point at `http://127.0.0.1:80` |
 
 ## After Deploy

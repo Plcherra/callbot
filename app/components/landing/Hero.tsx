@@ -1,5 +1,7 @@
-import Link from "next/link";
 import { Button } from "@/app/components/ui/button";
+
+const APP_STORE_URL = "https://apps.apple.com/app/echodesk";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.echodesk.app";
 
 export function Hero() {
   return (
@@ -15,10 +17,14 @@ export function Hero() {
         <p className="mt-4 text-2xl font-semibold">From $69/mo</p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
           <Button asChild size="lg" className="bg-white text-purple-700 hover:bg-white/90">
-            <Link href="/signup">Get Started</Link>
+            <a href={APP_STORE_URL} target="_blank" rel="noopener noreferrer">
+              Download for iOS
+            </a>
           </Button>
           <Button asChild size="lg" variant="outline" className="border-white/50 bg-transparent text-white hover:bg-white/10">
-            <Link href="/signup?plan=starter">Start free trial</Link>
+            <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">
+              Get it on Google Play
+            </a>
           </Button>
         </div>
       </div>

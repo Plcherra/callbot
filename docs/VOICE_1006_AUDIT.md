@@ -1,6 +1,8 @@
 # Voice Stream 1006 Audit & Fixes
 
-Full audit of `voiceStreamHandler.ts` for Telnyx bidirectional RTP 1006/silence drops.
+> **Note:** This doc originally covered `voiceStreamHandler.ts` (Node). The voice pipeline is now Python (`backend/voice/`). The principles (silence intervals, ping, proxy timeouts, logging) still apply. For current call flow troubleshooting, see [CALL_FLOW_DIAGNOSTIC.md](CALL_FLOW_DIAGNOSTIC.md).
+
+Full audit of Telnyx bidirectional RTP 1006/silence drops.
 
 ---
 

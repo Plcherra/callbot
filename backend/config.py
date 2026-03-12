@@ -26,9 +26,11 @@ class Settings(BaseSettings):
     supabase_url: str = ""  # Legacy: SUPABASE_URL
     supabase_service_role_key: str = ""
     next_public_supabase_url: str = ""  # Canonical: NEXT_PUBLIC_SUPABASE_URL
+    next_public_supabase_anon_key: str = ""  # For JWT validation (outbound, etc.)
 
     # Telnyx
     telnyx_api_key: str = ""
+    telnyx_connection_id: str = ""  # For outbound calls
     telnyx_public_key: str = ""  # For Ed25519 webhook verification
     telnyx_webhook_secret: str = ""  # For HMAC webhook verification
     telnyx_webhook_base_url: str = ""

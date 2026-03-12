@@ -8,21 +8,21 @@
 
 The voice pipeline (Telnyx webhook, Deepgram, Grok, ElevenLabs) lives in `backend/`. It must run on port 8000.
 
-**Option A: Use ecosystem.config.js (runs both Next.js and voice)**
+**Option A: Use ecosystem.config.cjs (runs both Next.js and voice)**
 
 ```bash
 cd ~/apps/callbot
 pm2 delete callbot 2>/dev/null; pm2 delete callbot-voice 2>/dev/null
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 pm2 save
 ```
 
 **Option B: Start voice backend separately**
 
 ```bash
-cd ~/apps/callbot/backend
-pip install -r requirements.txt
-pm2 start "python3 -m uvicorn main:app --host 0.0.0.0 --port 8000" --name callbot-voice
+cd ~/apps/callbot
+./venv/bin/pip install -r backend/requirements.txt
+pm2 start "./venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000" --name callbot-voice --cwd .
 pm2 save
 ```
 
@@ -128,22 +128,11 @@ If you use a `.env` file, PM2 does not load it by default. Options:
 
 **Option A: Use ecosystem config**
 
-Create `ecosystem.config.js` in project root:
+The project includes `ecosystem.config.cjs` which loads `.env` and `.env.local` and runs both Next.js and the voice backend:
 
-```js
-require('dotenv').config({ path: '.env' });
-module.exports = {
-  apps: [{
-    name: 'callbot',
-    script: 'node_modules/next/dist/bin/next',
-    args: 'start',
-    cwd: __dirname,
-    env: process.env,
-  }]
-};
+```bash
+pm2 start ecosystem.config.cjs
 ```
-
-Then: `pm2 start ecosystem.config.js` (or `pm2 delete callbot && pm2 start ecosystem.config.js`).
 
 **Option B: dotenv-cli**
 

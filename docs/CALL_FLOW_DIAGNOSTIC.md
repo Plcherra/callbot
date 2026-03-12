@@ -1,6 +1,18 @@
 # Call Flow Chain – Where It Can Fail
 
-When you call the Telnyx number and it doesn't pick up, the failure is somewhere in this chain. Use this guide to trace it.
+**Canonical call-flow reference.** When you call the Telnyx number and it doesn't pick up, the failure is somewhere in this chain. Use this guide to trace it.
+
+See also: [FULL_PROJECT_OVERVIEW.md](FULL_PROJECT_OVERVIEW.md) for architecture and deployment.
+
+## Quick Recovery
+
+On the VPS, from project root:
+
+```bash
+./deploy/scripts/restore-call-flow.sh
+```
+
+This restarts callbot-voice, fixes nginx voice routing, and runs diagnostics.
 
 ## End-to-End Flow
 

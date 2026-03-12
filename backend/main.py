@@ -1,10 +1,15 @@
 """FastAPI voice backend - WebSocket + HTTP routes."""
 
-import os
+import sys
 from pathlib import Path
 
+# Ensure backend directory is on path for config, quota, etc.
+_backend_dir = Path(__file__).resolve().parent
+if str(_backend_dir) not in sys.path:
+    sys.path.insert(0, str(_backend_dir))
+
 # Load .env from project root (parent of backend/)
-_root = Path(__file__).resolve().parent.parent
+_root = _backend_dir.parent
 _env = _root / ".env"
 _env_local = _root / ".env.local"
 if _env.exists():
@@ -25,6 +30,8 @@ from fastapi.responses import JSONResponse
 from config import settings
 from voice.handler import handle_voice_stream_connection
 from telnyx.voice_webhook import handle_voice_webhook
+from telnyx.cdr_webhook import handle_cdr_webhook
+from api.outbound import create_outbound_call
 from telnyx.voice_webhook_verify import (
     check_rate_limit,
     get_client_ip,
@@ -142,6 +149,70 @@ async def telnyx_voice(request: Request):
 
     result_response = await handle_voice_webhook(body, raw)
     return JSONResponse(result_response)
+
+
+@app.post("/api/telnyx/cdr")
+async def telnyx_cdr(request: Request):
+    """Telnyx CDR webhook: call ended, insert usage, send call_ended push."""
+    raw = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    client_ip = get_client_ip(headers, request.client.host if request.client else None)
+    user_agent = headers.get("user-agent") or headers.get("User-Agent")
+
+    ed25519_sig = headers.get("telnyx-signature-ed25519")
+    timestamp = headers.get("telnyx-timestamp")
+    hmac_sig = (
+        headers.get("t-signature")
+        or headers.get("telnyx-signature")
+        or headers.get("x-telnyx-signature")
+    )
+
+    if await check_rate_limit(client_ip):
+        logger.warning("Telnyx CDR webhook rate limited", extra={"client_ip": client_ip})
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    result = verify_webhook_request(
+        raw,
+        ed25519_sig=ed25519_sig,
+        timestamp=timestamp,
+        hmac_sig=hmac_sig,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    if not result.verified:
+        record_verification_failure(client_ip)
+        raise HTTPException(status_code=403, detail=result.detail)
+
+    try:
+        response = await handle_cdr_webhook(raw, headers)
+        return JSONResponse(response)
+    except Exception as e:
+        logger.exception("CDR webhook error")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/telnyx/outbound")
+async def telnyx_outbound(request: Request):
+    """Initiate outbound call. Requires Bearer token. Body: { receptionist_id, to }."""
+    auth = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = auth[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    receptionist_id = (body.get("receptionist_id") or "").strip()
+    to_phone = (body.get("to") or "").strip()
+    if not receptionist_id or not to_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="receptionist_id and to (E.164) required",
+        )
+    return create_outbound_call(token, receptionist_id, to_phone)
 
 
 @app.get("/api/receptionist-prompt")

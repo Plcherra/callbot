@@ -19,7 +19,7 @@ It checks Cloudflare Tunnel, nginx, Telnyx config, env vars, and PM2/ports. Use 
 **First steps:**
 1. **Check the right logs:** Voice events go to `pm2 logs callbot-voice`, not `pm2 logs callbot`.
 2. **Run diagnostics:** `./deploy/scripts/diagnose-call-flow.sh` (on VPS from project root)
-3. **Full audit:** See [CALL_FLOW_AUDIT.md](CALL_FLOW_AUDIT.md) for end-to-end flow, failure points, and fixes
+3. **Full audit:** See [CALL_FLOW_DIAGNOSTIC.md](CALL_FLOW_DIAGNOSTIC.md) for end-to-end flow, failure points, and fixes
 
 Common causes (in order): nginx routes `/api/telnyx/voice` to Next.js (returns HTML); callbot-voice not running; `TELNYX_WEBHOOK_BASE_URL` missing or set to localhost.
 

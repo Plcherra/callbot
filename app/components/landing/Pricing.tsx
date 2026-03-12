@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Button } from "@/app/components/ui/button";
 import {
   Card,
@@ -10,11 +9,19 @@ import {
 } from "@/app/components/ui/card";
 import { getPublicSubscriptionPlans } from "@/app/lib/plans";
 
-function SignupLink({ planId, children }: { planId: string; children: React.ReactNode }) {
+const APP_STORE_URL = "https://apps.apple.com/app/echodesk";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.echodesk.app";
+
+function DownloadLink({ children }: { children: React.ReactNode }) {
   return (
-    <Button asChild className="w-full" size="lg">
-      <Link href={`/signup?plan=${encodeURIComponent(planId)}`}>{children}</Link>
-    </Button>
+    <div className="flex gap-2">
+      <Button asChild className="flex-1" size="lg">
+        <a href={APP_STORE_URL} target="_blank" rel="noopener noreferrer">{children}</a>
+      </Button>
+      <Button asChild variant="outline" className="flex-1" size="lg">
+        <a href={PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android</a>
+      </Button>
+    </div>
   );
 }
 
@@ -62,7 +69,7 @@ export function Pricing() {
                   </ul>
                 </CardContent>
                 <CardFooter>
-                  <SignupLink planId={plan.id}>Get Started</SignupLink>
+                  <DownloadLink>Download App</DownloadLink>
                 </CardFooter>
               </Card>
             ))}

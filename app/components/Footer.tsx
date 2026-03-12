@@ -1,6 +1,7 @@
-import Link from "next/link";
-
 export function Footer() {
+  const APP_STORE = "https://apps.apple.com/app/echodesk";
+  const PLAY_STORE = "https://play.google.com/store/apps/details?id=com.echodesk.app";
+
   return (
     <footer className="border-t bg-muted/30 px-6 py-8">
       <div className="mx-auto max-w-5xl">
@@ -8,51 +9,31 @@ export function Footer() {
           <div>
             <h3 className="font-semibold">AI Receptionist</h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Never miss a booking. From $69/mo.
+              Never miss a booking. Download the app to get started.
             </p>
           </div>
           <div>
-            <h3 className="font-semibold">Product</h3>
+            <h3 className="font-semibold">Download</h3>
             <ul className="mt-2 space-y-1 text-sm">
               <li>
-                <Link href="/signup" className="text-muted-foreground hover:text-foreground">
-                  Sign up
-                </Link>
+                <a href={APP_STORE} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                  App Store
+                </a>
               </li>
               <li>
-                <Link href="/login" className="text-muted-foreground hover:text-foreground">
-                  Log in
-                </Link>
-              </li>
-              <li>
-                <Link href="/dashboard" className="text-muted-foreground hover:text-foreground">
-                  Dashboard
-                </Link>
+                <a href={PLAY_STORE} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-foreground">
+                  Google Play
+                </a>
               </li>
             </ul>
           </div>
           <div>
-            <h3 className="font-semibold">Company</h3>
+            <h3 className="font-semibold">Support</h3>
             <ul className="mt-2 space-y-1 text-sm">
               <li>
-                <Link href="/about" className="text-muted-foreground hover:text-foreground">
-                  About
-                </Link>
-              </li>
-              <li>
-                <Link href="/contact" className="text-muted-foreground hover:text-foreground">
+                <a href="mailto:support@echodesk.us" className="text-muted-foreground hover:text-foreground">
                   Contact
-                </Link>
-              </li>
-              <li>
-                <Link href="/privacy" className="text-muted-foreground hover:text-foreground">
-                  Privacy
-                </Link>
-              </li>
-              <li>
-                <Link href="/terms" className="text-muted-foreground hover:text-foreground">
-                  Terms
-                </Link>
+                </a>
               </li>
             </ul>
           </div>

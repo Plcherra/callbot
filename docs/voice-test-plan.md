@@ -21,7 +21,7 @@ timing stream_sid=... speech_end=... llm_start=... llm_end=... llm_ms=...
 timing stream_sid=... tts_end=... total_latency_ms=...
 ```
 
-Use `journalctl -u echodesk-voice -f | grep timing` to collect samples. Full transcripts are logged at call end: `call_transcript stream_sid=...`.
+Use `pm2 logs callbot-voice -f | grep timing` to collect samples. Full transcripts are logged at call end: `call_transcript stream_sid=...`.
 
 ---
 

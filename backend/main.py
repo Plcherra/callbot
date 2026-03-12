@@ -94,7 +94,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Echodesk Voice Backend", lifespan=lifespan)
 app.include_router(mobile_router)
-app = WebSocketDebugMiddleware(app)
 
 
 @app.get("/health")
@@ -363,8 +362,14 @@ async def cron_usage(
     auth_val = authorization or ""
     if auth_val != f"Bearer {secret}":
         raise HTTPException(status_code=401, detail="Unauthorized")
-    # TODO: port aggregateUsageForCurrentMonth from app/lib/usage.ts
-    return {"ok": True, "updated": 0, "errors": 0}
+    try:
+        from cron.usage_aggregation import aggregate_usage_for_current_month
+        supabase = create_service_role_client()
+        result = aggregate_usage_for_current_month(supabase)
+        return {"ok": True, "updated": result["updated"], "errors": result["errors"]}
+    except Exception as e:
+        logger.exception("Cron usage aggregation failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/cron/reset-usage")

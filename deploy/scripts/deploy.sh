@@ -38,11 +38,15 @@ pm2 save
 echo "=== Syncing nginx config ==="
 bash ./deploy/scripts/sync-nginx-config.sh
 
-# Pre-start infrastructure validation
-EXTRA_FLAGS=""
-[ -n "${GITHUB_ACTIONS:-}" ] && EXTRA_FLAGS="--ci"
-echo "=== Validating infrastructure ==="
-./deploy/scripts/validate-infra-before-start.sh $EXTRA_FLAGS || { echo "ERROR: Infrastructure validation failed"; exit 1; }
+# Pre-start infrastructure validation (skip with SKIP_VALIDATE_INFRA=1)
+if [ -z "${SKIP_VALIDATE_INFRA:-}" ]; then
+  EXTRA_FLAGS=""
+  [ -n "${GITHUB_ACTIONS:-}" ] && EXTRA_FLAGS="--ci"
+  echo "=== Validating infrastructure ==="
+  ./deploy/scripts/validate-infra-before-start.sh $EXTRA_FLAGS || { echo "ERROR: Infrastructure validation failed"; exit 1; }
+else
+  echo "=== Skipping infrastructure validation (SKIP_VALIDATE_INFRA=1) ==="
+fi
 
 echo "=== Deploy done ==="
 pm2 list

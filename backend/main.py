@@ -104,24 +104,8 @@ async def quota_check(request: Request):
 
 @app.websocket("/api/voice/stream")
 async def voice_stream(ws):
-    # Duplicate check before accept: close() before accept() sends 403 to client.
-    # Clean up stale entries; only reject when a CONNECTED duplicate exists.
-    query = (ws.scope.get("query_string") or b"").decode("utf-8")
-    call_sid = ""
-    if query:
-        from urllib.parse import parse_qs
-        parsed = parse_qs(query.lstrip("?"))
-        call_sid = (parsed.get("call_sid") or [""])[0]
-    if call_sid:
-        from voice.handler import active_by_call_sid
-        existing = active_by_call_sid.get(call_sid)
-        if existing is not None:
-            if existing.client_state.name != "CONNECTED":
-                active_by_call_sid.pop(call_sid, None)
-            else:
-                logger.info("Rejecting duplicate WebSocket for call_sid=%s", call_sid[:30])
-                await ws.close(code=1000, reason="Duplicate")
-                return
+    # Always accept first. Duplicate handling is in the handler (close after accept).
+    # Rejecting before accept() sends 403 and breaks Telnyx.
     await ws.accept()
     await handle_voice_stream_connection(ws)
 

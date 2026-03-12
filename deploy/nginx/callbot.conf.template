@@ -1,5 +1,8 @@
 # Callbot nginx config template
-# Domain: echodesk.us
+# Domain: echodesk.us (stream.echodesk.us for Telnyx media stream - direct to VPS)
+#
+# SSL: cert must include stream.echodesk.us, e.g.:
+#   sudo certbot certonly --webroot -w /var/www/html -d echodesk.us -d www.echodesk.us -d stream.echodesk.us --expand
 #
 # Install: sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
 # Enable:  sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
@@ -10,7 +13,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name echodesk.us www.echodesk.us;
+    server_name echodesk.us www.echodesk.us stream.echodesk.us;
 
     # Voice paths: serve directly (for Cloudflare Tunnel hitting :80)
     location ^~ /api/telnyx/voice {
@@ -72,7 +75,7 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    server_name echodesk.us www.echodesk.us;
+    server_name echodesk.us www.echodesk.us stream.echodesk.us;
 
     ssl_certificate /etc/letsencrypt/live/echodesk.us/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/echodesk.us/privkey.pem;

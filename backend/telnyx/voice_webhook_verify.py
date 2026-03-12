@@ -160,6 +160,21 @@ def verify_webhook_request(
     webhook_id, call_id = _parse_ids_from_body(raw_body)
     ed25519_headers_present = bool(ed25519_sig and timestamp)
 
+    # 0. Early accept when TELNYX_SKIP_VERIFY and no IP restrict (e.g. no TELNYX_PUBLIC_KEY)
+    if settings.telnyx_skip_verify:
+        allowed_ips = _get_allowed_ips()
+        if not allowed_ips or client_ip in allowed_ips:
+            _log_verification(
+                "skip_verification",
+                "skip_verification",
+                client_ip,
+                user_agent,
+                webhook_id,
+                call_id,
+                missing_headers=["TELNYX_SKIP_VERIFY=true accepted"],
+            )
+            return VerificationResult(verified=True, strategy="skip_verification")
+
     # 1. Ed25519 verification
     if ed25519_headers_present and settings.telnyx_public_key:
         if verify_ed25519(

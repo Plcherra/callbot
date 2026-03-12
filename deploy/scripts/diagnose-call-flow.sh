@@ -90,21 +90,25 @@ if command -v nginx &>/dev/null; then
 fi
 echo ""
 
-# 6. TELNYX_WEBHOOK_BASE_URL
-echo "--- 6. TELNYX_WEBHOOK_BASE_URL ---"
+# 6. TELNYX_WEBHOOK_BASE_URL and TELNYX_STREAM_BASE_URL
+echo "--- 6. Telnyx URLs ---"
 for f in .env .env.local; do
   if [ -f "$f" ]; then
-    val=$(grep -E "^TELNYX_WEBHOOK_BASE_URL=" "$f" 2>/dev/null | cut -d= -f2-)
-    if [ -n "$val" ]; then
-      echo "$f: $val"
-      if echo "$val" | grep -q localhost; then
-        echo "  WARNING: localhost - Telnyx cannot reach. Use https://$DOMAIN"
-      fi
+    wh=$(grep -E "^TELNYX_WEBHOOK_BASE_URL=" "$f" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+    sb=$(grep -E "^TELNYX_STREAM_BASE_URL=" "$f" 2>/dev/null | cut -d= -f2- | tr -d ' ')
+    [ -n "$wh" ] && echo "$f: TELNYX_WEBHOOK_BASE_URL=$wh"
+    [ -n "$sb" ] && echo "$f: TELNYX_STREAM_BASE_URL=$sb"
+    if [ -n "$wh" ] && echo "$wh" | grep -q localhost; then
+      echo "  WARNING: WEBHOOK localhost - Telnyx cannot reach. Use https://$DOMAIN"
+    fi
+    if [ -z "$sb" ] && [ -n "$wh" ]; then
+      echo "  Stream URL: wss://$(echo "$wh" | sed 's|https\?://||' | tr -d '/')/api/voice/stream"
+      echo "  If 90046/silence: add TELNYX_STREAM_BASE_URL=https://stream.$DOMAIN (direct to VPS), then pm2 delete+start"
     fi
   fi
 done
-if ! grep -r "TELNYX_WEBHOOK_BASE_URL" .env .env.local 2>/dev/null | grep -v "^Binary" | grep -q .; then
-  echo "Not set - defaults to localhost (broken). Add TELNYX_WEBHOOK_BASE_URL=https://$DOMAIN"
+if ! grep -rE "TELNYX_WEBHOOK_BASE_URL" .env .env.local 2>/dev/null | grep -v "^Binary" | grep -q .; then
+  echo "TELNYX_WEBHOOK_BASE_URL not set - defaults to localhost (broken). Add to .env"
 fi
 echo ""
 

@@ -29,8 +29,7 @@ flowchart TD
     end
 
     subgraph routing [Your Server]
-        Nginx[Nginx :443]
-        Static[Static landing]
+        Nginx[Nginx :80/:443]
         Python[Python :8000]
     end
 
@@ -50,8 +49,7 @@ flowchart TD
     Telnyx --> VoiceApp
     VoiceApp -->|POST to Webhook URL| WebhookURL
     WebhookURL --> Nginx
-    Nginx -->|MUST go to 8000| Python
-    Nginx -.->|WRONG: goes to 3000| NextJS
+    Nginx -->|proxies to :8000| Python
     Python --> Lookup
     Lookup --> Answer
     Answer --> Telnyx
@@ -69,7 +67,7 @@ flowchart TD
 
 **Cause:** Your numbers are on a Voice API Application whose Event Webhook URL points to an **old URL** (e.g. different domain or localhost).
 
-**Fix:**
+**Fix:** The URL must be the **full path** including `/api/telnyx/voice` (the backend registers this route in `main.py`):
 1. [Telnyx Portal](https://portal.telnyx.com) → **Real-Time Communications** → **Voice** → **Voice API Applications**
 2. Open the application that your numbers use
 3. Set **Event Webhook URL** to: `https://echodesk.us/api/telnyx/voice`
@@ -77,11 +75,11 @@ flowchart TD
 
 ---
 
-### 2. Nginx – Voice Routed to Next.js Instead of Python
+### 2. Nginx – Voice Routed to Wrong Target
 
 **Symptom:** Telnyx sends webhooks but gets HTML/404. No Python logs.
 
-**Cause:** Nginx sends `/api/telnyx/voice` to the wrong target (e.g. static files). Returns HTML instead of JSON.
+**Cause:** Nginx sends `/api/telnyx/voice` to the wrong target (e.g. static files instead of Python). Returns HTML instead of JSON. The deploy nginx config proxies to port 8000; if you have custom/old config, it may point elsewhere.
 
 **Verify:**
 ```bash
@@ -101,12 +99,13 @@ curl -s -X POST https://echodesk.us/api/telnyx/voice -H "Content-Type: applicati
 
 **Symptom:** Port 8000 not listening. No Python logs at all.
 
-**Verify:**
+**Verify** (run on the VPS – `127.0.0.1` is localhost, no DNS needed):
 ```bash
 pm2 list
 ss -tlnp | grep 8000
 curl -s http://127.0.0.1:8000/health
 ```
+Expected: `{"status":"ok","supabase":"ok"}`. DNS (echodesk.us → VPS IP) is for external traffic; nginx proxies to 127.0.0.1:8000 internally.
 
 **Fix:** Start the full stack:
 ```bash
@@ -133,7 +132,16 @@ Then: `pm2 reload callbot-voice --update-env`
 
 **Symptom:** Logs show "No receptionist for DID" or fallback. Call may still work via fallback, but can cause issues.
 
-**Cause:** `telnyx_phone_number` or `inbound_phone_number` in Supabase doesn't match the DID format Telnyx sends (E.164, +1, etc.).
+**Cause:** `telnyx_phone_number` or `inbound_phone_number` in Supabase doesn't match the DID format Telnyx sends.
+
+**DID format (E.164):** Telnyx sends the called number as E.164, e.g. `+16176137764`. The lookup tries:
+- `telnyx_phone_number` (preferred – your Telnyx DID)
+- `inbound_phone_number` (fallback)
+
+**Accepted formats** (any of these in the DB will match):
+- `+16176137764` (E.164)
+- `16176137764`
+- `6176137764` (10-digit US)
 
 **Verify in Supabase:**
 ```sql
@@ -141,7 +149,7 @@ SELECT id, name, telnyx_phone_number, inbound_phone_number, status
 FROM receptionists WHERE status = 'active';
 ```
 
-Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.py` for lookup variants.
+At least one of `telnyx_phone_number` or `inbound_phone_number` must match the DID you configured in Telnyx for that number.
 
 ---
 
@@ -149,11 +157,15 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 **Symptom:** Telnyx gets 403. Logs may show signature verification failure or "telnyx-signature-ed25519/telnyx-timestamp headers missing".
 
-**Cause:** `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` is wrong/not set, or Cloudflare/proxy strips the verification headers.
+**Cause:** `TELNYX_PUBLIC_KEY` or `TELNYX_WEBHOOK_SECRET` is wrong/not set, or **Cloudflare/proxy strips the verification headers** (most common when using Cloudflare Tunnel or Cloudflare Proxy).
 
 **Fixes:**
-- Telnyx Portal → Account → Public Key. Add `TELNYX_PUBLIC_KEY=<base64>` to VPS env. Reload: `pm2 reload callbot-voice --update-env`
-- **Cloudflare workaround:** Set `TELNYX_SKIP_VERIFY=1` to accept webhooks without signature verification when headers are stripped. Less secure; use only as a last resort.
+- Telnyx Portal → Account → Public Key. Add `TELNYX_PUBLIC_KEY=<base64>` to VPS env. Reload: `pm2 delete callbot-voice && pm2 start ecosystem.config.cjs`
+- **Cloudflare workaround:** Set `TELNYX_SKIP_VERIFY=1` to accept webhooks when headers are stripped. Less secure; use `TELNYX_ALLOWED_IPS` for defense-in-depth.
+
+**Do you need Cloudflare?** No. Cloudflare provides DDoS protection, SSL, CDN, but it can strip Telnyx headers and break WebSockets (90046). You can:
+- **Option A:** Keep Cloudflare for echodesk.us (webhooks), use `TELNYX_SKIP_VERIFY=1`, and use `stream.echodesk.us` (DNS-only, direct to VPS) for the media stream.
+- **Option B:** Point echodesk.us directly to your VPS (A record, no proxy). Use Let's Encrypt on the VPS for SSL. No Cloudflare in the path = no header stripping, WebSocket works.
 
 ---
 
@@ -167,21 +179,57 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 ---
 
-### 8. Call Answered but Silence (WebSocket 403 / Stream Failed)
+### 8. Call Answered but Silence (WebSocket 403 / Stream Failed – Telnyx 90046)
 
 **Symptom:** Call answers, then silence. Logs show:
 - `Answered call <id>` ✓
-- `WebSocket /api/voice/stream... 403` and `connection rejected (403 Forbidden)`
 - `Stream start failed: "Failed to connect to destination"` (Telnyx code 90046)
+- No `Stream started for <id>` (Telnyx never connected to the WebSocket)
 
-**Cause:** Telnyx connects to the stream URL (`wss://echodesk.us/api/voice/stream?...`) to send/receive audio. The WebSocket is being rejected. Common causes:
+**Cause:** Telnyx connects to the stream URL (`wss://.../api/voice/stream?...`) to send/receive audio. If it cannot reach that URL, you get 90046 and silence. Common causes:
 
-1. **Nginx not routing /api/voice/** – WebSocket goes to wrong target. Run `./deploy/scripts/sync-nginx-config.sh` so `location ^~ /api/voice/` proxies to port 8000.
-2. **Cloudflare Tunnel** – Cloudflare Tunnel can block or mishandle WebSocket upgrades. Use a direct connection for the stream:
-   - Add a DNS A record for a subdomain (e.g. `stream.echodesk.us`) pointing to your VPS IP.
-   - Set `TELNYX_STREAM_BASE_URL=https://stream.echodesk.us` so Telnyx connects directly to your server, bypassing the tunnel.
+1. **Using `echodesk.us` through Cloudflare Tunnel** – Webhooks (HTTP POST) work, but WebSocket often fails. Telnyx must connect directly to your server for the stream.
+2. **PM2 still using old env** – If you changed `.env` (e.g. removed `TELNYX_STREAM_BASE_URL`), `pm2 restart` does **not** reload env. You must fully restart.
+3. **Nginx not routing /api/voice/** – WebSocket goes to wrong target.
+4. **stream.echodesk.us not set up** – DNS, cert, or nginx missing for the stream subdomain.
 
-**Verify:** Check `pm2 logs callbot-voice` for `Stream URL for <id>: wss://...` – that is the URL Telnyx uses. It must be reachable from the internet and route to the Python backend.
+#### Fix: Use a Direct Stream Subdomain (recommended)
+
+Use `stream.echodesk.us` so Telnyx connects **directly** to your VPS, bypassing Cloudflare Tunnel:
+
+1. **DNS:** Add an A record for `stream.echodesk.us` → your VPS IP.  
+   - In Cloudflare: create the record with **DNS only** (gray cloud) so traffic goes straight to the VPS, not through the proxy.
+
+2. **SSL cert:** Add the subdomain to your cert:
+   ```bash
+   sudo certbot certonly --standalone -d echodesk.us -d www.echodesk.us -d stream.echodesk.us --expand
+   ```
+   Or if using nginx for certbot: `-d stream.echodesk.us` in your cert config.
+
+3. **Nginx:** Ensure `stream.echodesk.us` is in `server_name` for the HTTPS block (see `deploy/nginx/callbot.conf.template`).
+
+4. **Env on VPS** (in `~/apps/callbot/.env`):
+   ```
+   TELNYX_WEBHOOK_BASE_URL=https://echodesk.us
+   TELNYX_STREAM_BASE_URL=https://stream.echodesk.us
+   ```
+
+5. **Reload env and restart:**
+   ```bash
+   cd ~/apps/callbot
+   pm2 delete callbot-voice
+   pm2 start ecosystem.config.cjs
+   ```
+   (Use `delete` + `start`, not `restart`, so env is reloaded from `.env`.)
+
+#### If You Don't Use TELNYX_STREAM_BASE_URL
+
+Without it, Python uses `TELNYX_WEBHOOK_BASE_URL` for the stream, so the stream URL becomes `wss://echodesk.us/...`. That only works if `echodesk.us` is reachable for WebSockets (e.g. direct DNS to VPS, no Cloudflare Tunnel). If traffic goes through Cloudflare Tunnel, WebSocket often fails with 90046.
+
+#### Verify
+
+- Check logs: `pm2 logs callbot-voice` → `Stream URL for <id>: wss://...` – that is what Telnyx uses.
+- Ensure the stream host (e.g. `stream.echodesk.us`) is reachable from the internet and routes to nginx → port 8000.
 
 ---
 

@@ -56,7 +56,7 @@ echo ""
 
 # 4. Nginx stream routing
 echo "--- 4. Nginx /api/voice/ ---"
-if grep -r "api/voice" /etc/nginx/sites-enabled/ 2>/dev/null | grep -q "proxy_pass"; then
+if grep -r -A2 "api/voice" /etc/nginx/sites-enabled/ 2>/dev/null | grep -q "proxy_pass"; then
   echo "OK: Nginx proxies /api/voice/ to backend"
 else
   echo "WARN: Check nginx config for location ^~ /api/voice/"

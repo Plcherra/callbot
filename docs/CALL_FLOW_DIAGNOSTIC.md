@@ -4,6 +4,8 @@
 
 See also: [FULL_PROJECT_OVERVIEW.md](FULL_PROJECT_OVERVIEW.md) for architecture and deployment.
 
+**For 90046 / silence after answer:** Run the [bulletproof fix](90046-BULLETPROOF-FIX.md) – `./deploy/scripts/fix-90046-bulletproof.sh`
+
 ## Quick Recovery
 
 On the VPS, from project root:

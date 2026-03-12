@@ -57,6 +57,21 @@ logger = logging.getLogger(__name__)
 # Fingerprint to confirm deployed code (search logs for this)
 VOICE_STREAM_VERSION = "v2026-03-stream-fix"
 
+
+class WebSocketDebugMiddleware:
+    """Log WebSocket connections at ASGI layer (before routing). Helps trace 403/90046."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "websocket":
+            path = scope.get("path", "")
+            qs = (scope.get("query_string") or b"").decode("utf-8", errors="replace")[:80]
+            logger.info("[asgi] WebSocket scope received path=%s qs=%s", path, qs)
+        await self.app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -79,6 +94,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Echodesk Voice Backend", lifespan=lifespan)
 app.include_router(mobile_router)
+app = WebSocketDebugMiddleware(app)
 
 
 @app.get("/health")

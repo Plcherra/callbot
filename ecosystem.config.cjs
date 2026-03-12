@@ -30,13 +30,17 @@ module.exports = {
     },
     {
       name: "callbot-voice",
-      script: path.join(__dirname, "backend", "start.sh"),
-      interpreter: "bash",
+      script: path.join(__dirname, "venv", "bin", "python"),  // Direct to venv python
+      args: "-m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info",  // Adjust workers/log as needed
       cwd: __dirname,
+      interpreter: null,  // No bash intermediary
       exec_mode: "fork",
       instances: 1,
       autorestart: true,
       watch: false,
+      env: {
+        PYTHONUNBUFFERED: "1",  // Real-time logs
+      },
     },
   ],
 };

@@ -1,9 +1,5 @@
-#!/bin/bash
-# Start the voice backend. Run from project root.
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT/backend"
-# Use venv if it exists
-if [ -f "$ROOT/venv/bin/activate" ]; then
-  . "$ROOT/venv/bin/activate"
-fi
-exec python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."  # To root
+source venv/bin/activate
+exec python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1 --log-level info

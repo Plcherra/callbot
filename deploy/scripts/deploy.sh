@@ -56,3 +56,7 @@ echo "=== Validating infrastructure ==="
 
 echo "=== Deploy done ==="
 pm2 list
+
+# After ./venv/bin/pip install -r backend/requirements.txt
+echo "=== Verifying backend dependencies in venv ==="
+./venv/bin/python -c "import pytest, fastapi, supabase; print('Key deps OK')" || { echo "ERROR: Missing key backend deps in venv"; exit 1; }

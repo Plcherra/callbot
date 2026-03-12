@@ -391,6 +391,9 @@ async def cron_reset_usage(
     return {"ok": True}
 
 
+# Wrap with debug middleware after all routes registered (uvicorn loads this)
+app = WebSocketDebugMiddleware(app)
+
 if __name__ == "__main__":
     import uvicorn
     port = getattr(settings, "port", 8000)

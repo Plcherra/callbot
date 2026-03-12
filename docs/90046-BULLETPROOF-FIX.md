@@ -242,6 +242,27 @@ If you see neither (1) nor (2): request never reaches Python – check nginx, DN
 
 ---
 
+<<<<<<< HEAD
+=======
+## Full-Chain Verification (echodesk.us → Deepgram → Grok)
+
+After applying fixes, verify the entire pipeline:
+
+| Step | Check | Expected |
+|------|-------|----------|
+| 1 | **echodesk.us loads** | Open https://echodesk.us in browser — no ERR_TOO_MANY_REDIRECTS |
+| 2 | **Webhook reachable** | `curl -s -X POST https://echodesk.us/api/telnyx/voice -H "Content-Type: application/json" -d '{}'` | JSON response |
+| 3 | **Call answered** | `pm2 logs callbot-voice` during test call | `Answered call <id>` |
+| 4 | **Stream URL** | Same logs | `Stream URL for <id>: wss://stream.echodesk.us/...` |
+| 5 | **WebSocket accepted** | Same logs | `[asgi] WebSocket scope received`, `[voice/stream] Accepting WebSocket`, `Stream started for <id>` |
+| 6 | **Deepgram usage** | Deepgram dashboard | New usage after test call |
+| 7 | **Grok invoked** | `pm2 logs callbot-voice` when user speaks | LLM/Grok activity in logs |
+
+If steps 1–2 fail: nginx or tunnel config. If 3–5 fail: WebSocket 403/90046 — run `fix-90046-bulletproof.sh`. If 6–7 fail: pipeline keys or init error.
+
+---
+
+>>>>>>> 40009df (new version)
 ## Quick Recovery
 
 ```bash

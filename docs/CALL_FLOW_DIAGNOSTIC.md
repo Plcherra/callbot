@@ -269,6 +269,25 @@ Then restart the tunnel: `sudo systemctl restart cloudflared` (or equivalent).
 
 ---
 
+## Redirect Loop with Cloudflare Tunnel (ERR_TOO_MANY_REDIRECTS)
+
+**Symptom:** echodesk.us shows "This page isn't working – redirected you too many times" (ERR_TOO_MANY_REDIRECTS).
+
+**Cause:** When using Cloudflare Tunnel, echodesk.us traffic is forwarded to nginx on port 80 as HTTP. If nginx `location /` returns `301 https://...`, the browser follows to HTTPS, which goes through the tunnel again as HTTP, and nginx redirects again — infinite loop.
+
+**Fix:** Port 80 `location /` must **serve** the landing page, not redirect to HTTPS. Cloudflare terminates HTTPS at the edge; the origin only sees HTTP from the tunnel. The nginx template ([deploy/nginx/callbot.conf.template](deploy/nginx/callbot.conf.template)) uses this pattern:
+
+```nginx
+location / {
+    root {{LANDING_ROOT}};
+    try_files $uri $uri/ /index.html;
+}
+```
+
+Sync and reload: `./deploy/scripts/sync-nginx-config.sh`, then `sudo nginx -t && sudo systemctl reload nginx`.
+
+---
+
 ## Common Log Messages (Not Necessarily Errors)
 
 | Log | Meaning |

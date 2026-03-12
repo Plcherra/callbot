@@ -171,6 +171,36 @@ def verify_webhook_request(
             _log_verification("success", "ed25519", client_ip, user_agent, webhook_id, call_id)
             return VerificationResult(verified=True, strategy="ed25519")
 
+        # Ed25519 failed (e.g. body modified by Cloudflare/proxy)
+        if settings.telnyx_skip_verify:
+            allowed_ips = _get_allowed_ips()
+            if allowed_ips and client_ip not in allowed_ips:
+                _log_verification(
+                    "rejected_ip_not_allowed",
+                    "skip_verification",
+                    client_ip,
+                    user_agent,
+                    webhook_id,
+                    call_id,
+                    missing_headers=["client_ip not in TELNYX_ALLOWED_IPS"],
+                )
+                return VerificationResult(
+                    verified=False,
+                    strategy="ip_not_in_allowlist",
+                    detail="Webhook signature verification failed",
+                    code="webhook_verification_failed",
+                )
+            _log_verification(
+                "skip_verification",
+                "skip_verification",
+                client_ip,
+                user_agent,
+                webhook_id,
+                call_id,
+                missing_headers=["ed25519 failed; TELNYX_SKIP_VERIFY=true accepted"],
+            )
+            return VerificationResult(verified=True, strategy="skip_verification")
+
         _log_verification(
             "invalid_signature",
             "ed25519",

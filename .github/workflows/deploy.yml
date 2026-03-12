@@ -33,7 +33,12 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             git pull origin main || { echo 'Git pull failed'; exit 1; }
-            echo 'Latest commit: $(git rev-parse HEAD)'
+            echo 'Latest commit: \$(git rev-parse HEAD)'
+            # Skip nginx sync and infra validation until passwordless sudo is set up.
+            # Run on VPS: sudo bash deploy/scripts/setup-passwordless-sudo.sh
+            # Then remove the two lines below.
+            export SKIP_NGINX_SYNC=1
+            export SKIP_VALIDATE_INFRA=1
             ./deploy/scripts/deploy.sh || { echo 'Deploy failed'; exit 1; }
             echo '=== Deployment completed ==='
           "

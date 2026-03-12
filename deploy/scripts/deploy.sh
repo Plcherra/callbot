@@ -34,6 +34,9 @@ pm2 delete callbot-voice 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
 
+# Give uvicorn a moment to bind to port 8000
+sleep 3
+
 # Sync nginx config from repo (skip with SKIP_NGINX_SYNC=1 if sudo not configured)
 if [ -z "${SKIP_NGINX_SYNC:-}" ]; then
   echo "=== Syncing nginx config ==="

@@ -54,9 +54,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# Fingerprint to confirm deployed code (search logs for this)
+VOICE_STREAM_VERSION = "v2026-03-stream-fix"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        logger.info("[startup] Voice backend %s", VOICE_STREAM_VERSION)
         settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()

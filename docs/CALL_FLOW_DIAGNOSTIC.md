@@ -228,7 +228,9 @@ Without it, Python uses `TELNYX_WEBHOOK_BASE_URL` for the stream, so the stream 
 
 #### Verify
 
+- Run on VPS: `./deploy/scripts/verify-90046-fix.sh` – checks deployed code, env, and nginx.
 - Check logs: `pm2 logs callbot-voice` → `Stream URL for <id>: wss://...` – that is what Telnyx uses.
+- After a call: look for `[voice/stream] Accepting WebSocket` – if missing, the handler is never reached (old code or routing issue).
 - Ensure the stream host (e.g. `stream.echodesk.us`) is reachable from the internet and routes to nginx → port 8000.
 
 #### All Possible Causes of 403 / 422 / 90046
@@ -239,6 +241,7 @@ Without it, Python uses `TELNYX_WEBHOOK_BASE_URL` for the stream, so the stream 
 | **Nginx http-only (no 443)** | Connection refused to stream URL | Use full SSL config; run `sed "s|{{LANDING_ROOT}}|$PWD/landing/dist|g" deploy/nginx/callbot.conf.template \| sudo tee /etc/nginx/sites-available/callbot` then `sudo nginx -t && sudo systemctl reload nginx` |
 | **stream.echodesk.us missing from nginx** | 403 or connection refused | Add to `server_name` in nginx; sync from template |
 | **Duplicate WebSocket (Telnyx retry)** | "Rejecting duplicate WebSocket" in logs; 403 | Normal; first connection should succeed. If both fail, check for stale entries in `active_by_call_sid` |
+| **Old code (reject before accept)** | 403, no `[voice/stream] Accepting WebSocket` in logs | Pull latest, `pm2 delete callbot-voice && pm2 start ecosystem.config.cjs`. Check for `[startup] Voice backend v2026-03-stream-fix` |
 | **Missing voice API keys** | Pipeline init fails after accept | Set DEEPGRAM_API_KEY, GROK_API_KEY, ELEVENLABS_API_KEY in .env |
 | **Firewall blocks 443** | Connection timeout from outside | `sudo ufw allow 443/tcp && sudo ufw reload` |
 

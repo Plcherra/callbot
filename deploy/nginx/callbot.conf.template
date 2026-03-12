@@ -1,6 +1,11 @@
 # Callbot nginx config template
 # Domain: echodesk.us (stream.echodesk.us for Telnyx media stream - direct to VPS)
 #
+# Ports: BOTH 80 and 443 are required.
+#   - Port 80: Cloudflare Tunnel forwards echodesk.us here (http://127.0.0.1:80)
+#   - Port 443: stream.echodesk.us (DNS-only) connects DIRECT to VPS for wss://
+# Tunnel config: ingress hostname echodesk.us → service http://127.0.0.1:80
+#
 # SSL: cert must include stream.echodesk.us, e.g.:
 #   sudo certbot certonly --webroot -w /var/www/html -d echodesk.us -d www.echodesk.us -d stream.echodesk.us --expand
 #

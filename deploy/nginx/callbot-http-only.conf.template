@@ -1,6 +1,9 @@
 # Callbot nginx - HTTP ONLY (no SSL). Use when cert doesn't exist yet.
 # After getting cert, switch to callbot.conf.template
 #
+# NOTE: stream.echodesk.us requires wss:// (port 443). Without SSL, media stream
+# will fail. Use full config (callbot.conf.template) for voice calls.
+#
 # Install: sudo cp deploy/nginx/callbot-http-only.conf.template /etc/nginx/sites-available/callbot
 
 server {

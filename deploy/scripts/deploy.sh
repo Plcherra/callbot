@@ -1,6 +1,7 @@
 #!/bin/bash
 # Manual deploy script for callbot on Hetzner VPS
-# Run from project root on VPS, or via SSH from deploy workflow
+# Run from project root on VPS: ./deploy/scripts/deploy.sh
+# (Not from backend/ or scripts/ - cd ~/apps/callbot first)
 #
 # Prerequisites: Node, pip3, PM2, nginx installed
 
@@ -31,16 +32,16 @@ fi
 # Build Next.js (npm ci installs deps including tsx for validate:env)
 npm ci
 
+# Backend deps first (validate-env.py needs pydantic_settings from backend/requirements.txt)
+[ -d venv ] || python3 -m venv venv
+./venv/bin/pip install -r backend/requirements.txt
+
 # Validate env vars before build (fail fast)
 echo "=== Validating environment ==="
 npm run validate:env || { echo "ERROR: Next.js env validation failed"; exit 1; }
-python3 scripts/validate-env.py || { echo "ERROR: Backend env validation failed"; exit 1; }
+./venv/bin/python scripts/validate-env.py || { echo "ERROR: Backend env validation failed"; exit 1; }
 npm run validate:env:crosscheck || true
 npm run build
-
-# Backend deps (use venv to avoid PEP 668 externally-managed-environment)
-[ -d venv ] || python3 -m venv venv
-./venv/bin/pip install -r backend/requirements.txt
 
 # PM2
 pm2 delete callbot 2>/dev/null || true
@@ -56,7 +57,3 @@ echo "=== Validating infrastructure ==="
 
 echo "=== Deploy done ==="
 pm2 list
-
-# After ./venv/bin/pip install -r backend/requirements.txt
-echo "=== Verifying backend dependencies in venv ==="
-./venv/bin/python -c "import pytest, fastapi, supabase; print('Key deps OK')" || { echo "ERROR: Missing key backend deps in venv"; exit 1; }

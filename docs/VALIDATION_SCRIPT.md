@@ -4,11 +4,13 @@
 
 ## Usage
 
-Run from project root on the VPS:
+Run from **project root** on the VPS (e.g. `cd ~/apps/callbot` first):
 
 ```bash
 ./deploy/scripts/validate-infra-before-start.sh
 ```
+
+If you see "No such file or directory", ensure you're in the project root (where `deploy/`, `scripts/`, and `package.json` live), not in `backend/` or another subdirectory.
 
 ### Flags
 

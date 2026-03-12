@@ -267,9 +267,12 @@ check_env() {
   fi
   ok "Next.js env vars present"
 
-  if ! python3 scripts/validate-env.py; then
+  PYTHON="${PYTHON:-}"
+  [ -z "$PYTHON" ] && [ -x "$ROOT/venv/bin/python" ] && PYTHON="$ROOT/venv/bin/python"
+  [ -z "$PYTHON" ] && PYTHON="python3"
+  if ! "$PYTHON" scripts/validate-env.py; then
     fail "env_backend" "Backend env validation failed" \
-      "Run: python3 scripts/validate-env.py. Copy deploy/env/.env.example to .env.local and fill values."
+      "Run: ./venv/bin/python scripts/validate-env.py (or python3 after pip install -r backend/requirements.txt). Copy deploy/env/.env.example to .env.local and fill values."
     return 1
   fi
   ok "Backend env vars present"

@@ -4,9 +4,11 @@
  */
 
 import * as admin from "firebase-admin";
+import { getMessaging } from "firebase-admin/messaging";
+import type { MulticastMessage, BatchResponse } from "firebase-admin/messaging";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-function getMessaging(): admin.messaging.Messaging | null {
+function getMessagingOrNull(): ReturnType<typeof getMessaging> | null {
   if (admin.apps.length === 0) {
     const key = process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim();
     if (!key) return null;
@@ -17,7 +19,7 @@ function getMessaging(): admin.messaging.Messaging | null {
       return null;
     }
   }
-  return admin.messaging();
+  return getMessaging();
 }
 
 export type SendCallPushOptions = {
@@ -33,7 +35,7 @@ export async function sendCallPush(
   type: "incoming_call" | "call_ended",
   options?: SendCallPushOptions
 ): Promise<{ sent: number }> {
-  const messaging = getMessaging();
+  const messaging = getMessagingOrNull();
   if (!messaging) return { sent: 0 };
 
   const { data: rows } = await supabase
@@ -58,7 +60,7 @@ export async function sendCallPush(
     caller: options?.caller ?? "",
   };
 
-  const message: admin.messaging.MulticastMessage = {
+  const message: MulticastMessage = {
     tokens,
     notification: { title, body: bodyText },
     data,
@@ -69,6 +71,6 @@ export async function sendCallPush(
     apns: { payload: { aps: { sound: type === "incoming_call" ? "default" : undefined } } },
   };
 
-  const result = await messaging.sendEachForMulticast(message);
+  const result: BatchResponse = await messaging.sendEachForMulticast(message);
   return { sent: result.successCount };
 }

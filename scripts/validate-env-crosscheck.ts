@@ -37,7 +37,7 @@ function loadEnv(): Record<string, string> {
       env[key] = val;
     }
   }
-  return { ...env, ...process.env };
+  return { ...env, ...process.env } as Record<string, string>;
 }
 
 const env = loadEnv();

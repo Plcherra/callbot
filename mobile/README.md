@@ -30,7 +30,7 @@ flutter run -d macos \
 
 Production and release builds **must** pass these via `--dart-define` (defaults are for local dev only):
 
-- `API_BASE_URL` — Next.js API URL (e.g. `https://your-app.com`)
+- `API_BASE_URL` — Backend API URL (e.g. `https://echodesk.us`)
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_ANON_KEY` — Supabase anon/public key
 

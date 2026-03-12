@@ -2,13 +2,13 @@
 
 ## "When I call nothing happens"
 
-**Calls are handled by the Python FastAPI backend, not Next.js.** Next.js (PM2 `callbot`) is the dashboard only. You need both running.
+**Calls are handled by the Python FastAPI backend.** Only `callbot-voice` (PM2) runs; no Next.js.
 
 ### 1. Is the Python voice backend running?
 
 The voice pipeline (Telnyx webhook, Deepgram, Grok, ElevenLabs) lives in `backend/`. It must run on port 8000.
 
-**Option A: Use ecosystem.config.cjs (runs both Next.js and voice)**
+**Option A: Use ecosystem.config.cjs (runs callbot-voice)**
 
 ```bash
 cd ~/apps/callbot
@@ -90,57 +90,21 @@ The backend needs its own `.env` (e.g. `backend/.env` or project root) with:
 - `TELNYX_API_KEY`, `TELNYX_WEBHOOK_SECRET`, `TELNYX_WEBHOOK_BASE_URL`
 - `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY`
 - `SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-- `APP_API_BASE_URL` = Next.js URL (e.g. `https://echodesk.us`) for FCM push
-- `INTERNAL_API_KEY` = shared secret with Next.js
+- `APP_URL` = base URL (e.g. `https://echodesk.us`) for redirects, FCM
+- `INTERNAL_API_KEY` = (legacy; backend is self-contained)
 
 ---
 
-## "Failed to find Server Action" errors
+## PM2 and env loading
 
-### 1. Env at build time
-
-`NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` must be set **before** `npm run build`:
-
-**Option A: Use the setup script (recommended)**
-
-```bash
-./deploy/scripts/setup-server-actions-key.sh
-npm run build
-pm2 restart callbot
-```
-
-**Option B: Manual**
-
-```bash
-# Generate key
-openssl rand -base64 32
-
-# Add to .env (in project root, where you run npm run build)
-echo 'NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=<paste_output_above>' >> .env
-npm run build
-```
-
-The deploy script (`deploy/scripts/deploy.sh`) will fail with clear instructions if the key is missing.
-
-### 2. PM2 must load .env
-
-If you use a `.env` file, PM2 does not load it by default. Options:
-
-**Option A: Use ecosystem config**
-
-The project includes `ecosystem.config.cjs` which loads `.env` and `.env.local` and runs both Next.js and the voice backend:
+PM2 must load `.env` and `.env.local`. Use the project's `ecosystem.config.cjs`:
 
 ```bash
 pm2 start ecosystem.config.cjs
 ```
 
-**Option B: dotenv-cli**
+This loads env via dotenv and starts `callbot-voice` (Python backend). No Next.js.
 
-```bash
-npm install -g dotenv-cli
-pm2 start "dotenv -e .env -- npm run start" --name callbot
-```
+### Mobile app cache
 
-### 3. Hard refresh
-
-After redeploying, users with old cached pages may still see the error. Ask them to hard refresh (Ctrl+Shift+R) or clear cache.
+After backend changes, users may need to restart the Flutter app or clear app data to pick up changes.

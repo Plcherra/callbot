@@ -1,10 +1,10 @@
 # Architecture
 
-High-level diagram and explanation of app-first architecture: Flutter + Python backend + minimal Next.js.
+High-level diagram and explanation of mobile-first architecture: Flutter + Python FastAPI backend + static landing.
 
 ## Overview
 
-Callbot/Echodesk is an AI phone receptionist with an **app-first architecture**:
+Callbot/Echodesk is an AI phone receptionist with a **mobile-first architecture**:
 
 ```
 User → Flutter app (primary) or static website (landing, download links)
@@ -14,27 +14,33 @@ Phone call → Telnyx → Python backend (webhook + WebSocket) → Deepgram/Grok
 ## Component Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Nginx (echodesk.us:443)                            │
-│  /api/telnyx/*, /api/voice/* → Python:8000  |  /, /api/stripe,cron,mobile → Next.js:3000 │
-└─────────────────────────────────────────────────────────────────────────────┘
-        │                                                      │
-        ▼                                                      ▼
-┌───────────────────────┐                          ┌───────────────────────┐
-│  Python backend :8000 │                          │  Next.js :3000        │
-│  - /api/telnyx/voice  │◄──── Telnyx ───────────►│  - Landing page       │
-│  - /api/telnyx/cdr    │     webhook + WS        │  - /api/stripe/*      │
-│  - /api/telnyx/outbound│                         │  - /api/cron/*        │
-│  - /api/voice/stream  │                          │  - /api/mobile/*      │
-│  - Quota, FCM push    │                          │  - /api/google/callback│
-│  - Deepgram/Grok/EL   │                          └───────────┬───────────┘
-└───────────┬───────────┘                                      │
-            │                                                   │
-            └──────────────────────┬────────────────────────────┘
-                                   ▼
-                         ┌─────────────────┐
-                         │ Supabase, Stripe│
-                         └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           Nginx (echodesk.us:443)                                 │
+│  /api/* → Python:8000  |  / → static files (landing/dist)                         │
+└─────────────────────────────────────────────────────────────────────────────────┘
+        │                                              │
+        ▼                                              ▼
+┌───────────────────────────────┐          ┌───────────────────────────────┐
+│  Python FastAPI :8000         │          │  Static landing               │
+│  - /api/telnyx/voice          │◄──Telnyx─│  - index.html (Tailwind CDN)  │
+│  - /api/telnyx/cdr            │  webhook │  - App Store / Play Store     │
+│  - /api/telnyx/outbound       │  + WS    │  - Pricing, testimonials      │
+│  - /api/voice/stream          │          └───────────────────────────────┘
+│  - /api/mobile/* (Stripe,     │
+│    OAuth, receptionists, etc.)│
+│  - /api/stripe/webhook        │
+│  - /api/google/callback       │
+│  - /api/cron/*                │
+│  - /api/health, /api/quota-check│
+│  - Quota, FCM push            │
+│  - Deepgram/Grok/ElevenLabs   │
+└───────────────┬───────────────┘
+                │
+                ▼
+      ┌─────────────────────┐
+      │ Supabase, Stripe,   │
+      │ Google OAuth        │
+      └─────────────────────┘
 ```
 
 ## Data Flow
@@ -54,10 +60,17 @@ Phone call → Telnyx → Python backend (webhook + WebSocket) → Deepgram/Grok
 2. Python → Telnyx `create_call` with `webhookUrl: .../api/telnyx/voice`
 3. Telnyx → **Python backend** (same flow as inbound)
 
+### Mobile API
+
+- Flutter calls `API_BASE_URL` (e.g. `https://echodesk.us`) for all `/api/mobile/*` and `/api/telnyx/outbound`
+- Python serves: push-token, sync-session, google-auth-url, checkout, billing-portal, receptionists CRUD, settings
+- Stripe webhook: `POST /api/stripe/webhook` (checkout.session.completed, subscription events)
+- Google OAuth: `GET /api/google/callback` → redirect to `echodesk://google-callback`
+
 ### Critical path
 
-- `/api/telnyx/voice`, `/api/telnyx/cdr`, `/api/telnyx/outbound`, `/api/voice/*` → **Python** (port 8000)
-- `/`, `/api/stripe/*`, `/api/cron/*`, `/api/mobile/*`, `/api/google/*`, `/api/health` → **Next.js** (port 3000)
-- Nginx routes voice/telnyx paths to Python **before** the catch-all `/`
+- `/api/*` (all API routes) → **Python** (port 8000)
+- `/` → **Static** (landing/dist served by nginx)
+- Nginx routes voice/telnyx paths to Python **before** the catch-all `/api/` (use `^~` modifier)
 
 **Troubleshooting:** If incoming calls are not answered, see [CALL_FLOW_DIAGNOSTIC.md](CALL_FLOW_DIAGNOSTIC.md) and run `./deploy/scripts/diagnose-call-flow.sh` on the VPS.

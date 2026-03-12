@@ -15,12 +15,17 @@ NGINX_SITE="/etc/nginx/sites-available/callbot"
 
 echo "=== Syncing nginx config ==="
 
+LANDING_ROOT="$ROOT/landing/dist"
+if [ ! -d "$LANDING_ROOT" ]; then
+  echo "WARNING: $LANDING_ROOT not found. Create landing/dist before deploy."
+fi
+
 if [ -f "$SSL_CERT" ]; then
   echo "SSL cert found: using full config (port 80 redirect + 443)"
-  sudo cp "$FULL_TEMPLATE" "$NGINX_SITE"
+  sed "s|{{LANDING_ROOT}}|$LANDING_ROOT|g" "$FULL_TEMPLATE" | sudo tee "$NGINX_SITE" > /dev/null
 else
   echo "SSL cert not found at $SSL_CERT – using http-only config"
-  sudo cp "$HTTP_TEMPLATE" "$NGINX_SITE"
+  sed "s|{{LANDING_ROOT}}|$LANDING_ROOT|g" "$HTTP_TEMPLATE" | sudo tee "$NGINX_SITE" > /dev/null
 fi
 
 sudo ln -sf "$NGINX_SITE" /etc/nginx/sites-enabled/

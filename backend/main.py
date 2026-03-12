@@ -24,10 +24,15 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import httpx
+import stripe
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import JSONResponse
 
+from api.google_routes import google_callback_get
+from api.mobile_routes import router as mobile_router
+from api.stripe_routes import stripe_webhook_post
 from config import settings
+from quota import check_outbound_quota
 from voice.handler import handle_voice_stream_connection
 from telnyx.voice_webhook import handle_voice_webhook
 from telnyx.cdr_webhook import handle_cdr_webhook
@@ -69,11 +74,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Echodesk Voice Backend", lifespan=lifespan)
+app.include_router(mobile_router)
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    supabase_status = "ok"
+    try:
+        supabase = create_service_role_client()
+        supabase.table("users").select("id").limit(1).execute()
+    except Exception as e:
+        logger.warning("[health] Supabase check failed: %s", e)
+        supabase_status = "error"
+    status = "degraded" if supabase_status == "error" else "ok"
+    code = 503 if status == "degraded" else 200
+    return JSONResponse({"status": status, "supabase": supabase_status}, status_code=code)
+
+
+@app.get("/api/quota-check")
+async def quota_check(request: Request):
+    from api.auth import get_user_from_request
+    user, supabase = get_user_from_request(request)
+    if not user or not supabase:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    result = check_outbound_quota(supabase, user["id"])
+    return result
 
 
 @app.websocket("/api/voice/stream")
@@ -261,37 +287,81 @@ async def voice_calendar(
     return await handle_calendar_request(body)
 
 
+@app.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request):
+    return await stripe_webhook_post(request)
+
+
+@app.get("/api/google/callback")
+async def google_callback(request: Request):
+    return await google_callback_get(request)
+
+
 @app.get("/api/cron/payg-billing")
 async def cron_payg_billing(
     authorization: str = Header(None, alias="Authorization"),
 ):
-    """
-    Proxy to Next.js payg-billing cron. Run on 1st of month.
-    Requires APP_API_BASE_URL and CRON_SECRET in backend .env.
-    """
-    base = (settings.app_api_base_url or "").rstrip("/")
-    secret = settings.cron_secret
-    if not base or not secret:
-        raise HTTPException(
-            status_code=503,
-            detail="Cron not configured: set APP_API_BASE_URL and CRON_SECRET",
-        )
+    """PAYG + overage billing for previous month. Run on 1st of month."""
+    secret = (settings.cron_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
     auth_val = authorization or ""
-    if not auth_val.startswith("Bearer ") or auth_val[7:] != secret:
+    if auth_val != f"Bearer {secret}":
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    url = f"{base}/api/cron/payg-billing"
+    sk = (settings.stripe_secret_key or "").strip()
+    if not sk:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+    stripe.api_key = sk
+
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.get(url, headers={"Authorization": f"Bearer {secret}"})
-        try:
-            body = r.json()
-        except Exception:
-            body = {"raw": r.text[:500]}
-        return {"ok": r.status_code == 200, "status": r.status_code, "body": body}
+        from cron.usage_billing import invoice_overage_for_fixed_plans, invoice_payg_for_previous_month
+        supabase = create_service_role_client()
+        payg_result = invoice_payg_for_previous_month(supabase, stripe)
+        overage_result = invoice_overage_for_fixed_plans(supabase, stripe)
+        return {"ok": True, "payg": payg_result, "overage": overage_result}
     except Exception as e:
-        logger.exception("Cron payg-billing proxy failed")
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.exception("Cron payg-billing failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cron/usage")
+async def cron_usage(
+    authorization: str = Header(None, alias="Authorization"),
+):
+    """Aggregate call_usage into usage_snapshots for current month. Run daily."""
+    secret = (settings.cron_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
+    auth_val = authorization or ""
+    if auth_val != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    # TODO: port aggregateUsageForCurrentMonth from app/lib/usage.ts
+    return {"ok": True, "updated": 0, "errors": 0}
+
+
+@app.get("/api/cron/reset-usage")
+async def cron_reset_usage(
+    authorization: str = Header(None, alias="Authorization"),
+):
+    """Reset used_inbound_minutes and used_outbound_minutes for new period. Run on 1st of month."""
+    secret = (settings.cron_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
+    auth_val = authorization or ""
+    if auth_val != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    from datetime import datetime
+    ts = datetime.utcnow().isoformat() + "Z"
+    supabase = create_service_role_client()
+    supabase.table("user_plans").update({
+        "used_inbound_minutes": 0,
+        "used_outbound_minutes": 0,
+        "period_reset_at": ts,
+        "updated_at": ts,
+    }).execute()
+    return {"ok": True}
 
 
 if __name__ == "__main__":

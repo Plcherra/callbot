@@ -59,10 +59,19 @@ class Settings(BaseSettings):
     # Firebase (for backend FCM push)
     firebase_service_account_key: str = ""
 
-    # Google Calendar
+    # Google Calendar OAuth
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = ""
+    next_public_google_redirect_uri: str = ""  # Alias for NEXT_PUBLIC_GOOGLE_REDIRECT_URI
+
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+
+    # Mobile app
+    mobile_redirect_scheme: str = "echodesk"
+    app_url: str = ""  # NEXT_PUBLIC_APP_URL or APP_URL for redirects
 
     # App
     port: int = 8000
@@ -75,6 +84,9 @@ class Settings(BaseSettings):
                 "APP_API_BASE_URL defaulting to NEXT_PUBLIC_APP_URL (%s)",
                 self.app_api_base_url[:50],
             )
+        # Resolve app_url for redirects
+        if not self.app_url.strip() and self.next_public_app_url.strip():
+            self.app_url = self.next_public_app_url.strip()
 
     def get_supabase_url(self) -> str:
         """Resolved Supabase URL. Prefer NEXT_PUBLIC_SUPABASE_URL, fallback to SUPABASE_URL (deprecated)."""
@@ -87,6 +99,12 @@ class Settings(BaseSettings):
                     "SUPABASE_URL is deprecated; use NEXT_PUBLIC_SUPABASE_URL instead"
                 )
         return url
+
+    def get_google_redirect_uri(self) -> str:
+        return (self.google_redirect_uri or self.next_public_google_redirect_uri or "").strip()
+
+    def get_app_url(self) -> str:
+        return (self.app_url or self.next_public_app_url or "http://localhost:3000").strip().rstrip("/")
 
     def get_telnyx_ws_base(self) -> str:
         base = (

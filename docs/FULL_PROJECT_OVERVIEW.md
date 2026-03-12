@@ -1,6 +1,6 @@
 # Callbot / Echodesk – Full Project Overview
 
-AI phone receptionist: **App-first architecture** – Flutter mobile (primary), Python backend (voice + CDR + outbound), minimal Next.js (landing + API for Stripe, cron, mobile, OAuth). This document is the single entry point for architecture, env vars, deployment, and call flow.
+AI phone receptionist: **Mobile-first architecture** – Flutter app (primary), Python FastAPI backend (voice + mobile API + Stripe + OAuth + cron), static landing page. No Next.js.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ flowchart TB
     subgraph external [External]
         Caller[Caller]
         Telnyx[Telnyx Network]
-        User[Flutter App / Web User]
+        User[Flutter App]
     end
 
     subgraph infra [Infrastructure]
@@ -18,8 +18,8 @@ flowchart TB
     end
 
     subgraph apps [Applications]
-        NextJS[Next.js :3000]
         Python[Python :8000]
+        Static[Static landing]
     end
 
     subgraph services [External Services]
@@ -27,6 +27,8 @@ flowchart TB
         Deepgram[Deepgram STT]
         Grok[Grok LLM]
         ElevenLabs[ElevenLabs TTS]
+        Stripe[Stripe]
+        Google[Google OAuth]
     end
 
     Caller --> Telnyx
@@ -34,28 +36,29 @@ flowchart TB
     CF --> Nginx
     User --> CF
     CF --> Nginx
-    Nginx -->|/api/telnyx/*, /api/voice/*| Python
-    Nginx -->|/, /api/stripe,cron,mobile,google| NextJS
+    Nginx -->|/api/*| Python
+    Nginx -->|/| Static
     Python --> Supabase
     Python --> Deepgram
     Python --> Grok
     Python --> ElevenLabs
+    Python --> Stripe
+    Python --> Google
 ```
 
 ### Components
 
 | Component | Port | Purpose |
 |-----------|------|---------|
-| **callbot** (PM2) | 3000 | Next.js: landing page, `/api/stripe/*`, `/api/cron/*`, `/api/mobile/*`, `/api/google/callback`, `/api/health` |
-| **callbot-voice** (PM2) | 8000 | Python FastAPI: `/api/telnyx/voice`, `/api/telnyx/cdr`, `/api/telnyx/outbound`, `/api/voice/stream`, voice pipeline, quota, FCM push |
-| **Nginx** | 80, 443 | Reverse proxy: telnyx/voice paths → 8000, rest → 3000 |
+| **callbot-voice** (PM2) | 8000 | Python FastAPI: voice webhook, CDR, outbound, `/api/voice/stream`, `/api/mobile/*`, `/api/stripe/webhook`, `/api/google/callback`, `/api/cron/*`, `/api/health`, `/api/quota-check` |
+| **Nginx** | 80, 443 | Reverse proxy: `/api/*` → 8000, `/` → static landing (`landing/dist`) |
 
 ### Critical Routing
 
-- `/api/telnyx/voice`, `/api/telnyx/cdr`, `/api/telnyx/outbound`, `/api/voice/*` → **Python** (8000)
-- `/`, `/api/stripe/*`, `/api/cron/*`, `/api/mobile/*`, `/api/google/*` → **Next.js** (3000)
-- Nginx voice/telnyx locations must be defined **before** the catch-all `/` (use `^~` modifier)
-- If Cloudflare Tunnel is used, it must point at **nginx (:80)**, not Next.js (:3000)
+- All `/api/*` (voice, telnyx, mobile, stripe, google, cron, health) → **Python** (8000)
+- `/` → **Static files** from `landing/dist` (served by nginx)
+- Nginx voice/telnyx locations must be defined **before** the catch-all `/api/` (use `^~` modifier)
+- If Cloudflare Tunnel is used, it must point at **nginx (:80)**, not directly at Python
 
 ---
 
@@ -99,6 +102,16 @@ Single source: `deploy/env/.env.example`. Copy to project root as `.env` or `.en
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | JWT validation for Bearer token (Flutter outbound) |
 | `FIREBASE_SERVICE_ACCOUNT_KEY` | FCM push for incoming/ended calls (JSON string) |
 
+### Required for Mobile API
+
+| Variable | Purpose |
+|----------|---------|
+| `STRIPE_SECRET_KEY` | Stripe Checkout, Billing Portal |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signature verification |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Calendar OAuth |
+| `GOOGLE_REDIRECT_URI` | OAuth callback (e.g. `https://echodesk.us/api/google/callback`) |
+| `APP_URL` | Base URL for redirects (e.g. `https://echodesk.us`) |
+
 ### Optional / Voice
 
 | Variable | Purpose |
@@ -107,11 +120,11 @@ Single source: `deploy/env/.env.example`. Copy to project root as `.env` or `.en
 | `TELNYX_SKIP_VERIFY` | Skip webhook signature verification (Cloudflare strips headers) |
 | `TELNYX_PUBLIC_KEY` / `TELNYX_WEBHOOK_SECRET` | Webhook verification |
 
-### Required for Deploy
+### Cron
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` | Next.js Server Actions (generate: `openssl rand -base64 32`) |
+| `CRON_SECRET` | Bearer token for `/api/cron/*` (payg-billing, reset-usage) |
 
 Full audit: [ENV_AUDIT_REPORT.md](ENV_AUDIT_REPORT.md).
 
@@ -123,24 +136,23 @@ Full audit: [ENV_AUDIT_REPORT.md](ENV_AUDIT_REPORT.md).
 
 1. Checkout code
 2. SSH to VPS → `cd $APP_PATH`, `git pull`, `./deploy/scripts/deploy.sh`
-3. `deploy.sh`: npm ci, venv + pip, validate env, npm build, PM2 restart
+3. `deploy.sh`: venv + pip, validate env, PM2 start callbot-voice, sync nginx
 
 ### Deploy Script Steps
 
-1. Check `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`
-2. `npm ci`
-3. Create venv, `pip install -r backend/requirements.txt`
-4. `npm run validate:env`, `./venv/bin/python scripts/validate-env.py`
-5. `npm run build`
-6. PM2: delete old processes, `pm2 start ecosystem.config.cjs`
-7. `./deploy/scripts/validate-infra-before-start.sh`
+1. Create venv, `pip install -r backend/requirements.txt`
+2. `./venv/bin/python scripts/validate-env.py`
+3. PM2: delete callbot-voice, `pm2 start ecosystem.config.cjs`
+4. `./deploy/scripts/sync-nginx-config.sh`
+5. `./deploy/scripts/validate-infra-before-start.sh`
 
 ### VPS Prerequisites
 
-- Node, pip3, PM2, nginx
+- Python 3, pip3, PM2, nginx
 - `.env` / `.env.local` in project root
-- Nginx voice routing (run `./deploy/scripts/fix-nginx-voice.sh` once)
+- Nginx config synced: `./deploy/scripts/sync-nginx-config.sh`
 - Cloudflare Tunnel (if used): ingress → `http://127.0.0.1:80` (nginx)
+- `landing/dist/` with `index.html` (static landing)
 
 ### Restore Call Flow After Issues
 
@@ -155,13 +167,13 @@ See [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) for a pre-deploy checklist.
 ## Project Structure
 
 ```
-├── app/                 # Next.js app router (dashboard, API routes)
-├── backend/             # Python FastAPI (voice webhook, WebSocket handler, pipeline)
+├── backend/             # Python FastAPI (voice, mobile API, Stripe, OAuth, cron)
+├── landing/             # Static landing page (landing/dist/index.html)
 ├── mobile/              # Flutter app (user-facing)
 ├── deploy/              # Deploy scripts, nginx configs, env template
 ├── scripts/             # validate-env.py, etc.
 ├── docs/                # Documentation
-└── ecosystem.config.cjs # PM2 config (callbot + callbot-voice)
+└── ecosystem.config.cjs # PM2 config (callbot-voice only)
 ```
 
 ---

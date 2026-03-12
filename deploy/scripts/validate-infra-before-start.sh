@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-start infrastructure validation for callbot (Next.js + Python backend).
+# Pre-start infrastructure validation for callbot (Python FastAPI backend + static landing).
 # Run from project root: ./deploy/scripts/validate-infra-before-start.sh
 #
 # Checks: Cloudflare Tunnel, nginx, Telnyx config, env vars, PM2/ports.
@@ -262,13 +262,6 @@ check_telnyx() {
 
 # ========== 4. Environment variables ==========
 check_env() {
-  if ! npm run validate:env; then
-    fail "env_nextjs" "Next.js env validation failed" \
-      "Run: npm run validate:env. Copy deploy/env/.env.example to .env.local and fill values."
-    return 1
-  fi
-  ok "Next.js env vars present"
-
   PYTHON="${PYTHON:-}"
   [ -z "$PYTHON" ] && [ -x "$ROOT/venv/bin/python" ] && PYTHON="$ROOT/venv/bin/python"
   [ -z "$PYTHON" ] && PYTHON="python3"
@@ -278,12 +271,6 @@ check_env() {
     return 1
   fi
   ok "Backend env vars present"
-
-  if ! npm run validate:env:crosscheck; then
-    warn "Env crosscheck reported warnings (see above)"
-  else
-    ok "Env crosscheck passed"
-  fi
   return 0
 }
 
@@ -299,13 +286,11 @@ check_services() {
     return 1
   fi
 
-  for app in callbot callbot-voice; do
-    if ! pm2 list 2>/dev/null | grep -E "$app.*online" &>/dev/null; then
-      fail "pm2_$app" "$app is not online" "Start apps: pm2 start ecosystem.config.cjs"
-      return 1
-    fi
-  done
-  ok "PM2: callbot and callbot-voice are online"
+  if ! pm2 list 2>/dev/null | grep -E "callbot-voice.*online" &>/dev/null; then
+    fail "pm2_callbot_voice" "callbot-voice is not online" "Start: pm2 start ecosystem.config.cjs"
+    return 1
+  fi
+  ok "PM2: callbot-voice is online"
 
   # Port 8000
   if command -v ss &>/dev/null; then
@@ -322,22 +307,6 @@ check_services() {
     fi
   fi
   ok "Port 8000 listening (callbot-voice)"
-
-  # Port 3000
-  if command -v ss &>/dev/null; then
-    if ! ss -tlnp 2>/dev/null | grep -q ':3000 '; then
-      fail "port_3000" "Port 3000 not listening (callbot)" \
-        "pm2 restart callbot"
-      return 1
-    fi
-  else
-    if ! netstat -tlnp 2>/dev/null | grep -q ':3000 '; then
-      fail "port_3000" "Port 3000 not listening (callbot)" \
-        "pm2 restart callbot"
-      return 1
-    fi
-  fi
-  ok "Port 3000 listening (callbot)"
   return 0
 }
 

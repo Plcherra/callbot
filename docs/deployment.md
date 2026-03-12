@@ -6,14 +6,14 @@ How the server is provisioned, what runs where, and how deploy works.
 
 | Service        | Port | Process     | Purpose                          |
 |----------------|------|-------------|----------------------------------|
-| Next.js        | 3000 | PM2 callbot | Landing page, API (Stripe, cron, mobile, Google OAuth) |
-| Python backend | 8000 | PM2 callbot-voice | Voice webhook, CDR, outbound, WebSocket, Deepgram/Grok/ElevenLabs |
+| Python backend | 8000 | PM2 callbot-voice | Voice webhook, CDR, outbound, WebSocket, mobile API, Stripe, Google OAuth, cron |
+| Static landing | -    | Nginx       | Served from `landing/dist`       |
 | Nginx          | 80, 443 | systemd  | Reverse proxy, SSL termination   |
 
 ## Server Provisioning (Hetzner VPS)
 
 - Ubuntu/Debian
-- Nginx, Node.js, Python 3, `python3-venv` (`sudo apt install python3-venv`), PM2
+- Nginx, Python 3, `python3-venv` (`sudo apt install python3-venv`), PM2
 - Domain: echodesk.us → VPS IP
 
 ## Deploy Methods
@@ -25,11 +25,10 @@ On push to `main`, `.github/workflows/deploy.yml`:
 1. SSH to VPS
 2. `cd $APP_PATH`, git pull
 3. Run `./deploy/scripts/deploy.sh` which:
-   - `npm ci`
    - Create venv, `./venv/bin/pip install -r backend/requirements.txt`
-   - `npm run validate:env`, `./venv/bin/python scripts/validate-env.py`
-   - `npm run build`
-   - `pm2 delete callbot callbot-voice`; `pm2 start ecosystem.config.cjs`
+   - `./venv/bin/python scripts/validate-env.py`
+   - `pm2 delete callbot-voice`; `pm2 start ecosystem.config.cjs`
+   - `./deploy/scripts/sync-nginx-config.sh`
    - `./deploy/scripts/validate-infra-before-start.sh`
 
 **Secrets required:** `SSH_PRIVATE_KEY`, `SSH_HOST`, `SSH_USER`, `APP_PATH`
@@ -45,12 +44,17 @@ See [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) for pre-deploy checks.
 
 ### 3. Nginx setup (one-time)
 
+Use the sync script to copy templates and substitute `{{LANDING_ROOT}}`:
+
 ```bash
-sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
-sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
-# Ensure SSL cert exists first (see renew-cert.sh)
-sudo nginx -t && sudo systemctl reload nginx
+./deploy/scripts/sync-nginx-config.sh
 ```
+
+Or manually:
+- Full SSL: copy `deploy/nginx/callbot.conf.template`, substitute `{{LANDING_ROOT}}` with `$ROOT/landing/dist`
+- HTTP only: `deploy/nginx/callbot-http-only.conf.template`
+- Ensure SSL cert exists first for full config (see renew-cert.sh)
+- `sudo nginx -t && sudo systemctl reload nginx`
 
 ## SSL Certificate
 
@@ -62,7 +66,12 @@ sudo nginx -t && sudo systemctl reload nginx
 
 - `.env` and `.env.local` in project root
 - PM2 ecosystem loads them via dotenv before starting apps
-- Both Next.js and Python backend read from project root
+- Python backend reads from project root
+
+## Stripe and Google OAuth
+
+- **Stripe webhook URL:** `https://echodesk.us/api/stripe/webhook` (set in Stripe Dashboard)
+- **Google OAuth redirect URI:** `https://echodesk.us/api/google/callback` (set in Google Cloud Console)
 
 ## Call flow diagnostics
 

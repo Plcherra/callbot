@@ -30,7 +30,7 @@ flowchart TD
 
     subgraph routing [Your Server]
         Nginx[Nginx :443]
-        NextJS[Next.js :3000]
+        Static[Static landing]
         Python[Python :8000]
     end
 
@@ -67,7 +67,7 @@ flowchart TD
 
 **Symptom:** Call rings but never answers. No activity in `pm2 logs callbot-voice`.
 
-**Cause:** Your numbers are on a Voice API Application whose Event Webhook URL points to an **old URL** from before the migration (e.g. Next.js route, different domain, or localhost).
+**Cause:** Your numbers are on a Voice API Application whose Event Webhook URL points to an **old URL** (e.g. different domain or localhost).
 
 **Fix:**
 1. [Telnyx Portal](https://portal.telnyx.com) → **Real-Time Communications** → **Voice** → **Voice API Applications**
@@ -81,13 +81,13 @@ flowchart TD
 
 **Symptom:** Telnyx sends webhooks but gets HTML/404. No Python logs.
 
-**Cause:** Nginx sends `/api/telnyx/voice` to Next.js (port 3000). Next.js has no such route and returns HTML.
+**Cause:** Nginx sends `/api/telnyx/voice` to the wrong target (e.g. static files). Returns HTML instead of JSON.
 
 **Verify:**
 ```bash
 curl -s -X POST https://echodesk.us/api/telnyx/voice -H "Content-Type: application/json" -d '{}' | head -c 200
 ```
-- **Bad:** `<html>`, `<!DOCTYPE` → Nginx routing to Next.js
+- **Bad:** `<html>`, `<!DOCTYPE` → Nginx routing to static/HTML
 - **Good:** `{"success":true}` or similar JSON
 
 **Fix:** Run on VPS:
@@ -176,7 +176,7 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 **Cause:** Telnyx connects to the stream URL (`wss://echodesk.us/api/voice/stream?...`) to send/receive audio. The WebSocket is being rejected. Common causes:
 
-1. **Nginx not routing /api/voice/** – WebSocket goes to Next.js instead of Python. Run `./deploy/scripts/fix-nginx-voice.sh` so `location ^~ /api/voice/` proxies to port 8000.
+1. **Nginx not routing /api/voice/** – WebSocket goes to wrong target. Run `./deploy/scripts/sync-nginx-config.sh` so `location ^~ /api/voice/` proxies to port 8000.
 2. **Cloudflare Tunnel** – Cloudflare Tunnel can block or mishandle WebSocket upgrades. Use a direct connection for the stream:
    - Add a DNS A record for a subdomain (e.g. `stream.echodesk.us`) pointing to your VPS IP.
    - Set `TELNYX_STREAM_BASE_URL=https://stream.echodesk.us` so Telnyx connects directly to your server, bypassing the tunnel.
@@ -189,9 +189,9 @@ Match formats: E.164 (`+1XXXXXXXXXX`), 10-digit, etc. See `backend/utils/phone.p
 
 **Symptom:** `fix-nginx-voice.sh` ran successfully, but `curl https://echodesk.us/api/telnyx/voice` still returns HTML. Localhost test (`curl -sk https://127.0.0.1/api/telnyx/voice -H "Host: echodesk.us"`) returns JSON.
 
-**Cause:** Traffic reaches your server via **Cloudflare Tunnel** (cloudflared) instead of directly to nginx. The tunnel may be configured to forward `echodesk.us` directly to `http://localhost:3000` (Next.js), bypassing nginx.
+**Cause:** Traffic reaches your server via **Cloudflare Tunnel** (cloudflared). The tunnel may be configured to forward `echodesk.us` to the wrong port, bypassing nginx.
 
-**Fix:** Update your Cloudflare Tunnel ingress configuration. Point the tunnel at **nginx** (port 80 or 443), not Next.js:
+**Fix:** Update your Cloudflare Tunnel ingress configuration. Point the tunnel at **nginx** (port 80 or 443):
 
 ```yaml
 # config.yml - tunnel ingress

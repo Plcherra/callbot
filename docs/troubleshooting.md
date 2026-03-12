@@ -21,13 +21,13 @@ It checks Cloudflare Tunnel, nginx, Telnyx config, env vars, and PM2/ports. Use 
 2. **Run diagnostics:** `./deploy/scripts/diagnose-call-flow.sh` (on VPS from project root)
 3. **Full audit:** See [CALL_FLOW_DIAGNOSTIC.md](CALL_FLOW_DIAGNOSTIC.md) for end-to-end flow, failure points, and fixes
 
-Common causes (in order): nginx routes `/api/telnyx/voice` to Next.js (returns HTML); callbot-voice not running; `TELNYX_WEBHOOK_BASE_URL` missing or set to localhost.
+Common causes (in order): nginx routes `/api/telnyx/voice` to wrong target (returns HTML); callbot-voice not running; `TELNYX_WEBHOOK_BASE_URL` missing or set to localhost.
 
 ## Nginx 404 / HTML when hitting /api/telnyx/voice
 
-**Symptom:** `curl -X POST https://echodesk.us/api/telnyx/voice -d '{}'` returns HTML (Next.js 404) instead of JSON.
+**Symptom:** `curl -X POST https://echodesk.us/api/telnyx/voice -d '{}'` returns HTML instead of JSON.
 
-**Cause:** Nginx is not proxying `/api/telnyx/voice` to port 8000; request hits Next.js instead.
+**Cause:** Nginx is not proxying `/api/telnyx/voice` to port 8000.
 
 **Fixes:**
 1. Use `location ^~ /api/telnyx/voice` and `location ^~ /api/voice/` — the `^~` modifier forces highest priority so requests don't fall through to `location /`
@@ -76,7 +76,7 @@ The `backend/start.sh` automatically activates the venv when present. If `python
 
 **Symptom:** PM2 shows only `callbot`; no `callbot-voice`. Port 8000 not listening.
 
-**Cause:** Deploy or manual start only ran Next.js, not the voice backend.
+**Cause:** PM2 callbot-voice is not running.
 
 **Fixes:**
 1. `pm2 start ecosystem.config.cjs` (runs both callbot and callbot-voice)
@@ -88,7 +88,7 @@ The `backend/start.sh` automatically activates the venv when present. If `python
 
 **Symptom:** Dashboard actions fail after deploy.
 
-**Cause:** `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` not set before build, or PM2 not loading env.
+**Cause:** PM2 not loading env from .env/.env.local; or venv/python path incorrect.
 
 **Fixes:**
 1. Generate: `openssl rand -base64 32`

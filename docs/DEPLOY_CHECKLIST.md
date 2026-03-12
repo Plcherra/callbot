@@ -18,6 +18,18 @@ Verify in `.env` or `.env.local` on the VPS:
 
 For mobile API (Stripe, OAuth): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `APP_URL`.
 
+## GitHub Actions Deploy (sudo required)
+
+If deploy fails with `sudo: a password is required`:
+
+1. SSH to VPS
+2. Run once (as root or with sudo):
+   ```bash
+   cd ~/apps/callbot
+   sudo bash deploy/scripts/setup-passwordless-sudo.sh adam
+   ```
+   Replace `adam` with your SSH/deploy username if different.
+
 ## VPS Checks
 
 | Check | Command | Fix |

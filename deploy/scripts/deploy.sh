@@ -34,9 +34,16 @@ pm2 delete callbot-voice 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
 
-# Sync nginx config from repo
-echo "=== Syncing nginx config ==="
-bash ./deploy/scripts/sync-nginx-config.sh
+# Sync nginx config from repo (skip with SKIP_NGINX_SYNC=1 if sudo not configured)
+if [ -z "${SKIP_NGINX_SYNC:-}" ]; then
+  echo "=== Syncing nginx config ==="
+  bash ./deploy/scripts/sync-nginx-config.sh || {
+    echo "WARNING: nginx sync failed (sudo password?). Run: sudo bash deploy/scripts/setup-passwordless-sudo.sh"
+    echo "Or set SKIP_NGINX_SYNC=1 to skip. Deploy continues..."
+  }
+else
+  echo "=== Skipping nginx sync (SKIP_NGINX_SYNC=1) ==="
+fi
 
 # Pre-start infrastructure validation (skip with SKIP_VALIDATE_INFRA=1)
 if [ -z "${SKIP_VALIDATE_INFRA:-}" ]; then

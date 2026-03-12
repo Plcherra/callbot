@@ -58,11 +58,9 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
     receptionist_id = params.get("receptionist_id", "")
     call_sid = params.get("call_sid", "")
 
+    # Duplicate check disabled temporarily - was potentially causing 403.
+    # If duplicate, both run; first to send media wins. Re-enable if needed.
     if call_sid:
-        existing = active_by_call_sid.get(call_sid)
-        if existing and existing.client_state.name == "CONNECTED":
-            await ws.close(code=1000, reason="Duplicate")
-            return
         active_by_call_sid[call_sid] = ws
 
     # Initial silence

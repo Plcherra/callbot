@@ -104,10 +104,15 @@ async def quota_check(request: Request):
 
 @app.websocket("/api/voice/stream")
 async def voice_stream(ws):
-    # Always accept first. Duplicate handling is in the handler (close after accept).
-    # Rejecting before accept() sends 403 and breaks Telnyx.
-    await ws.accept()
-    await handle_voice_stream_connection(ws)
+    # Always accept first; never call close() before accept() (that sends 403).
+    try:
+        logger.info("[voice/stream] Accepting WebSocket for %s", ws.scope.get("query_string", b"")[:80])
+        await ws.accept()
+        logger.info("[voice/stream] WebSocket accepted, entering handler")
+        await handle_voice_stream_connection(ws)
+    except Exception as e:
+        logger.exception("[voice/stream] Error: %s", e)
+        raise
 
 
 @app.post(

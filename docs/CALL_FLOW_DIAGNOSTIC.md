@@ -183,12 +183,12 @@ At least one of `telnyx_phone_number` or `inbound_phone_number` must match the D
 
 **Symptom:** Call answers, then silence. Logs show:
 - `Answered call <id>` ✓
+- `"WebSocket /api/voice/stream..." 403` and `connection rejected (403 Forbidden)`
 - `Stream start failed: "Failed to connect to destination"` (Telnyx code 90046)
-- No `Stream started for <id>` (Telnyx never connected to the WebSocket)
 
-**Cause:** Telnyx connects to the stream URL (`wss://.../api/voice/stream?...`) to send/receive audio. If it cannot reach that URL, you get 90046 and silence. Common causes:
+**Cause:** Telnyx connects to the stream URL (`wss://.../api/voice/stream?...`) to send/receive audio. The **403** means the WebSocket upgrade is being rejected. Common causes:
 
-1. **Using `echodesk.us` through Cloudflare Tunnel** – Webhooks (HTTP POST) work, but WebSocket often fails. Telnyx must connect directly to your server for the stream.
+1. **Using `echodesk.us` through Cloudflare Proxy** – Webhooks (HTTP POST) work, but Cloudflare can reject WebSocket upgrades (403) via WAF, Security Level, or Bot Fight Mode. Telnyx must connect **directly** to your server for the stream (e.g. `stream.echodesk.us` with DNS-only).
 2. **PM2 still using old env** – If you changed `.env` (e.g. removed `TELNYX_STREAM_BASE_URL`), `pm2 restart` does **not** reload env. You must fully restart.
 3. **Nginx not routing /api/voice/** – WebSocket goes to wrong target.
 4. **stream.echodesk.us not set up** – DNS, cert, or nginx missing for the stream subdomain.
@@ -250,6 +250,17 @@ ingress:
 ```
 
 Then restart the tunnel: `sudo systemctl restart cloudflared` (or equivalent).
+
+---
+
+## Common Log Messages (Not Necessarily Errors)
+
+| Log | Meaning |
+|-----|---------|
+| `GET /api/telnyx/voice 405` or `GET /api/telnyx/cdr 405` | Something (health check, bot, browser) sent GET instead of POST. These endpoints only accept POST. **405 = Method Not Allowed.** Harmless. |
+| `Shutting down` / `Application shutdown complete` | Normal when running `pm2 reload` or `pm2 restart`. PM2 tells the process to stop, it shuts down, then PM2 starts a new one. |
+| `TELNYX_ALLOWED_IPS for defense-in-depth` | A **recommendation** when `TELNYX_SKIP_VERIFY=1`. Webhooks are still accepted (200 OK). Optional: set `TELNYX_ALLOWED_IPS` to restrict which IPs can send webhooks. |
+| `FIREBASE_SERVICE_ACCOUNT_KEY not set` | Push notifications for incoming calls are skipped. Calls still work; only the mobile push alert is disabled. |
 
 ---
 

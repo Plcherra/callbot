@@ -566,22 +566,26 @@ class _InstructionsTabState extends State<_InstructionsTab> {
                 : () async {
                     setState(() => _saving = true);
                     try {
-                      await ApiClient.patch(
-                        '/api/mobile/receptionists/${widget.receptionistId}',
-                        body: {
-                          'extra_instructions': _controller.text.trim().isEmpty
-                              ? null
-                              : _controller.text.trim(),
-                        },
-                      );
+                      await Supabase.instance.client
+                          .from('receptionists')
+                          .update({
+                            'extra_instructions': _controller.text.trim().isEmpty
+                                ? null
+                                : _controller.text.trim(),
+                          })
+                          .eq('id', widget.receptionistId);
+                      await _load();
+                      if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('Saved')),
                       );
                     } catch (_) {
+                      if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text(AppStrings.couldNotSaveSettings)),
                       );
                     }
+                    if (!mounted) return;
                     setState(() => _saving = false);
                   },
             child: _saving

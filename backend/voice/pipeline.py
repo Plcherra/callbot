@@ -8,12 +8,23 @@ import httpx
 
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
-from voice.elevenlabs_client import text_to_speech
+from voice.elevenlabs_client import text_to_speech_stream
 from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 20
+SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh"})
+
+
+def _passes_transcript_guard(text: str) -> bool:
+    """Allow transcripts that are long enough or in the short whitelist."""
+    s = (text or "").strip()
+    if len(s) < 2:
+        return False
+    if len(s) == 2 and s.lower() not in SHORT_ALLOWED:
+        return False
+    return True
 
 
 async def generate_and_send_tts(
@@ -30,13 +41,13 @@ async def generate_and_send_tts(
     tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]
 
     try:
-        buffer = await text_to_speech(
+        async for chunk in text_to_speech_stream(
             text=text,
             voice_id=config["elevenlabs_voice_id"],
             api_key=config["elevenlabs_api_key"],
             output_format="ulaw_8000",
-        )
-        await on_audio(buffer)
+        ):
+            await on_audio(chunk)
     except Exception as err:
         is_elevenlabs_http = (
             isinstance(err, httpx.HTTPStatusError)
@@ -78,16 +89,19 @@ async def run_voice_pipeline(
         history.append({"role": "assistant", "content": config["greeting"]})
 
     pending_transcript = ""
+    transcript_buffer: list[str] = []
     is_processing = False
+    task_scheduled = False
     dg_ws: Any = None
     dg_task: Optional[asyncio.Task] = None
     tts_failure_logged: list[bool] = [False]
 
     async def process_user_input() -> None:
-        nonlocal is_processing, pending_transcript
+        nonlocal is_processing, pending_transcript, task_scheduled
+        task_scheduled = False
         user_text = pending_transcript
         pending_transcript = ""
-        if not user_text:
+        if not user_text or not _passes_transcript_guard(user_text):
             return
         is_processing = True
         try:
@@ -137,22 +151,40 @@ async def run_voice_pipeline(
         finally:
             is_processing = False
             if pending_transcript:
+                task_scheduled = True
                 asyncio.create_task(process_user_input())
 
+    def _trigger_process(alts: list) -> None:
+        """Process transcript buffer and schedule LLM if not already busy."""
+        nonlocal pending_transcript, task_scheduled
+        full_transcript = " ".join(transcript_buffer).strip()
+        transcript_buffer.clear()
+        if not full_transcript or not _passes_transcript_guard(full_transcript):
+            return
+        confidence = alts[0].get("confidence") if alts else None
+        if confidence is not None and confidence < 0.35:
+            return
+        pending_transcript = full_transcript
+        if not is_processing and not task_scheduled:
+            task_scheduled = True
+            asyncio.create_task(process_user_input())
+
     async def on_dg_message(msg: dict) -> None:
-        nonlocal pending_transcript
-        channel = msg.get("channel", {})
+        nonlocal pending_transcript, transcript_buffer
+        channel = msg.get("channel")
+        if not isinstance(channel, dict):
+            channel = {}
         alts = channel.get("alternatives") or []
-        if not alts:
-            return
-        transcript = (alts[0].get("transcript") or "").strip()
+        transcript = (alts[0].get("transcript") or "").strip() if alts else ""
         is_final = msg.get("is_final") is True
-        if not transcript:
-            return
-        if is_final:
-            pending_transcript = transcript
-            if not is_processing:
-                asyncio.create_task(process_user_input())
+        speech_final = msg.get("speech_final") is True
+        utterance_end = msg.get("type") == "UtteranceEnd"
+
+        if is_final and transcript:
+            transcript_buffer.append(transcript)
+
+        if speech_final or utterance_end:
+            _trigger_process(alts)
 
     def on_dg_error(err: Exception) -> None:
         logger.error("Deepgram error: %s", err)

@@ -32,6 +32,9 @@ async def create_deepgram_live(
         "channels": "1",
         "punctuate": "true",
         "interim_results": "true",
+        "endpointing": "250",
+        "utterance_end_ms": "1000",
+        "vad_events": "true",
     }
     qs = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{DEEPGRAM_WS}?{qs}"

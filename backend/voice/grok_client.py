@@ -46,8 +46,8 @@ async def chat(
                     {"role": m["role"], "content": m.get("content") or ""}
                     for m in messages
                 ],
-                "max_tokens": 256,
-                "temperature": 0.7,
+                "max_tokens": 120,
+                "temperature": 0.3,
             },
         )
         if resp.status_code == 403:
@@ -106,8 +106,8 @@ async def chat_with_tools(
                     "messages": [_format_message(m) for m in history],
                     "tools": tools,
                     "tool_choice": "auto",
-                    "max_tokens": 512,
-                    "temperature": 0.7,
+                    "max_tokens": 150,
+                    "temperature": 0.3,
                 },
             )
             if resp.status_code == 403:

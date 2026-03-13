@@ -38,11 +38,11 @@ class Settings(BaseSettings):
     telnyx_skip_verify: bool = False  # Skip webhook signature verification
     telnyx_allowed_ips: str = ""  # Optional comma-separated IPs when TELNYX_SKIP_VERIFY; empty = no allowlist
 
-    # Voice AI
+    # Voice AI (ELEVENLABS_VOICE_ID from env, fallback default)
     deepgram_api_key: str = ""
     grok_api_key: str = ""
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    elevenlabs_voice_id: str = "CwhRBWXzGAHq8TQ4Fs17"  # Env: ELEVENLABS_VOICE_ID
 
     # Voice server
     voice_server_api_key: str = ""

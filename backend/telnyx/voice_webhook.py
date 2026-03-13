@@ -17,6 +17,10 @@ from telnyx.webhook import validate_telnyx_webhook
 logger = logging.getLogger(__name__)
 TELNYX_API = "https://api.telnyx.com/v2"
 
+# Pending stream URLs: call_control_id -> stream_url (for call.answered)
+# Streaming is deferred until call.answered to avoid 90034 "Call not answered yet"
+_pending_streams: dict[str, str] = {}
+
 
 async def _send_incoming_call_push(
     user_id: str,
@@ -71,23 +75,67 @@ def _get_receptionist_by_phone(supabase, to_number: str) -> dict | None:
     return None
 
 
+async def _send_streaming_start(call_control_id: str, stream_url: str) -> bool:
+    """Send streaming_start. Returns True on success. Retries on 90034 with backoff."""
+    api_key = settings.telnyx_api_key
+    if not api_key:
+        return False
+    max_retries = 5
+    delay_ms = 300
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for attempt in range(max_retries):
+            resp = await client.post(
+                f"{TELNYX_API}/calls/{call_control_id}/actions/streaming_start",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "stream_url": stream_url,
+                    "stream_bidirectional_mode": "rtp",
+                },
+            )
+            if resp.is_success:
+                logger.info("Stream started for %s", call_control_id)
+                return True
+            try:
+                err_body = resp.json()
+                errors = err_body.get("errors") or []
+                code = (errors[0].get("code") if errors else None) or ""
+                if code == "90034" and attempt < max_retries - 1:
+                    await asyncio.sleep(delay_ms / 1000.0)
+                    delay_ms = min(int(delay_ms * 1.5), 2000)
+                    continue
+            except Exception:
+                pass
+            logger.error("Stream start failed: %s", resp.text)
+            return False
+    return False
+
+
 async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
     """
-    Handle Telnyx call.initiated webhook.
+    Handle Telnyx voice webhooks: call.initiated (answer + defer streaming),
+    call.answered (send streaming_start).
     Returns dict for JSON response.
     """
     event_type = (body.get("data") or {}).get("event_type") or body.get("event_type")
-    if event_type != "call.initiated":
-        return {"success": True}
-
     data = body.get("data") or {}
     payload = data.get("payload") or data
     call_control_id = payload.get("call_control_id") or data.get("call_control_id")
+
+    # call.answered: send streaming_start (deferred from call.initiated)
+    if event_type == "call.answered" and call_control_id:
+        stream_url = _pending_streams.pop(call_control_id, None)
+        if stream_url:
+            await _send_streaming_start(call_control_id, stream_url)
+        return {"success": True}
+
+    if event_type != "call.initiated" or not call_control_id:
+        return {"success": True}
+
     to_number = payload.get("to") or ""
     from_number = payload.get("from") or ""
-
-    if not call_control_id:
-        return {"success": True}
 
     supabase = create_service_role_client()
     receptionist = _get_receptionist_by_phone(supabase, to_number)
@@ -151,7 +199,6 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
     logger.info("Stream URL for %s: %s", call_control_id, stream_url)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # Answer
         answer_resp = await client.post(
             f"{TELNYX_API}/calls/{call_control_id}/actions/answer",
             headers={
@@ -162,24 +209,8 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
         )
         if answer_resp.is_success:
             logger.info("Answered call %s", call_control_id)
+            _pending_streams[call_control_id] = stream_url
         else:
             logger.error("Answer failed: %s", answer_resp.text)
-
-        # Start streaming
-        stream_resp = await client.post(
-            f"{TELNYX_API}/calls/{call_control_id}/actions/streaming_start",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "stream_url": stream_url,
-                "stream_bidirectional_mode": "rtp",
-            },
-        )
-        if stream_resp.is_success:
-            logger.info("Stream started for %s", call_control_id)
-        else:
-            logger.error("Stream start failed: %s", stream_resp.text)
 
     return {"success": True}

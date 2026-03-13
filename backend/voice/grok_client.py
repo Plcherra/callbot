@@ -1,6 +1,7 @@
 """Grok (xAI) API client via httpx."""
 
 import json
+import logging
 from typing import Any, Callable, Awaitable
 
 import httpx
@@ -9,13 +10,29 @@ GROK_API = "https://api.x.ai/v1"
 
 MAX_TOOL_ROUNDS = 5
 
+logger = logging.getLogger(__name__)
+
+GROK_FALLBACK_REPLY = "I'm having trouble connecting right now. Please try again in a moment."
+
+
+def _log_grok_request(model: str, api_key: str, endpoint: str = "chat/completions") -> None:
+    """Fail-fast logging for Grok/xAI requests."""
+    logger.info(
+        "[Grok] base_url=%s endpoint=%s model=%s api_key_present=%s",
+        GROK_API,
+        endpoint,
+        model,
+        bool(api_key and api_key.strip()),
+    )
+
 
 async def chat(
     messages: list[dict[str, Any]],
     api_key: str,
     model: str = "grok-3-mini",
 ) -> str:
-    """Chat completion with Grok (no tools)."""
+    """Chat completion with Grok (no tools). Returns fallback string on 403."""
+    _log_grok_request(model, api_key)
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"{GROK_API}/chat/completions",
@@ -33,6 +50,11 @@ async def chat(
                 "temperature": 0.7,
             },
         )
+        if resp.status_code == 403:
+            logger.warning(
+                "[Grok] 403 Forbidden - check xAI credits/billing. Using fallback reply."
+            )
+            return GROK_FALLBACK_REPLY
         resp.raise_for_status()
         data = resp.json()
         content = (
@@ -68,7 +90,8 @@ async def chat_with_tools(
     api_key: str,
     model: str = "grok-3-mini",
 ) -> str:
-    """Chat with function calling. Executes tools and loops until final text."""
+    """Chat with function calling. Executes tools and loops until final text. Returns fallback on 403."""
+    _log_grok_request(model, api_key, "chat/completions (tools)")
     history = list(messages)
     async with httpx.AsyncClient(timeout=60.0) as client:
         for _ in range(MAX_TOOL_ROUNDS):
@@ -87,6 +110,11 @@ async def chat_with_tools(
                     "temperature": 0.7,
                 },
             )
+            if resp.status_code == 403:
+                logger.warning(
+                    "[Grok] 403 Forbidden - check xAI credits/billing. Using fallback reply."
+                )
+                return GROK_FALLBACK_REPLY
             resp.raise_for_status()
             data = resp.json()
             msg = data.get("choices", [{}])[0].get("message")

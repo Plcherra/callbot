@@ -1,8 +1,12 @@
 """ElevenLabs TTS via httpx."""
 
+import logging
+
 import httpx
 
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
+
+logger = logging.getLogger(__name__)
 
 
 async def text_to_speech(
@@ -14,6 +18,15 @@ async def text_to_speech(
 ) -> bytes:
     """Convert text to speech, return audio bytes (mulaw 8kHz for telephony)."""
     url = f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format={output_format}"
+
+    logger.info(
+        "[ElevenLabs TTS] voice_id=%s model_id=%s endpoint=%s output_format=%s api_key_present=%s",
+        voice_id,
+        model_id,
+        url,
+        output_format,
+        bool(api_key and api_key.strip()),
+    )
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             url,

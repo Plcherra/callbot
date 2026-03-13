@@ -4,6 +4,8 @@ import asyncio
 import logging
 from typing import Any, Callable, Awaitable, Optional
 
+import httpx
+
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
 from voice.elevenlabs_client import text_to_speech
@@ -20,10 +22,13 @@ async def generate_and_send_tts(
     on_audio: Callable[[bytes], Awaitable[None]],
     on_error: Optional[Callable[[Exception], None]] = None,
     is_fallback: bool = False,
+    _tts_failure_logged: Optional[list[bool]] = None,
 ) -> None:
-    """Generate TTS and send via callback."""
+    """Generate TTS and send via callback. Avoids retry spam on ElevenLabs HTTP errors."""
     if not text or not text.strip():
         return
+    tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]
+
     try:
         buffer = await text_to_speech(
             text=text,
@@ -33,15 +38,26 @@ async def generate_and_send_tts(
         )
         await on_audio(buffer)
     except Exception as err:
-        if on_error:
+        is_elevenlabs_http = (
+            isinstance(err, httpx.HTTPStatusError)
+            and "elevenlabs" in (str(err.request.url) if getattr(err, "request", None) else "")
+        )
+        if is_elevenlabs_http and not tts_logged[0]:
+            tts_logged[0] = True
+            logger.error(
+                "[voice/stream] ElevenLabs TTS failed (404/401 etc): %s. Skipping retries.",
+                err,
+            )
+        elif on_error and not is_elevenlabs_http:
             on_error(err)
-        if not is_fallback:
+        if not is_fallback and not is_elevenlabs_http:
             await generate_and_send_tts(
                 "I'm sorry, I'm having trouble. Please try again.",
                 config,
                 on_audio,
                 on_error,
                 is_fallback=True,
+                _tts_failure_logged=tts_logged,
             )
 
 
@@ -65,6 +81,7 @@ async def run_voice_pipeline(
     is_processing = False
     dg_ws: Any = None
     dg_task: Optional[asyncio.Task] = None
+    tts_failure_logged: list[bool] = [False]
 
     async def process_user_input() -> None:
         nonlocal is_processing, pending_transcript
@@ -103,7 +120,10 @@ async def run_voice_pipeline(
                 response = await chat(history, config["grok_api_key"])
 
             history.append({"role": "assistant", "content": response})
-            await generate_and_send_tts(response, config, on_audio, on_error)
+            await generate_and_send_tts(
+                response, config, on_audio, on_error,
+                _tts_failure_logged=tts_failure_logged,
+            )
         except Exception as err:
             if on_error:
                 on_error(err)
@@ -112,6 +132,7 @@ async def run_voice_pipeline(
                 config,
                 on_audio,
                 on_error,
+                _tts_failure_logged=tts_failure_logged,
             )
         finally:
             is_processing = False
@@ -149,7 +170,10 @@ async def run_voice_pipeline(
     # Send greeting TTS on connect
     if config.get("greeting"):
         asyncio.create_task(
-            generate_and_send_tts(config["greeting"], config, on_audio, on_error)
+            generate_and_send_tts(
+                config["greeting"], config, on_audio, on_error,
+                _tts_failure_logged=tts_failure_logged,
+            )
         )
 
     def send_audio(chunk: bytes) -> None:

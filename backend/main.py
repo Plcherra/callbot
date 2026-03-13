@@ -72,6 +72,13 @@ class WebSocketDebugMiddleware:
         await self.app(scope, receive, send)
 
 
+def _mask_voice_id(voice_id: str) -> str:
+    """Mask voice ID for logging: first 6 + ... + last 4."""
+    if not voice_id or len(voice_id) <= 14:
+        return voice_id[:4] + "***" if voice_id else "(empty)"
+    return f"{voice_id[:6]}...{voice_id[-4:]}"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -79,6 +86,12 @@ async def lifespan(app: FastAPI):
         settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()
+        logger.info(
+            "[startup] Voice config: ELEVENLABS_API_KEY=%s ELEVENLABS_VOICE_ID=%s GROK_API_KEY=%s",
+            "set" if (settings.elevenlabs_api_key or "").strip() else "not set",
+            _mask_voice_id(settings.elevenlabs_voice_id or ""),
+            "set" if (settings.grok_api_key or "").strip() else "not set",
+        )
         if settings.telnyx_skip_verify:
             logger.warning(
                 "SECURITY: TELNYX_SKIP_VERIFY is enabled. Webhook signature verification is DISABLED. "

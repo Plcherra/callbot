@@ -39,7 +39,7 @@ async def create_deepgram_live(
 
     ws = await websockets.connect(
         url,
-        extra_headers=headers,
+        additional_headers=headers,
         ping_interval=None,
         ping_timeout=None,
         close_timeout=5,

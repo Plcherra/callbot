@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -5,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
 import '../../models/user_profile.dart';
+import '../../services/api_client.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +24,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _totalUsageMinutes = 0;
   int? _includedMinutes;
   int _overageMinutes = 0;
+  int _totalCalls = 0;
+  double _totalCallMinutes = 0.0;
+  List<Map<String, dynamic>> _recentCalls = [];
   int? _remainingMinutes;
   bool _isPayg = false;
   bool _loading = true;
@@ -95,7 +101,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .eq('user_id', user.id)
             .eq('period_start', periodStart);
 
-        final rows = usageRes is List ? usageRes : (usageRes as dynamic).data as List? ?? [];
+        final rows = usageRes is List ? usageRes : ((usageRes as dynamic).data as List?) ?? [];
         int totalSeconds = 0;
         for (final r in rows) {
           final row = r as Map<String, dynamic>;
@@ -108,8 +114,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
 
+      int totalCalls = 0;
+      double totalCallMinutes = 0.0;
+      List<Map<String, dynamic>> recentCalls = [];
+      try {
+        final summaryRes = await ApiClient.get('/api/mobile/dashboard-summary');
+        if (summaryRes.statusCode >= 200 && summaryRes.statusCode < 300 && summaryRes.body.isNotEmpty) {
+          final decoded = jsonDecode(summaryRes.body) as Map<String, dynamic>?;
+          totalCalls = decoded?['total_calls'] as int? ?? 0;
+          totalCallMinutes = (decoded?['total_minutes'] as num?)?.toDouble() ?? 0.0;
+          recentCalls = List<Map<String, dynamic>>.from((decoded?['recent_calls'] as List?) ?? []);
+        }
+      } catch (_) {}
+
       setState(() {
-        _profile = profileRes as Map<String, dynamic>? ?? {};
+        _profile = Map<String, dynamic>.from(profileRes ?? {});
         _receptionists = recs.take(6).toList();
         _totalReceptionists = total;
         _activeReceptionists = active;
@@ -118,6 +137,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _overageMinutes = overage;
         _remainingMinutes = remaining;
         _isPayg = isPayg;
+        _totalCalls = totalCalls;
+        _totalCallMinutes = totalCallMinutes;
+        _recentCalls = recentCalls;
         _loading = false;
       });
       if (!_loading && _error == null) {
@@ -251,6 +273,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ] else ...[
               _buildStatsGrid(profile),
               const SizedBox(height: 24),
+              if (_recentCalls.isNotEmpty) ...[
+                _buildRecentCalls(context),
+                const SizedBox(height: 24),
+              ],
               _buildRecentReceptionists(context),
             ],
           ],
@@ -333,6 +359,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           runSpacing: 12,
           children: [
             _StatCard(
+              label: 'Total Calls',
+              value: '$_totalCalls',
+            ),
+            _StatCard(
+              label: 'Total Minutes',
+              value: _totalCallMinutes.toStringAsFixed(1),
+            ),
+            _StatCard(
               label: 'Total Receptionists',
               value: '$_totalReceptionists',
             ),
@@ -367,6 +401,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
+      ],
+    );
+  }
+
+  Widget _buildRecentCalls(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recent Calls',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 12),
+        ..._recentCalls.take(5).map((call) {
+          final start = call['started_at'] != null
+              ? DateTime.tryParse(call['started_at'] as String)
+              : null;
+          final dur = call['duration_seconds'] as int?;
+          return Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              title: Text(
+                call['from_number'] as String? ?? call['to_number'] as String? ?? 'Unknown',
+              ),
+              subtitle: Text(
+                [
+                  if (start != null) start.toIso8601String().substring(0, 16),
+                  if (dur != null) '${dur}s',
+                ].join(' · '),
+              ),
+              trailing: const Icon(Icons.phone),
+            ),
+          );
+        }),
       ],
     );
   }

@@ -313,6 +313,10 @@ async def create_receptionist(request: Request):
 
     staff_list = body.get("staff") or []
     extra_instructions = (body.get("extra_instructions") or "").strip() or None
+    system_prompt = (body.get("system_prompt") or "").strip() or None
+    greeting = (body.get("greeting") or "").strip() or None
+    voice_id = (body.get("voice_id") or "").strip() or None
+    assistant_identity = (body.get("assistant_identity") or "").strip() or None
     promotions = (body.get("promotions") or body.get("promos") or "").strip()
 
     insert_data = {
@@ -325,6 +329,10 @@ async def create_receptionist(request: Request):
         "calendar_id": calendar_id,
         "status": "active",
         "extra_instructions": extra_instructions,
+        "system_prompt": system_prompt,
+        "greeting": greeting,
+        "voice_id": voice_id,
+        "assistant_identity": assistant_identity,
     }
     try:
         row = supabase.table("receptionists").insert(insert_data).select("id").execute()
@@ -377,7 +385,8 @@ async def get_receptionist(request: Request, receptionist_id: str):
 
     r = supabase.table("receptionists").select(
         "id, name, phone_number, inbound_phone_number, calendar_id, status, "
-        "website_url, extra_instructions, payment_settings, created_at"
+        "website_url, extra_instructions, payment_settings, created_at, "
+        "system_prompt, greeting, voice_id, assistant_identity"
     ).eq("id", receptionist_id).single().execute()
     if not r.data:
         return JSONResponse({"error": "Receptionist not found"}, status_code=404)
@@ -404,6 +413,14 @@ async def update_receptionist(request: Request, receptionist_id: str):
         updates["payment_settings"] = body["payment_settings"]
     if "extra_instructions" in body:
         updates["extra_instructions"] = (body["extra_instructions"] or "").strip() or None
+    if "system_prompt" in body:
+        updates["system_prompt"] = (body["system_prompt"] or "").strip() or None
+    if "greeting" in body:
+        updates["greeting"] = (body["greeting"] or "").strip() or None
+    if "voice_id" in body:
+        updates["voice_id"] = (body["voice_id"] or "").strip() or None
+    if "assistant_identity" in body:
+        updates["assistant_identity"] = (body["assistant_identity"] or "").strip() or None
 
     if len(updates) <= 1:
         return {"ok": True}
@@ -479,6 +496,30 @@ async def receptionist_website(request: Request, receptionist_id: str):
     return {"ok": True}
 
 
+@router.get("/receptionists/{receptionist_id}/call-history")
+async def get_call_history(request: Request, receptionist_id: str):
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_receptionist_ownership(receptionist_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    limit = min(int(request.query_params.get("limit", 50)), 100)
+    offset = max(0, int(request.query_params.get("offset", 0)))
+
+    rows = (
+        supabase.table("call_logs")
+        .select("id, call_control_id, from_number, to_number, direction, status, started_at, answered_at, ended_at, duration_seconds, cost_cents, transcript")
+        .eq("receptionist_id", receptionist_id)
+        .order("started_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    )
+    return {"calls": rows.data or []}
+
+
 @router.get("/receptionists/{receptionist_id}/prompt-preview")
 async def prompt_preview(request: Request, receptionist_id: str):
     user, supabase = _require_auth(request)
@@ -490,12 +531,51 @@ async def prompt_preview(request: Request, receptionist_id: str):
         return JSONResponse({"error": err}, status_code=404)
 
     try:
-        prompt, greeting = _build_from_supabase_sync(receptionist_id, supabase)
+        prompt, greeting, _ = _build_from_supabase_sync(receptionist_id, supabase)
         compact = request.query_params.get("compact", "").lower() == "true"
-        return {"prompt": prompt, "charCount": len(prompt)}
+        return {"prompt": prompt, "greeting": greeting, "charCount": len(prompt)}
     except Exception as e:
         logger.exception("[prompt-preview] %s", e)
         return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@router.get("/dashboard-summary")
+async def dashboard_summary(request: Request):
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    recs = supabase.table("receptionists").select("id").eq("user_id", user["id"]).execute()
+    rec_ids = [r["id"] for r in (recs.data or [])]
+    if not rec_ids:
+        return {"total_calls": 0, "total_minutes": 0.0, "recent_calls": []}
+
+    # Aggregate from call_logs (every call counts, even 0 billable minutes)
+    try:
+        rpc = supabase.rpc("get_dashboard_summary", {"p_user_id": user["id"]}).execute()
+        row = (rpc.data or [{}])[0] if isinstance(rpc.data, list) else (rpc.data or {})
+        total_calls = row.get("total_calls") or 0
+        total_seconds = row.get("total_seconds") or 0
+    except Exception as e:
+        logger.warning("[dashboard-summary] RPC failed: %s", e)
+        total_calls = 0
+        total_seconds = 0
+
+    total_minutes = round(total_seconds / 60.0, 2)
+
+    recent = (
+        supabase.table("call_logs")
+        .select("id, call_control_id, receptionist_id, from_number, to_number, direction, status, started_at, ended_at, duration_seconds")
+        .in_("receptionist_id", rec_ids)
+        .order("started_at", desc=True)
+        .limit(10)
+        .execute()
+    )
+    return {
+        "total_calls": total_calls,
+        "total_minutes": total_minutes,
+        "recent_calls": recent.data or [],
+    }
 
 
 # --- Settings ---

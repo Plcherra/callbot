@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -46,11 +47,11 @@ async def _send_incoming_call_push(
         logger.warning("FCM push failed: %s", e)
 
 
-def _get_receptionist_by_phone(supabase, to_number: str) -> dict | None:
-    """Look up active receptionist by called (To) number."""
+def _get_receptionist_by_phone(supabase, our_did: str) -> dict | None:
+    """Look up active receptionist by our DID (to for inbound, from for outbound)."""
     from utils.phone import get_lookup_variants
 
-    variants = get_lookup_variants(to_number)
+    variants = get_lookup_variants(our_did)
     for v in variants:
         res = supabase.table("receptionists").select("id, name, user_id").eq("telnyx_phone_number", v).eq("status", "active").limit(1).execute()
         if res.data and len(res.data) > 0:
@@ -61,7 +62,7 @@ def _get_receptionist_by_phone(supabase, to_number: str) -> dict | None:
 
     # Fallback: fetch all active and match by normalized digits
     res = supabase.table("receptionists").select("id, name, user_id, telnyx_phone_number, inbound_phone_number").eq("status", "active").execute()
-    to_digits = "".join(c for c in (variants[0] if variants else to_number) if c.isdigit())
+    to_digits = "".join(c for c in (variants[0] if variants else our_did) if c.isdigit())
     to_us10 = to_digits[1:] if len(to_digits) == 11 and to_digits.startswith("1") else (to_digits if len(to_digits) == 10 else None)
 
     for r in res.data or []:
@@ -113,22 +114,62 @@ async def _send_streaming_start(call_control_id: str, stream_url: str) -> bool:
     return False
 
 
+def _insert_call_log(
+    supabase,
+    call_control_id: str,
+    receptionist_id: str,
+    user_id: str,
+    from_number: str,
+    to_number: str,
+    direction: str,
+) -> None:
+    """Insert call_logs row on call.initiated."""
+    try:
+        supabase.table("call_logs").insert({
+            "call_control_id": call_control_id,
+            "receptionist_id": receptionist_id,
+            "user_id": user_id,
+            "from_number": from_number or None,
+            "to_number": to_number or None,
+            "direction": direction,
+            "status": "initiated",
+        }).execute()
+        logger.info("call_logs inserted for %s", call_control_id)
+    except Exception as e:
+        logger.warning("call_logs insert failed: %s", e)
+
+
+def _update_call_log(supabase, call_control_id: str, updates: dict) -> None:
+    """Update call_logs row by call_control_id."""
+    try:
+        supabase.table("call_logs").update(updates).eq("call_control_id", call_control_id).execute()
+    except Exception as e:
+        logger.warning("call_logs update failed: %s", e)
+
+
 async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
     """
     Handle Telnyx voice webhooks: call.initiated (answer + defer streaming),
-    call.answered (send streaming_start).
+    call.answered (send streaming_start), streaming.started (update call_logs).
     Returns dict for JSON response.
     """
     event_type = (body.get("data") or {}).get("event_type") or body.get("event_type")
     data = body.get("data") or {}
     payload = data.get("payload") or data
     call_control_id = payload.get("call_control_id") or data.get("call_control_id")
+    supabase = create_service_role_client()
 
-    # call.answered: send streaming_start (deferred from call.initiated)
+    # call.answered: send streaming_start (deferred from call.initiated), update call_logs
     if event_type == "call.answered" and call_control_id:
+        _update_call_log(supabase, call_control_id, {"status": "answered", "answered_at": datetime.now(timezone.utc).isoformat()})
         stream_url = _pending_streams.pop(call_control_id, None)
         if stream_url:
             await _send_streaming_start(call_control_id, stream_url)
+        return {"success": True}
+
+    # streaming.started: update call_logs
+    if event_type == "streaming.started" and call_control_id:
+        _update_call_log(supabase, call_control_id, {"status": "streaming", "streaming_started_at": datetime.now(timezone.utc).isoformat()})
         return {"success": True}
 
     if event_type != "call.initiated" or not call_control_id:
@@ -136,18 +177,24 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
 
     to_number = payload.get("to") or ""
     from_number = payload.get("from") or ""
+    direction_str = (payload.get("direction") or "inbound").lower()
+    direction = "inbound" if "inbound" in direction_str else "outbound"
+    our_did = to_number if direction == "inbound" else from_number
 
-    supabase = create_service_role_client()
-    receptionist = _get_receptionist_by_phone(supabase, to_number)
+    receptionist = _get_receptionist_by_phone(supabase, our_did)
     if not receptionist:
         fallback = supabase.table("receptionists").select("id").eq("status", "active").limit(1).execute()
         if fallback.data and len(fallback.data) > 0:
             receptionist = fallback.data[0]
-            logger.warning("No receptionist for DID %s, using fallback %s", to_number, receptionist.get("id"))
+            logger.warning("No receptionist for DID %s, using fallback %s", our_did, receptionist.get("id"))
 
     receptionist_id = receptionist.get("id", "") if receptionist else ""
     user_id = receptionist.get("user_id") if receptionist else None
     receptionist_name = receptionist.get("name", "Receptionist") if receptionist else "Receptionist"
+
+    # call_logs: insert on call.initiated (every call counts, even short/rejected)
+    if receptionist_id and user_id:
+        _insert_call_log(supabase, call_control_id, receptionist_id, str(user_id), from_number, to_number, direction)
 
     # Check inbound quota for fixed-plan users before answering
     if user_id:
@@ -155,6 +202,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
             result = check_inbound_quota(supabase, user_id)
             if not result.get("allowed"):
                 logger.warning("Inbound quota exceeded for user %s, rejecting call", user_id)
+                _update_call_log(supabase, call_control_id, {"status": "rejected"})
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     await client.post(
                         f"{TELNYX_API}/calls/{call_control_id}/actions/reject",
@@ -177,11 +225,11 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
             )
         )
 
-    # Pre-fetch and cache prompt
+    # Pre-fetch and cache prompt, greeting, voice_id (precedence applied in fetch)
     try:
-        prompt, greeting = _build_from_supabase_sync(receptionist_id, supabase)
-        set_prompt(call_control_id, prompt, greeting)
-        logger.info("Prompt cached for call %s", call_control_id)
+        prompt, greeting, voice_id = _build_from_supabase_sync(receptionist_id, supabase)
+        set_prompt(call_control_id, prompt, greeting, voice_id)
+        logger.info("Prompt cached for call %s (voice_id=%s)", call_control_id, "custom" if voice_id else "env_default")
     except Exception as e:
         logger.warning("Prompt pre-fetch failed: %s", e)
 

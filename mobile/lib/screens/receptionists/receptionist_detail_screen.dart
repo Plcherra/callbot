@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -49,7 +51,8 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
       final recRes = await supabase
           .from('receptionists')
           .select(
-              'id, name, phone_number, inbound_phone_number, calendar_id, status')
+              'id, name, phone_number, inbound_phone_number, calendar_id, status, '
+              'system_prompt, greeting, voice_id, assistant_identity, extra_instructions')
           .eq('id', widget.receptionistId)
           .eq('user_id', user.id)
           .maybeSingle();
@@ -62,18 +65,31 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
         return;
       }
 
-      final historyRes = await supabase
-          .from('call_usage')
-          .select('id, started_at, ended_at, duration_seconds, transcript')
-          .eq('receptionist_id', widget.receptionistId)
-          .order('started_at', ascending: false)
-          .limit(20);
+      List<Map<String, dynamic>> history = [];
+      try {
+        final histRes = await ApiClient.get(
+          '/api/mobile/receptionists/${widget.receptionistId}/call-history?limit=20',
+        );
+        if (histRes.statusCode >= 200 && histRes.statusCode < 300 && histRes.body.isNotEmpty) {
+          final decoded = jsonDecode(histRes.body) as Map<String, dynamic>?;
+          history = List<Map<String, dynamic>>.from((decoded?['calls'] as List?) ?? []);
+        }
+      } catch (_) {
+        // Fallback: try call_usage if call_logs API fails
+        try {
+          final fallback = await supabase
+              .from('call_usage')
+              .select('id, started_at, ended_at, duration_seconds, transcript')
+              .eq('receptionist_id', widget.receptionistId)
+              .order('started_at', ascending: false)
+              .limit(20);
+          history = (fallback as List).cast<Map<String, dynamic>>();
+        } catch (_) {}
+      }
 
       setState(() {
         _receptionist = Receptionist.fromJson(recRes as Map<String, dynamic>);
-        _callHistory = (historyRes as List)
-            .map((e) => e as Map<String, dynamic>)
-            .toList();
+        _callHistory = history;
         _loading = false;
       });
     } catch (e) {
@@ -223,7 +239,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                     _OverviewRow('Your business number', r.displayPhone),
                     if (r.calendarId != null)
                       _OverviewRow('Calendar', r.calendarId!),
-                    _OverviewRow('Voice', 'Connected'),
+                    _OverviewRow('Voice', (r.voiceId != null && r.voiceId!.isNotEmpty) ? 'Custom' : 'Default'),
                   ],
                 ),
               ),

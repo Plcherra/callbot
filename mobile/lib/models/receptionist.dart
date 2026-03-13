@@ -5,6 +5,11 @@ class Receptionist {
   final String? status;
   final String? inboundPhoneNumber;
   final String? calendarId;
+  final String? systemPrompt;
+  final String? greeting;
+  final String? voiceId;
+  final String? assistantIdentity;
+  final String? extraInstructions;
 
   Receptionist({
     required this.id,
@@ -13,6 +18,11 @@ class Receptionist {
     this.status,
     this.inboundPhoneNumber,
     this.calendarId,
+    this.systemPrompt,
+    this.greeting,
+    this.voiceId,
+    this.assistantIdentity,
+    this.extraInstructions,
   });
 
   String get displayPhone => inboundPhoneNumber ?? phoneNumber;
@@ -25,6 +35,11 @@ class Receptionist {
       status: json['status'] as String?,
       inboundPhoneNumber: json['inbound_phone_number'] as String?,
       calendarId: json['calendar_id'] as String?,
+      systemPrompt: json['system_prompt'] as String?,
+      greeting: json['greeting'] as String?,
+      voiceId: json['voice_id'] as String?,
+      assistantIdentity: json['assistant_identity'] as String?,
+      extraInstructions: json['extra_instructions'] as String?,
     );
   }
 }

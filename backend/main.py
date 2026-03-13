@@ -92,6 +92,10 @@ async def lifespan(app: FastAPI):
             _mask_voice_id(settings.elevenlabs_voice_id or ""),
             "set" if (settings.grok_api_key or "").strip() else "not set",
         )
+        logger.info(
+            "[startup] Receptionist config precedence: system_prompt|custom else generated; "
+            "greeting|custom else default; voice_id|receptionist else env_default; assistant_identity|receptionist else name"
+        )
         if settings.telnyx_skip_verify:
             logger.warning(
                 "SECURITY: TELNYX_SKIP_VERIFY is enabled. Webhook signature verification is DISABLED. "

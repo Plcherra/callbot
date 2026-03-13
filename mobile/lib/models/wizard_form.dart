@@ -18,9 +18,13 @@ class WizardFormData {
   String? ownPhone;
   String? providerSid;
   String systemPrompt;
+  String? greeting;
+  String? voiceId;
+  String? assistantIdentity;
   List<StaffItem> staff;
   String? promotions;
   String? businessHours;
+  String? extraInstructions;
   String? voicePersonality;
   String? fallbackBehavior;
   int? maxCallDurationMinutes;
@@ -36,9 +40,13 @@ class WizardFormData {
     this.providerSid,
     this.systemPrompt =
         "You are a friendly, professional receptionist for a [business or personal context, e.g. salon, consulting, personal]. Answer calls politely, book appointments into Google Calendar, confirm details, and be helpful. Never be pushy.",
+    this.greeting,
+    this.voiceId,
+    this.assistantIdentity,
     List<StaffItem>? staff,
     this.promotions,
     this.businessHours,
+    this.extraInstructions,
     this.voicePersonality = 'friendly',
     this.fallbackBehavior = 'voicemail',
     this.maxCallDurationMinutes,
@@ -54,6 +62,9 @@ class WizardFormData {
       'system_prompt': systemPrompt.trim(),
       'staff': staff.where((s) => s.name.trim().isNotEmpty).map((s) => s.toJson()).toList(),
     };
+    if (greeting != null && greeting!.trim().isNotEmpty) body['greeting'] = greeting!.trim();
+    if (voiceId != null && voiceId!.trim().isNotEmpty) body['voice_id'] = voiceId!.trim();
+    if (assistantIdentity != null && assistantIdentity!.trim().isNotEmpty) body['assistant_identity'] = assistantIdentity!.trim();
     if (phoneStrategy == 'new') {
       body['area_code'] = areaCode == 'other' ? '212' : (areaCode ?? '212');
     } else {
@@ -66,6 +77,9 @@ class WizardFormData {
     }
     if (promotions != null && promotions!.trim().isNotEmpty) {
       body['promotions'] = promotions!.trim();
+    }
+    if (extraInstructions != null && extraInstructions!.trim().isNotEmpty) {
+      body['extra_instructions'] = extraInstructions!.trim();
     }
     if (businessHours != null && businessHours!.trim().isNotEmpty) {
       body['business_hours'] = businessHours!.trim();

@@ -297,6 +297,16 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
           onChanged: (v) => _formData.name = v,
         ),
         const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.assistantIdentity,
+          decoration: const InputDecoration(
+            labelText: 'Assistant identity (optional)',
+            hintText: "e.g. Eve — what the AI calls itself in the greeting",
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => _formData.assistantIdentity = v,
+        ),
+        const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _formData.country,
           decoration: const InputDecoration(
@@ -414,6 +424,17 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
           maxLines: 8,
           onChanged: (v) => _formData.systemPrompt = v ?? '',
         ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.greeting,
+          decoration: const InputDecoration(
+            labelText: 'Greeting (optional)',
+            hintText: "e.g. Hello! Thanks for calling. I'm Eve. How can I help you today?",
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 2,
+          onChanged: (v) => _formData.greeting = v,
+        ),
       ],
     );
   }
@@ -493,6 +514,18 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
           ),
           onChanged: (v) => _formData.businessHours = v,
         ),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.extraInstructions,
+          decoration: const InputDecoration(
+            labelText: 'Extra notes for AI',
+            hintText: 'e.g. Opening hours, cancellation policy',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 3,
+          onChanged: (v) => _formData.extraInstructions = v,
+        ),
       ],
     );
   }
@@ -502,6 +535,16 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Advanced settings (optional)'),
+        const SizedBox(height: 16),
+        TextFormField(
+          initialValue: _formData.voiceId,
+          decoration: const InputDecoration(
+            labelText: 'Voice ID (optional)',
+            hintText: 'ElevenLabs voice ID — leave blank for default',
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => _formData.voiceId = v,
+        ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _formData.voicePersonality ?? 'friendly',

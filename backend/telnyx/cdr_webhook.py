@@ -100,9 +100,30 @@ def _parse_event(raw_body: bytes) -> dict | None:
         return None
 
 
+def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_seconds: int) -> None:
+    """Finalize call_logs on call.hangup: status=completed, ended_at, duration_seconds."""
+    try:
+        supabase.table("call_logs").update({
+            "status": "completed",
+            "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else ended_at,
+            "duration_seconds": duration_seconds,
+        }).eq("call_control_id", call_control_id).execute()
+        logger.debug("call_logs finalized for %s", call_control_id)
+    except Exception as e:
+        logger.warning("call_logs finalize failed: %s", e)
+
+
+def _patch_call_log_cost(supabase, call_control_id: str, cost_cents: int) -> None:
+    """Patch call_logs cost_cents on call.cost."""
+    try:
+        supabase.table("call_logs").update({"cost_cents": cost_cents}).eq("call_control_id", call_control_id).execute()
+    except Exception as e:
+        logger.warning("call_logs cost patch failed: %s", e)
+
+
 async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[str, Any]:
     """
-    Handle Telnyx CDR webhook (call.call-ended, call.hangup, call.recording.saved).
+    Handle Telnyx CDR webhook (call.call-ended, call.hangup, call.cost, call.recording.saved).
     Returns dict for JSON response.
     """
     event = _parse_event(raw_body)
@@ -110,7 +131,7 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         return {"received": True}
 
     event_type = event["event_type"]
-    if event_type not in ("call.call-ended", "call.hangup", "call.recording.saved"):
+    if event_type not in ("call.call-ended", "call.hangup", "call.cost", "call.recording.saved"):
         return {"received": True}
 
     data = event.get("data") or {}
@@ -132,8 +153,23 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         return {"received": True}
 
     supabase = create_service_role_client()
+
+    # call.cost: patch cost_cents on call_logs
+    if event_type == "call.cost":
+        cost_cents = payload.get("cost_cents") or payload.get("cost") or 0
+        if call_control_id:
+            _patch_call_log_cost(supabase, call_control_id, int(cost_cents))
+        return {"received": True}
+
     receptionist = _get_receptionist_by_phone(supabase, our_did)
     if not receptionist:
+        # Still finalize call_logs if row exists (e.g. outbound)
+        if call_control_id and event_type in ("call.call-ended", "call.hangup"):
+            duration_ms = payload.get("duration_millis") or 0
+            duration_seconds = max(0, int(duration_ms / 1000))
+            ended_at_str = payload.get("ended_at")
+            ended_at = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00")) if ended_at_str else datetime.now()
+            _finalize_call_log(supabase, call_control_id, ended_at, duration_seconds)
         return {"received": True}
 
     duration_ms = payload.get("duration_millis") or 0
@@ -163,6 +199,10 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
     }
     if receptionist.get("user_id"):
         insert_row["user_id"] = receptionist["user_id"]
+
+    # call_logs: finalize on call.hangup (every call counts, even 0 billable minutes)
+    if call_control_id and event_type in ("call.call-ended", "call.hangup"):
+        _finalize_call_log(supabase, call_control_id, ended_at, duration_seconds)
 
     inserted = True
     try:

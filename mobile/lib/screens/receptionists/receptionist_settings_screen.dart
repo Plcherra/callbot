@@ -509,13 +509,21 @@ class _InstructionsTab extends StatefulWidget {
 }
 
 class _InstructionsTabState extends State<_InstructionsTab> {
-  final _controller = TextEditingController();
+  final _coreInstructionsController = TextEditingController();
+  final _greetingController = TextEditingController();
+  final _voiceIdController = TextEditingController();
+  final _assistantIdentityController = TextEditingController();
+  final _extraNotesController = TextEditingController();
   bool _loading = true;
   bool _saving = false;
 
   @override
   void dispose() {
-    _controller.dispose();
+    _coreInstructionsController.dispose();
+    _greetingController.dispose();
+    _voiceIdController.dispose();
+    _assistantIdentityController.dispose();
+    _extraNotesController.dispose();
     super.dispose();
   }
 
@@ -528,11 +536,43 @@ class _InstructionsTabState extends State<_InstructionsTab> {
   Future<void> _load() async {
     final res = await Supabase.instance.client
         .from('receptionists')
-        .select('extra_instructions')
+        .select('system_prompt, greeting, voice_id, assistant_identity, extra_instructions')
         .eq('id', widget.receptionistId)
         .maybeSingle();
-    _controller.text = res?['extra_instructions'] as String? ?? '';
+    if (res != null) {
+      _coreInstructionsController.text = res['system_prompt'] as String? ?? '';
+      _greetingController.text = res['greeting'] as String? ?? '';
+      _voiceIdController.text = res['voice_id'] as String? ?? '';
+      _assistantIdentityController.text = res['assistant_identity'] as String? ?? '';
+      _extraNotesController.text = res['extra_instructions'] as String? ?? '';
+    }
+    if (!mounted) return;
     setState(() => _loading = false);
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await Supabase.instance.client.from('receptionists').update({
+        'system_prompt': _coreInstructionsController.text.trim().isEmpty ? null : _coreInstructionsController.text.trim(),
+        'greeting': _greetingController.text.trim().isEmpty ? null : _greetingController.text.trim(),
+        'voice_id': _voiceIdController.text.trim().isEmpty ? null : _voiceIdController.text.trim(),
+        'assistant_identity': _assistantIdentityController.text.trim().isEmpty ? null : _assistantIdentityController.text.trim(),
+        'extra_instructions': _extraNotesController.text.trim().isEmpty ? null : _extraNotesController.text.trim(),
+      }).eq('id', widget.receptionistId);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Saved')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(AppStrings.couldNotSaveSettings)),
+      );
+    }
+    if (!mounted) return;
+    setState(() => _saving = false);
   }
 
   @override
@@ -540,64 +580,77 @@ class _InstructionsTabState extends State<_InstructionsTab> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Anything else the assistant should know? e.g. opening hours, cancellation policy.',
+      children: [
+        const Text('Assistant identity — what the AI calls itself in the greeting.'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _assistantIdentityController,
+          decoration: const InputDecoration(
+            labelText: 'Assistant name/identity',
+            hintText: "e.g. Eve, Alex — leave blank to use receptionist name",
+            border: OutlineInputBorder(),
           ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _controller,
-            decoration: const InputDecoration(
-              hintText:
-                  "e.g. We're closed on Sundays. Cancellations must be 24h in advance.",
-              border: OutlineInputBorder(),
-              alignLabelWithHint: true,
-            ),
-            maxLines: 4,
+        ),
+        const SizedBox(height: 16),
+        const Text('Core instructions — main system prompt for the AI.'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _coreInstructionsController,
+          decoration: const InputDecoration(
+            hintText: "Leave blank to use generated prompt from business data",
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
           ),
-          const SizedBox(height: 16),
-          FilledButton(
-            onPressed: _saving
-                ? null
-                : () async {
-                    setState(() => _saving = true);
-                    try {
-                      await Supabase.instance.client
-                          .from('receptionists')
-                          .update({
-                            'extra_instructions': _controller.text.trim().isEmpty
-                                ? null
-                                : _controller.text.trim(),
-                          })
-                          .eq('id', widget.receptionistId);
-                      await _load();
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Saved')),
-                      );
-                    } catch (_) {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text(AppStrings.couldNotSaveSettings)),
-                      );
-                    }
-                    if (!mounted) return;
-                    setState(() => _saving = false);
-                  },
-            child: _saving
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Save'),
+          maxLines: 6,
+        ),
+        const SizedBox(height: 16),
+        const Text('Greeting — first thing the AI says when a call is answered.'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _greetingController,
+          decoration: const InputDecoration(
+            hintText: "e.g. Hello! Thanks for calling. I'm Eve. How can I help you today?",
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
           ),
-        ],
-      ),
+          maxLines: 2,
+        ),
+        const SizedBox(height: 16),
+        const Text('Voice ID — ElevenLabs voice ID (optional).'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _voiceIdController,
+          decoration: const InputDecoration(
+            hintText: "Leave blank for default voice",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const Text('Extra notes — additional instructions appended to the main prompt.'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _extraNotesController,
+          decoration: const InputDecoration(
+            hintText: "e.g. We're closed on Sundays. Cancellations must be 24h in advance.",
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 4,
+        ),
+        const SizedBox(height: 24),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
+        ),
+      ],
     );
   }
 }

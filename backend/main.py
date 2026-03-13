@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import stripe
-from fastapi import FastAPI, Request, Header, HTTPException
+from fastapi import FastAPI, Request, Header, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 
 from api.google_routes import google_callback_get
@@ -121,8 +121,17 @@ async def quota_check(request: Request):
     return result
 
 
+@app.websocket("/ws-test")
+async def ws_test(ws: WebSocket):
+    """Minimal diagnostic route: splits 'all websockets broken' from 'only /api/voice/stream broken'."""
+    logger.info("[ws-test] invoked")
+    await ws.accept()
+    await ws.send_text("ok")
+    await ws.close()
+
+
 @app.websocket("/api/voice/stream")
-async def voice_stream(ws):
+async def voice_stream(ws: WebSocket):
     # Always accept first; never call close() before accept() (that sends 403).
     try:
         logger.info("[voice/stream] Accepting WebSocket for %s", ws.scope.get("query_string", b"")[:80])

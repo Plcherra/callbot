@@ -225,7 +225,8 @@ async def telnyx_voice(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
 
-    result_response = await handle_voice_webhook(body, raw)
+    headers_dict = {k: v for k, v in request.headers.items()}
+    result_response = await handle_voice_webhook(body, raw, headers_dict)
     return JSONResponse(result_response)
 
 

@@ -147,10 +147,11 @@ def _update_call_log(supabase, call_control_id: str, updates: dict) -> None:
         logger.warning("call_logs update failed: %s", e)
 
 
-async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[str, Any]:
+async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: dict[str, str] | None = None) -> dict[str, Any]:
     """
     Handle Telnyx voice webhooks: call.initiated (answer + defer streaming),
-    call.answered (send streaming_start), streaming.started (update call_logs).
+    call.answered (send streaming_start), streaming.started (update call_logs),
+    call.hangup / call.call-ended (forward to CDR for call history).
     Returns dict for JSON response.
     """
     event_type = (body.get("data") or {}).get("event_type") or body.get("event_type")
@@ -158,6 +159,12 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes) -> dict[st
     payload = data.get("payload") or data
     call_control_id = payload.get("call_control_id") or data.get("call_control_id")
     supabase = create_service_role_client()
+
+    # call.hangup / call.call-ended: Telnyx sends these to the same voice webhook URL.
+    # Forward to CDR handler so call_logs get finalized and call history updates.
+    if event_type in ("call.hangup", "call.call-ended"):
+        from telnyx.cdr_webhook import handle_cdr_webhook
+        return await handle_cdr_webhook(raw_body, headers or {})
 
     # call.answered: send streaming_start (deferred from call.initiated), update call_logs
     if event_type == "call.answered" and call_control_id:

@@ -12,10 +12,10 @@ import 'screens/receptionists/receptionist_detail_screen.dart';
 import 'screens/receptionists/receptionist_settings_screen.dart';
 import 'screens/receptionists/create_receptionist_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/settings/edit_business_screen.dart';
 import 'screens/checkout/checkout_screen.dart';
 import 'screens/help/help_screen.dart';
 import 'screens/call/active_call_screen.dart';
-import 'services/call_service.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -89,6 +89,10 @@ GoRouter createAppRouter() {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/business-edit',
+        builder: (context, state) => const EditBusinessScreen(),
       ),
       GoRoute(
         path: '/checkout',

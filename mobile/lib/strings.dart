@@ -15,6 +15,18 @@ class AppStrings {
   // General
   static const somethingWentWrong = "Something went wrong. Please try again.";
   static const couldNotComplete = "Couldn't complete. Please try again.";
+  static const sessionExpired = "Session expired. Please sign in again.";
+  static const couldNotLoadBusiness = "Couldn't load business details. Please try again.";
+
+  // Settings - per-action errors
+  static const billingPortalNoAccount =
+      "No billing account. Complete a subscription first.";
+  static const billingPortalStripeNotConfigured =
+      "Billing is not configured. Please try again later.";
+  static const calendarAuthUrlMissing =
+      "Couldn't get calendar auth URL. Please try again.";
+  static const calendarCannotOpenUrl =
+      "Couldn't open browser for calendar. Please try again.";
 
   // Receptionist
   static const couldNotDeleteReceptionist =

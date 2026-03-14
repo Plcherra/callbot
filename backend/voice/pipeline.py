@@ -14,15 +14,23 @@ from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 20
-SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh"})
+SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh", "yeah", "yes"})
+FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "so"})
+DEBOUNCE_MS = 400
+MIN_CONFIDENCE = 0.35
 
 
 def _passes_transcript_guard(text: str) -> bool:
-    """Allow transcripts that are long enough or in the short whitelist."""
+    """Allow transcripts that are long enough, in whitelist, or substantive. Reject filler-only."""
     s = (text or "").strip()
     if len(s) < 2:
         return False
     if len(s) == 2 and s.lower() not in SHORT_ALLOWED:
+        return False
+    words = s.lower().split()
+    if len(words) == 1 and words[0] in FILLER_WORDS:
+        return False
+    if len(words) <= 2 and all(w in FILLER_WORDS for w in words):
         return False
     return True
 
@@ -81,6 +89,10 @@ async def run_voice_pipeline(
     Run the voice pipeline. Returns (send_audio, stop).
     send_audio(chunk) sends audio to Deepgram.
     stop() closes the pipeline.
+
+    Turn-taking: Grok is only called when a user turn is complete (speech_final or UtteranceEnd).
+    Debounce prevents duplicate triggers from tiny transcript updates.
+    New caller speech cancels any pending or in-flight response.
     """
     history: list[dict[str, Any]] = [
         {"role": "system", "content": config["system_prompt"]},
@@ -88,26 +100,53 @@ async def run_voice_pipeline(
     if config.get("greeting"):
         history.append({"role": "assistant", "content": config["greeting"]})
 
-    pending_transcript = ""
     transcript_buffer: list[str] = []
     is_processing = False
-    task_scheduled = False
+    debounce_task: Optional[asyncio.Task] = None
+    grok_task: Optional[asyncio.Task] = None
+    turn_complete_transcript = ""
+    turn_complete_confidence: Optional[float] = None
     dg_ws: Any = None
     dg_task: Optional[asyncio.Task] = None
     tts_failure_logged: list[bool] = [False]
 
+    def _cancel_pending_response() -> None:
+        """Cancel debounce and in-flight Grok. Call when new caller speech arrives."""
+        nonlocal debounce_task, grok_task
+        if debounce_task and not debounce_task.done():
+            debounce_task.cancel()
+            debounce_task = None
+            logger.debug("[turn] Debounce cancelled (new speech)")
+        if grok_task and not grok_task.done():
+            grok_task.cancel()
+            grok_task = None
+            logger.debug("[turn] Grok task cancelled (new speech)")
+
     async def process_user_input() -> None:
-        nonlocal is_processing, pending_transcript, task_scheduled
-        task_scheduled = False
-        user_text = pending_transcript
-        pending_transcript = ""
+        nonlocal is_processing, grok_task, turn_complete_transcript, turn_complete_confidence
+        user_text = turn_complete_transcript
+        confidence = turn_complete_confidence
+        turn_complete_transcript = ""
+        turn_complete_confidence = None
+
         if not user_text or not _passes_transcript_guard(user_text):
+            logger.debug(
+                "[turn] Trigger rejected: empty/filler transcript=%r guard=%s",
+                user_text[:50] if user_text else "",
+                _passes_transcript_guard(user_text or ""),
+            )
             return
+        if confidence is not None and confidence < MIN_CONFIDENCE:
+            logger.debug("[turn] Trigger rejected: low confidence=%.2f", confidence)
+            return
+
+        logger.info("[turn] Grok task started transcript=%r", user_text[:80])
         is_processing = True
+        grok_task = None
         try:
             history.append({"role": "user", "content": user_text})
             if len(history) > MAX_HISTORY + 2:
-                history[2:2 + len(history) - MAX_HISTORY - 2] = []
+                history[2 : 2 + len(history) - MAX_HISTORY - 2] = []
 
             use_calendar = (
                 config.get("receptionist_id")
@@ -134,10 +173,14 @@ async def run_voice_pipeline(
                 response = await chat(history, config["grok_api_key"])
 
             history.append({"role": "assistant", "content": response})
+            logger.info("[turn] TTS started response_len=%d", len(response))
             await generate_and_send_tts(
                 response, config, on_audio, on_error,
                 _tts_failure_logged=tts_failure_logged,
             )
+        except asyncio.CancelledError:
+            logger.debug("[turn] Grok task cancelled")
+            raise
         except Exception as err:
             if on_error:
                 on_error(err)
@@ -150,27 +193,70 @@ async def run_voice_pipeline(
             )
         finally:
             is_processing = False
-            if pending_transcript:
-                task_scheduled = True
-                asyncio.create_task(process_user_input())
 
-    def _trigger_process(alts: list) -> None:
-        """Process transcript buffer and schedule LLM if not already busy."""
-        nonlocal pending_transcript, task_scheduled
+    def _schedule_trigger(alts: list) -> None:
+        """Schedule Grok after debounce. Only one response per user turn."""
+        nonlocal debounce_task, turn_complete_transcript, turn_complete_confidence
+
+        if debounce_task and not debounce_task.done():
+            debounce_task.cancel()
+            debounce_task = None
+
         full_transcript = " ".join(transcript_buffer).strip()
         transcript_buffer.clear()
-        if not full_transcript or not _passes_transcript_guard(full_transcript):
-            return
         confidence = alts[0].get("confidence") if alts else None
-        if confidence is not None and confidence < 0.35:
+
+        logger.debug(
+            "[turn] Turn end detected transcript=%r interim_buf_len=%d confidence=%s",
+            full_transcript[:50] if full_transcript else "",
+            len(transcript_buffer),
+            confidence,
+        )
+
+        if not full_transcript:
+            logger.debug("[turn] Trigger skipped: empty transcript")
             return
-        pending_transcript = full_transcript
-        if not is_processing and not task_scheduled:
-            task_scheduled = True
-            asyncio.create_task(process_user_input())
+
+        turn_complete_transcript = full_transcript
+        turn_complete_confidence = confidence
+
+        def _on_debounce_fire() -> None:
+            nonlocal debounce_task, grok_task
+            debounce_task = None
+            if not is_processing:
+                logger.debug("[turn] Debounce fired, scheduling process_user_input")
+                grok_task = asyncio.create_task(process_user_input())
+            else:
+                logger.debug("[turn] Debounce fired but already processing, skipping")
+
+        debounce_task = asyncio.create_task(
+            asyncio.sleep(DEBOUNCE_MS / 1000.0)
+        )
+        debounce_task.add_done_callback(
+            lambda t: _on_debounce_fire() if not t.cancelled() else None
+        )
 
     async def on_dg_message(msg: dict) -> None:
-        nonlocal pending_transcript, transcript_buffer
+        nonlocal transcript_buffer
+
+        msg_type = msg.get("type", "Results")
+
+        if msg_type == "UtteranceEnd":
+            last_word_end = msg.get("last_word_end")
+            if last_word_end == -1:
+                logger.debug("[turn] UtteranceEnd ignored (last_word_end=-1, duplicate)")
+                return
+            logger.debug(
+                "[turn] UtteranceEnd received last_word_end=%.2f buffer=%r",
+                last_word_end or 0,
+                transcript_buffer,
+            )
+            alts = []
+            if isinstance(msg.get("channel"), dict):
+                alts = msg["channel"].get("alternatives") or []
+            _schedule_trigger(alts)
+            return
+
         channel = msg.get("channel")
         if not isinstance(channel, dict):
             channel = {}
@@ -178,13 +264,23 @@ async def run_voice_pipeline(
         transcript = (alts[0].get("transcript") or "").strip() if alts else ""
         is_final = msg.get("is_final") is True
         speech_final = msg.get("speech_final") is True
-        utterance_end = msg.get("type") == "UtteranceEnd"
+
+        logger.debug(
+            "[turn] Transcript received is_final=%s speech_final=%s transcript=%r",
+            is_final,
+            speech_final,
+            transcript[:40] if transcript else "",
+        )
+
+        if transcript and not speech_final:
+            _cancel_pending_response()
 
         if is_final and transcript:
             transcript_buffer.append(transcript)
 
-        if speech_final or utterance_end:
-            _trigger_process(alts)
+        if speech_final:
+            logger.debug("[turn] speech_final=True, scheduling trigger")
+            _schedule_trigger(alts)
 
     def on_dg_error(err: Exception) -> None:
         logger.error("Deepgram error: %s", err)
@@ -199,7 +295,6 @@ async def run_voice_pipeline(
         on_error=on_dg_error,
     )
 
-    # Send greeting TTS on connect
     if config.get("greeting"):
         asyncio.create_task(
             generate_and_send_tts(
@@ -216,6 +311,10 @@ async def run_voice_pipeline(
                 pass
 
     def stop() -> None:
+        if debounce_task and not debounce_task.done():
+            debounce_task.cancel()
+        if grok_task and not grok_task.done():
+            grok_task.cancel()
         if dg_task and not dg_task.done():
             dg_task.cancel()
         if dg_ws:

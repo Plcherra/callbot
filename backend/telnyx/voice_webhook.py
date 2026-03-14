@@ -13,6 +13,8 @@ from config import settings
 from prompts.fetch import set_prompt, _build_from_supabase_sync
 from quota import check_inbound_quota
 from supabase_client import create_service_role_client
+from telnyx.payload_utils import extract_call_control_id
+from telnyx.receptionist_lookup import get_receptionist_by_did
 from telnyx.webhook import validate_telnyx_webhook
 
 logger = logging.getLogger(__name__)
@@ -45,35 +47,6 @@ async def _send_incoming_call_push(
             logger.warning("Call push skipped: FIREBASE_SERVICE_ACCOUNT_KEY not set")
     except Exception as e:
         logger.warning("FCM push failed: %s", e)
-
-
-def _get_receptionist_by_phone(supabase, our_did: str) -> dict | None:
-    """Look up active receptionist by our DID (to for inbound, from for outbound)."""
-    from utils.phone import get_lookup_variants
-
-    variants = get_lookup_variants(our_did)
-    for v in variants:
-        res = supabase.table("receptionists").select("id, name, user_id").eq("telnyx_phone_number", v).eq("status", "active").limit(1).execute()
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-        res = supabase.table("receptionists").select("id, name, user_id").eq("inbound_phone_number", v).eq("status", "active").limit(1).execute()
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-
-    # Fallback: fetch all active and match by normalized digits
-    res = supabase.table("receptionists").select("id, name, user_id, telnyx_phone_number, inbound_phone_number").eq("status", "active").execute()
-    to_digits = "".join(c for c in (variants[0] if variants else our_did) if c.isdigit())
-    to_us10 = to_digits[1:] if len(to_digits) == 11 and to_digits.startswith("1") else (to_digits if len(to_digits) == 10 else None)
-
-    for r in res.data or []:
-        tn = (r.get("telnyx_phone_number") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-        ib = (r.get("inbound_phone_number") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-        tn_us10 = tn[1:] if len(tn) == 11 and tn.startswith("1") else (tn if len(tn) == 10 else "")
-        ib_us10 = ib[1:] if len(ib) == 11 and ib.startswith("1") else (ib if len(ib) == 10 else "")
-        match = (tn and (tn == to_digits or (to_us10 and tn_us10 == to_us10))) or (ib and (ib == to_digits or (to_us10 and ib_us10 == to_us10)))
-        if match:
-            return r
-    return None
 
 
 async def _send_streaming_start(call_control_id: str, stream_url: str) -> bool:
@@ -124,32 +97,44 @@ def _insert_call_log(
     direction: str,
 ) -> str | None:
     """Insert call_logs row on call.initiated. Returns inserted row id or None."""
+    insert_payload = {
+        "call_control_id": call_control_id,
+        "receptionist_id": receptionist_id,
+        "user_id": user_id,
+        "from_number": from_number or None,
+        "to_number": to_number or None,
+        "direction": direction,
+        "status": "initiated",
+    }
+    logger.info("[CALL_DIAG] call_logs insert attempt payload call_control_id=%s receptionist_id=%s", call_control_id, receptionist_id)
     try:
-        result = supabase.table("call_logs").insert({
-            "call_control_id": call_control_id,
-            "receptionist_id": receptionist_id,
-            "user_id": user_id,
-            "from_number": from_number or None,
-            "to_number": to_number or None,
-            "direction": direction,
-            "status": "initiated",
-        }).execute()
+        result = supabase.table("call_logs").insert(insert_payload).execute()
         inserted_id = None
+        row_count = 0
         if result.data and len(result.data) > 0:
             inserted_id = result.data[0].get("id")
-        logger.info("[CALL_DIAG] call_logs inserted id=%s for call_control_id=%s", inserted_id, call_control_id)
+            row_count = len(result.data)
+        logger.info(
+            "[CALL_DIAG] call_logs inserted id=%s call_control_id=%s rows_returned=%s",
+            inserted_id, call_control_id, row_count,
+        )
         return inserted_id
     except Exception as e:
-        logger.warning("[CALL_DIAG] call_logs insert failed: %s", e)
+        logger.warning("[CALL_DIAG] call_logs insert failed call_control_id=%s: %s", call_control_id, e)
         return None
 
 
 def _update_call_log(supabase, call_control_id: str, updates: dict) -> None:
     """Update call_logs row by call_control_id."""
     try:
-        supabase.table("call_logs").update(updates).eq("call_control_id", call_control_id).execute()
+        result = supabase.table("call_logs").update(updates).eq("call_control_id", call_control_id).execute()
+        count = len(result.data) if result and result.data else 0
+        if count == 0:
+            logger.warning("[CALL_DIAG] call_logs update matched 0 rows call_control_id=%s", call_control_id)
+        else:
+            logger.info("[CALL_DIAG] call_logs updated call_control_id=%s rows=%s", call_control_id, count)
     except Exception as e:
-        logger.warning("call_logs update failed: %s", e)
+        logger.warning("call_logs update failed call_control_id=%s: %s", call_control_id, e)
 
 
 async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: dict[str, str] | None = None) -> dict[str, Any]:
@@ -162,11 +147,11 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     event_type = (body.get("data") or {}).get("event_type") or body.get("event_type")
     data = body.get("data") or {}
     payload = data.get("payload") or data
-    call_control_id = payload.get("call_control_id") or data.get("call_control_id")
+    call_control_id = extract_call_control_id(data, payload)
     call_session_id = payload.get("call_session_id")
     call_leg_id = payload.get("call_leg_id")
 
-    # [CALL_DIAG] Temporary debug logging for call lifecycle tracing
+    # [CALL_DIAG] Canonical call_control_id (unified with CDR for insert/finalize match)
     logger.info(
         "[CALL_DIAG] voice_webhook received event_type=%s call_control_id=%s call_session_id=%s call_leg_id=%s",
         event_type, call_control_id, call_session_id, call_leg_id,
@@ -203,21 +188,50 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     direction = "inbound" if "inbound" in direction_str else "outbound"
     our_did = to_number if direction == "inbound" else from_number
 
-    receptionist = _get_receptionist_by_phone(supabase, our_did)
-    if not receptionist:
-        fallback = supabase.table("receptionists").select("id").eq("status", "active").limit(1).execute()
+    receptionist = get_receptionist_by_did(supabase, our_did, direction)
+    if not receptionist and settings.telnyx_allow_receptionist_fallback:
+        fallback = supabase.table("receptionists").select("id, name, user_id").eq("status", "active").limit(1).execute()
         if fallback.data and len(fallback.data) > 0:
             receptionist = fallback.data[0]
-            logger.warning("No receptionist for DID %s, using fallback %s", our_did, receptionist.get("id"))
+            logger.warning(
+                "[CALL_DIAG] DANGEROUS FALLBACK: no match for DID %s, using first active receptionist %s (TELNYX_ALLOW_RECEPTIONIST_FALLBACK=1)",
+                our_did, receptionist.get("id"),
+            )
 
     receptionist_id = receptionist.get("id", "") if receptionist else ""
     user_id = receptionist.get("user_id") if receptionist else None
     receptionist_name = receptionist.get("name", "Receptionist") if receptionist else "Receptionist"
 
+    # Inbound call with no matching receptionist: reject (do not answer wrong line)
+    if not receptionist and direction == "inbound":
+        logger.warning(
+            "[CALL_DIAG] Rejecting inbound call: DID %s not matched to any receptionist. "
+            "Ensure telnyx_phone_number or inbound_phone_number matches the assigned DID.",
+            our_did,
+        )
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{TELNYX_API}/calls/{call_control_id}/actions/reject",
+                    headers={
+                        "Authorization": f"Bearer {settings.telnyx_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={},
+                )
+        except Exception as e:
+            logger.warning("Reject call failed: %s", e)
+        return {"success": True}
+
     # call_logs: insert on call.initiated (every call counts, even short/rejected)
     if receptionist_id and user_id:
         inserted_id = _insert_call_log(supabase, call_control_id, receptionist_id, str(user_id), from_number, to_number, direction)
         logger.info("[CALL_DIAG] call.initiated processed call_control_id=%s inserted_call_logs_id=%s", call_control_id, inserted_id)
+    else:
+        logger.warning(
+            "[CALL_DIAG] call_logs insert SKIPPED call_control_id=%s (receptionist_id=%s user_id=%s)",
+            call_control_id, receptionist_id or "(empty)", user_id or "(null)",
+        )
 
     # Check inbound quota for fixed-plan users before answering
     if user_id:

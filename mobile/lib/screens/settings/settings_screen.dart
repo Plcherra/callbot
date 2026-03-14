@@ -41,7 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Business name & address'),
             subtitle: const Text('Update in app or dashboard'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () {},
+            onTap: () => context.push('/settings/business-edit'),
           ),
           const Divider(),
           const Text('Billing'),
@@ -122,8 +122,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           }
         }
       } else {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        final err = data['error'] as String? ?? AppStrings.billingError;
+        final data = (res.body.isNotEmpty
+                ? jsonDecode(res.body) as Map<String, dynamic>?
+                : null) ??
+            {};
+        final apiErr = data['error'] as String?;
+        final err = res.statusCode == 401
+            ? AppStrings.sessionExpired
+            : (apiErr == 'No billing account. Complete a subscription first.'
+                ? AppStrings.billingPortalNoAccount
+                : (apiErr == 'Stripe not configured'
+                    ? AppStrings.billingPortalStripeNotConfigured
+                    : (apiErr ?? AppStrings.billingError)));
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
         }
@@ -148,10 +158,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         queryParams: {'return_to': 'mobile'},
       );
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        final data = (res.body.isNotEmpty
+                ? jsonDecode(res.body) as Map<String, dynamic>?
+                : null) ??
+            {};
         final url = data['url'] as String?;
-        if (url != null && await canLaunchUrl(Uri.parse(url))) {
-          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        if (url == null || url.trim().isEmpty) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                  content: Text(AppStrings.calendarAuthUrlMissing)),
+            );
+          }
+        } else {
+          final uri = Uri.tryParse(url);
+          if (uri == null ||
+              !await canLaunchUrl(uri)) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text(AppStrings.calendarCannotOpenUrl)),
+              );
+            }
+          } else {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                    content: Text('Opening browser to connect Google Calendar...')),
+              );
+            }
+          }
+        }
+      } else {
+        final data = (res.body.isNotEmpty
+                ? jsonDecode(res.body) as Map<String, dynamic>?
+                : null) ??
+            {};
+        final apiErr = data['error'] as String?;
+        final err = res.statusCode == 401
+            ? AppStrings.sessionExpired
+            : (apiErr ?? AppStrings.couldNotConnectCalendar);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(err)),
+          );
         }
       }
     } catch (_) {

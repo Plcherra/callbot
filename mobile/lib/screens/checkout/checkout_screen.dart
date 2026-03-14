@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../services/api_client.dart';
+import '../../strings.dart';
 
 /// Opens Stripe Checkout in WebView. User returns via deep link (echodesk://checkout?session_id=...).
 class CheckoutScreen extends StatefulWidget {
@@ -43,8 +44,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         });
       } else {
         final data = _parseJson(res.body);
+        final apiErr = data['error'] as String?;
         setState(() {
-          _error = data['error'] as String? ?? 'Failed to create checkout';
+          _error = res.statusCode == 401
+              ? AppStrings.sessionExpired
+              : (apiErr ?? 'Failed to create checkout');
           _loading = false;
         });
       }

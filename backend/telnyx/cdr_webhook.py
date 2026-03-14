@@ -13,6 +13,8 @@ from typing import Any
 
 from config import settings
 from supabase_client import create_service_role_client
+from telnyx.payload_utils import extract_call_control_id
+from telnyx.receptionist_lookup import get_receptionist_by_did
 
 logger = logging.getLogger(__name__)
 
@@ -21,47 +23,6 @@ def _round_to_six_second_increments(seconds: float) -> float:
     """Round duration to 6-second billing increments."""
     increments = max(0, int((seconds + 5) // 6))  # ceil(seconds/6)
     return (increments * 6) / 60.0
-
-
-def _get_receptionist_by_phone(supabase, our_did: str) -> dict | None:
-    """Look up active receptionist by DID (to for inbound, from for outbound)."""
-    from utils.phone import get_lookup_variants
-
-    variants = get_lookup_variants(our_did)
-    for v in variants:
-        res = supabase.table("receptionists").select("id, name, user_id").eq(
-            "telnyx_phone_number", v
-        ).eq("status", "active").limit(1).execute()
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-        res = supabase.table("receptionists").select("id, name, user_id").eq(
-            "inbound_phone_number", v
-        ).eq("status", "active").limit(1).execute()
-        if res.data and len(res.data) > 0:
-            return res.data[0]
-
-    # Fallback: fetch all active and match by normalized digits
-    res = supabase.table("receptionists").select(
-        "id, name, user_id, telnyx_phone_number, inbound_phone_number"
-    ).eq("status", "active").execute()
-    to_digits = "".join(c for c in (variants[0] if variants else our_did) if c.isdigit())
-    to_us10 = (
-        to_digits[1:] if len(to_digits) == 11 and to_digits.startswith("1")
-        else (to_digits if len(to_digits) == 10 else None)
-    )
-
-    for r in res.data or []:
-        tn = (r.get("telnyx_phone_number") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-        ib = (r.get("inbound_phone_number") or "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
-        tn_us10 = tn[1:] if len(tn) == 11 and tn.startswith("1") else (tn if len(tn) == 10 else "")
-        ib_us10 = ib[1:] if len(ib) == 11 and ib.startswith("1") else (ib if len(ib) == 10 else "")
-        match = (
-            (tn and (tn == to_digits or (to_us10 and tn_us10 == to_us10)))
-            or (ib and (ib == to_digits or (to_us10 and ib_us10 == to_us10)))
-        )
-        if match:
-            return r
-    return None
 
 
 async def _send_call_ended_push_task(
@@ -119,18 +80,23 @@ def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_second
         row_id = row.get("id") if row else None
         if not row:
             logger.warning(
-                "[CALL_DIAG] call_logs finalize: no row for call_control_id=%s (row not found - insert may have failed or id mismatch)",
+                "[CALL_DIAG] call_logs finalize: no row for call_control_id=%s (insert skipped/failed or id mismatch - check voice webhook logs)",
                 call_control_id,
             )
-        supabase.table("call_logs").update({
+            return None
+        result = supabase.table("call_logs").update({
             "status": "completed",
             "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at),
             "duration_seconds": duration_seconds,
         }).eq("call_control_id", call_control_id).execute()
-        logger.info("[CALL_DIAG] call_logs finalized id=%s call_control_id=%s duration_seconds=%s", row_id, call_control_id, duration_seconds)
+        rows_affected = len(result.data) if result and result.data else 0
+        logger.info(
+            "[CALL_DIAG] call_logs finalized id=%s call_control_id=%s duration_seconds=%s rows_affected=%s",
+            row_id, call_control_id, duration_seconds, rows_affected,
+        )
         return row_id
     except Exception as e:
-        logger.warning("[CALL_DIAG] call_logs finalize failed: %s", e)
+        logger.warning("[CALL_DIAG] call_logs finalize failed call_control_id=%s: %s", call_control_id, e)
         return None
 
 
@@ -160,13 +126,8 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
     data = event.get("data") or {}
     payload = data.get("payload") or data
 
-    # Robust extraction: Telnyx may use different field names in different events
-    call_control_id = (
-        payload.get("call_control_id")
-        or payload.get("call_leg_id")
-        or payload.get("call_session_id")
-        or data.get("call_control_id")
-    )
+    # Canonical extraction (must match voice_webhook for insert/finalize id consistency)
+    call_control_id = extract_call_control_id(data, payload)
     call_session_id = payload.get("call_session_id") or data.get("call_session_id")
     call_leg_id = payload.get("call_leg_id") or data.get("call_leg_id")
 
@@ -267,7 +228,7 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         logger.warning("[CALL_DIAG] CDR no duration source, using 0 (payload_keys=%s)", list(p.keys()) if isinstance(p, dict) else [])
         return 0, ended_at, ended_at
 
-    receptionist = _get_receptionist_by_phone(supabase, our_did)
+    receptionist = get_receptionist_by_did(supabase, our_did, direction)
     if not receptionist:
         # Still finalize call_logs if row exists (e.g. outbound)
         if call_control_id and event_type in ("call.call-ended", "call.hangup"):

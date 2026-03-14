@@ -13,8 +13,8 @@ from config import settings
 from prompts.fetch import set_prompt, _build_from_supabase_sync
 from quota import check_inbound_quota
 from supabase_client import create_service_role_client
-from telnyx.payload_utils import extract_call_control_id
-from telnyx.receptionist_lookup import get_receptionist_by_did
+from telnyx.payload_utils import extract_call_control_id, extract_call_party_numbers
+from telnyx.receptionist_lookup import get_receptionist_by_did_or_match
 from telnyx.webhook import validate_telnyx_webhook
 
 logger = logging.getLogger(__name__)
@@ -182,13 +182,24 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     if event_type != "call.initiated" or not call_control_id:
         return {"success": True}
 
-    to_number = payload.get("to") or ""
-    from_number = payload.get("from") or ""
-    direction_str = (payload.get("direction") or "inbound").lower()
-    direction = "inbound" if "inbound" in direction_str else "outbound"
-    our_did = to_number if direction == "inbound" else from_number
+    parties = extract_call_party_numbers(payload)
+    from_number = parties["from_number"]
+    to_number = parties["to_number"]
+    direction = parties["direction"]
+    our_did = parties["our_did"]
+    caller_number = parties["caller_number"]
+    raw_direction = parties["raw_direction"]
 
-    receptionist = get_receptionist_by_did(supabase, our_did, direction)
+    logger.info(
+        "[CALL_DIAG] call.initiated raw from=%r to=%r raw_direction=%r -> direction=%s our_did=%r caller_number=%r",
+        from_number, to_number, raw_direction, direction, our_did, caller_number,
+    )
+
+    receptionist, our_did, caller_number = get_receptionist_by_did_or_match(
+        supabase, from_number, to_number, direction
+    )
+
+    # Fallback to first active receptionist is disabled by default (masks bad DID config).
     if not receptionist and settings.telnyx_allow_receptionist_fallback:
         fallback = supabase.table("receptionists").select("id, name, user_id").eq("status", "active").limit(1).execute()
         if fallback.data and len(fallback.data) > 0:
@@ -205,9 +216,10 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     # Inbound call with no matching receptionist: reject (do not answer wrong line)
     if not receptionist and direction == "inbound":
         logger.warning(
-            "[CALL_DIAG] Rejecting inbound call: DID %s not matched to any receptionist. "
-            "Ensure telnyx_phone_number or inbound_phone_number matches the assigned DID.",
-            our_did,
+            "[CALL_DIAG] Rejecting inbound call: our_did=%r (business DID) not matched to any receptionist. "
+            "Ensure telnyx_phone_number or inbound_phone_number matches the assigned DID. "
+            "TELNYX_ALLOW_RECEPTIONIST_FALLBACK is %s (keep False for verification).",
+            our_did, "enabled" if settings.telnyx_allow_receptionist_fallback else "disabled",
         )
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -225,8 +237,14 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
 
     # call_logs: insert on call.initiated (every call counts, even short/rejected)
     if receptionist_id and user_id:
-        inserted_id = _insert_call_log(supabase, call_control_id, receptionist_id, str(user_id), from_number, to_number, direction)
-        logger.info("[CALL_DIAG] call.initiated processed call_control_id=%s inserted_call_logs_id=%s", call_control_id, inserted_id)
+        inserted_id = _insert_call_log(
+            supabase, call_control_id, receptionist_id, str(user_id),
+            from_number, to_number, direction,
+        )
+        logger.info(
+            "[CALL_DIAG] call.initiated processed call_control_id=%s call_logs_insert_id=%s direction=%s our_did=%r caller=%r",
+            call_control_id, inserted_id, direction, our_did, caller_number,
+        )
     else:
         logger.warning(
             "[CALL_DIAG] call_logs insert SKIPPED call_control_id=%s (receptionist_id=%s user_id=%s)",
@@ -256,7 +274,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
             _send_incoming_call_push(
                 user_id=user_id,
                 call_control_id=call_control_id,
-                caller=from_number,
+                caller=caller_number,
                 receptionist_id=receptionist_id,
                 receptionist_name=receptionist_name,
             )
@@ -277,7 +295,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
         raise HTTPException(status_code=503, detail="Server misconfiguration")
 
     ws_base = settings.get_telnyx_ws_base()
-    params = f"call_sid={call_control_id}&direction=inbound&caller_phone={from_number}"
+    params = f"call_sid={call_control_id}&direction={direction}&caller_phone={caller_number}"
     if receptionist_id:
         params += f"&receptionist_id={receptionist_id}"
     stream_url = f"{ws_base}/api/voice/stream?{params}"

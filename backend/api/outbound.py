@@ -10,8 +10,8 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
-from supabase import create_client
 
+from api.auth import verify_bearer_token
 from config import settings
 from quota import check_outbound_quota
 from supabase_client import create_service_role_client
@@ -30,27 +30,6 @@ def _to_e164(phone: str) -> str:
     return phone if phone.startswith("+") else f"+{digits}"
 
 
-def _get_user_from_token(token: str) -> dict | None:
-    """Validate Bearer token and return user. Returns None if invalid."""
-    url = settings.get_supabase_url()
-    anon_key = (settings.next_public_supabase_anon_key or "").strip()
-    if not url or not anon_key:
-        logger.warning("Supabase anon key not configured for outbound auth")
-        return None
-    try:
-        client = create_client(url, anon_key, options={
-            "global": {"headers": {"Authorization": f"Bearer {token}"}},
-        })
-        # get_user() uses the Authorization header we set
-        resp = client.auth.get_user()
-        user = getattr(resp, "user", None) if resp else None
-        if user:
-            return {"id": str(getattr(user, "id", "")), "email": getattr(user, "email", None)}
-    except Exception as e:
-        logger.debug("Token validation failed: %s", e)
-    return None
-
-
 def create_outbound_call(
     access_token: str,
     receptionist_id: str,
@@ -60,7 +39,7 @@ def create_outbound_call(
     Initiate outbound call. Raises HTTPException on error.
     Returns {"call_control_id": str, "ok": True}.
     """
-    user = _get_user_from_token(access_token)
+    user = verify_bearer_token(access_token)
     if not user:
         raise HTTPException(status_code=401, detail="Unauthorized")
 

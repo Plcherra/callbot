@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     telnyx_stream_base_url: str = ""  # Optional: different URL for media stream
     telnyx_skip_verify: bool = False  # Skip webhook signature verification
     telnyx_allowed_ips: str = ""  # Optional comma-separated IPs when TELNYX_SKIP_VERIFY; empty = no allowlist
-    telnyx_allow_receptionist_fallback: bool = False  # If True, use first active receptionist when DID unmatched (dangerous; debug only)
+    telnyx_allow_receptionist_fallback: bool = False  # If True, use first active receptionist when DID unmatched (dangerous; keep False for verification so bad DID matches are not masked)
 
     # Voice AI (ELEVENLABS_VOICE_ID from env, fallback default)
     deepgram_api_key: str = ""

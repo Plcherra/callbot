@@ -13,8 +13,8 @@ from typing import Any
 
 from config import settings
 from supabase_client import create_service_role_client
-from telnyx.payload_utils import extract_call_control_id
-from telnyx.receptionist_lookup import get_receptionist_by_did
+from telnyx.payload_utils import extract_call_control_id, extract_call_party_numbers
+from telnyx.receptionist_lookup import get_receptionist_by_did_or_match
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_second
         }).eq("call_control_id", call_control_id).execute()
         rows_affected = len(result.data) if result and result.data else 0
         logger.info(
-            "[CALL_DIAG] call_logs finalized id=%s call_control_id=%s duration_seconds=%s rows_affected=%s",
+            "[CALL_DIAG] call_logs finalized call_logs_finalize_id=%s call_control_id=%s duration_seconds=%s rows_affected=%s",
             row_id, call_control_id, duration_seconds, rows_affected,
         )
         return row_id
@@ -135,18 +135,22 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         "[CALL_DIAG] CDR received event_type=%s call_control_id=%s call_session_id=%s call_leg_id=%s payload_keys=%s",
         event_type, call_control_id, call_session_id, call_leg_id, list(payload.keys()) if isinstance(payload, dict) else [],
     )
-    to_num = payload.get("to") or ""
-    from_num = payload.get("from") or ""
-    direction_str = (payload.get("direction") or "").lower()
-    direction = "inbound" if direction_str.startswith("inbound") else "outbound"
 
-    # Inbound: to = our DID. Outbound: from = our DID.
-    our_did = to_num if direction == "inbound" else from_num
-    if not call_control_id or not our_did:
-        logger.warning(
-            "[CALL_DIAG] CDR: missing call_control_id or our_did - call_control_id=%s our_did=%s from=%s to=%s",
-            call_control_id, our_did, from_num, to_num,
-        )
+    parties = extract_call_party_numbers(payload)
+    from_num = parties["from_number"]
+    to_num = parties["to_number"]
+    direction = parties["direction"]
+    our_did = parties["our_did"]
+    caller_number = parties["caller_number"]
+    raw_direction = parties["raw_direction"]
+
+    logger.info(
+        "[CALL_DIAG] CDR raw from=%r to=%r raw_direction=%r -> direction=%s our_did=%r caller_number=%r",
+        from_num, to_num, raw_direction, direction, our_did, caller_number,
+    )
+
+    if not call_control_id:
+        logger.warning("[CALL_DIAG] CDR: missing call_control_id, skipping")
         return {"received": True}
 
     supabase = create_service_role_client()
@@ -228,7 +232,9 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         logger.warning("[CALL_DIAG] CDR no duration source, using 0 (payload_keys=%s)", list(p.keys()) if isinstance(p, dict) else [])
         return 0, ended_at, ended_at
 
-    receptionist = get_receptionist_by_did(supabase, our_did, direction)
+    receptionist, our_did, caller_number = get_receptionist_by_did_or_match(
+        supabase, from_num, to_num, direction
+    )
     if not receptionist:
         # Still finalize call_logs if row exists (e.g. outbound)
         if call_control_id and event_type in ("call.call-ended", "call.hangup"):

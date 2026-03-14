@@ -57,6 +57,7 @@ class PushService {
 
   Future<void> initialize() async {
     if (_initialized) return;
+    if (!Platform.isAndroid && !Platform.isIOS) return;
 
     try {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -69,6 +70,7 @@ class PushService {
       const initSettings = InitializationSettings(
         android: androidSettings,
         iOS: iosSettings,
+        macOS: iosSettings,
       );
       await _localNotifications.initialize(
         initSettings,

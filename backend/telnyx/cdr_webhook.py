@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from config import settings
@@ -100,17 +100,31 @@ def _parse_event(raw_body: bytes) -> dict | None:
         return None
 
 
+def _get_call_log_row(supabase, call_control_id: str) -> dict | None:
+    """Fetch call_logs row by call_control_id. Returns row dict or None."""
+    try:
+        sel = supabase.table("call_logs").select("id, started_at, answered_at").eq("call_control_id", call_control_id).limit(1).execute()
+        if sel and sel.data and len(sel.data) > 0 and isinstance(sel.data[0], dict):
+            return sel.data[0]
+        return None
+    except Exception as e:
+        logger.warning("[CALL_DIAG] call_logs fetch failed: %s", e)
+        return None
+
+
 def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_seconds: int) -> str | None:
     """Finalize call_logs on call.hangup: status=completed, ended_at, duration_seconds. Returns finalized row id if found."""
     try:
-        # Fetch existing row to get id for logging
-        sel = supabase.table("call_logs").select("id").eq("call_control_id", call_control_id).limit(1).execute()
-        row_id = None
-        if sel.data and len(sel.data) > 0:
-            row_id = sel.data[0].get("id")
+        row = _get_call_log_row(supabase, call_control_id)
+        row_id = row.get("id") if row else None
+        if not row:
+            logger.warning(
+                "[CALL_DIAG] call_logs finalize: no row for call_control_id=%s (row not found - insert may have failed or id mismatch)",
+                call_control_id,
+            )
         supabase.table("call_logs").update({
             "status": "completed",
-            "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else ended_at,
+            "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at),
             "duration_seconds": duration_seconds,
         }).eq("call_control_id", call_control_id).execute()
         logger.info("[CALL_DIAG] call_logs finalized id=%s call_control_id=%s duration_seconds=%s", row_id, call_control_id, duration_seconds)
@@ -183,35 +197,96 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
             _patch_call_log_cost(supabase, call_control_id, int(cost_cents))
         return {"received": True}
 
+    def _parse_iso(s: str | None) -> datetime | None:
+        if not s or not isinstance(s, str):
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+
+    def _extract_duration_and_times(
+        p: dict, sb, ccid: str
+    ) -> tuple[int, datetime, datetime]:
+        """
+        Extract duration_seconds, ended_at, started_at.
+        Priority: 1) duration_millis, 2) end_time - start_time from payload,
+        3) ended_at - started_at from call_logs (authoritative fallback).
+        """
+        now_utc = datetime.now(timezone.utc)
+        # Ended-at: payload fields (Telnyx uses various names)
+        ended_at_str = (
+            p.get("ended_at") or p.get("end_time") or p.get("hangup_time")
+            or p.get("occurred_at") or p.get("timestamp")
+        )
+        ended_at = (_parse_iso(ended_at_str) if ended_at_str else None) or now_utc
+        if ended_at.tzinfo is None:
+            ended_at = ended_at.replace(tzinfo=timezone.utc)
+
+        # Duration from payload
+        duration_ms = p.get("duration_millis") or p.get("duration_ms") or 0
+        started_at_from_payload = None
+        start_str = p.get("started_at") or p.get("start_time") or p.get("answer_time") or p.get("created_at")
+        if start_str:
+            started_at_from_payload = _parse_iso(start_str)
+
+        if duration_ms and duration_ms > 0:
+            duration_seconds = max(0, int(duration_ms / 1000))
+            started_at = started_at_from_payload or (ended_at - timedelta(milliseconds=duration_ms))
+            logger.info("[CALL_DIAG] CDR duration from payload duration_millis=%s", duration_ms)
+            return duration_seconds, ended_at, started_at
+
+        if started_at_from_payload:
+            st = started_at_from_payload
+            if st.tzinfo is None:
+                st = st.replace(tzinfo=timezone.utc)
+            delta = ended_at - st
+            duration_seconds = max(0, int(delta.total_seconds()))
+            logger.info("[CALL_DIAG] CDR duration from payload end-start: %s s", duration_seconds)
+            return duration_seconds, ended_at, st
+
+        # Fallback: use call_logs.started_at (inserted on call.initiated)
+        row = _get_call_log_row(sb, ccid)
+        if row:
+            started_at_raw = row.get("started_at")
+            if started_at_raw:
+                if isinstance(started_at_raw, str):
+                    started_at = _parse_iso(started_at_raw) or now_utc
+                else:
+                    started_at = started_at_raw
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+                delta = ended_at - started_at
+                duration_seconds = max(0, int(delta.total_seconds()))
+                logger.info(
+                    "[CALL_DIAG] CDR duration from call_logs.started_at: %s s (payload had no duration/start)",
+                    duration_seconds,
+                )
+                return duration_seconds, ended_at, started_at
+
+        logger.warning("[CALL_DIAG] CDR no duration source, using 0 (payload_keys=%s)", list(p.keys()) if isinstance(p, dict) else [])
+        return 0, ended_at, ended_at
+
     receptionist = _get_receptionist_by_phone(supabase, our_did)
     if not receptionist:
         # Still finalize call_logs if row exists (e.g. outbound)
         if call_control_id and event_type in ("call.call-ended", "call.hangup"):
-            duration_ms = payload.get("duration_millis") or 0
-            duration_seconds = max(0, int(duration_ms / 1000))
-            ended_at_str = payload.get("ended_at")
-            ended_at = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00")) if ended_at_str else datetime.now()
+            duration_seconds, ended_at, _ = _extract_duration_and_times(payload, supabase, call_control_id)
+            logger.info("[CALL_DIAG] CDR no-receptionist finalize call_control_id=%s duration_seconds=%s", call_control_id, duration_seconds)
             _finalize_call_log(supabase, call_control_id, ended_at, duration_seconds)
         return {"received": True}
 
-    duration_ms = payload.get("duration_millis") or 0
-    duration_seconds = max(0, int(duration_ms / 1000))
+    duration_seconds, ended_at, started_at = _extract_duration_and_times(payload, supabase, call_control_id)
     billed_minutes = _round_to_six_second_increments(duration_seconds)
+    logger.info("[CALL_DIAG] CDR duration aggregation call_control_id=%s duration_seconds=%s billed_minutes=%s", call_control_id, duration_seconds, billed_minutes)
 
-    ended_at_str = payload.get("ended_at")
-    ended_at = datetime.fromisoformat(ended_at_str.replace("Z", "+00:00")) if ended_at_str else datetime.now()
-    started_at_str = payload.get("started_at")
-    if started_at_str:
-        started_at = datetime.fromisoformat(started_at_str.replace("Z", "+00:00"))
-    else:
-        from datetime import timedelta
-        started_at = ended_at - timedelta(milliseconds=duration_ms)
-
+    started_at_str = started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at)
+    ended_at_str = ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at)
     insert_row = {
         "receptionist_id": receptionist["id"],
         "call_sid": call_control_id,
-        "started_at": started_at.isoformat(),
-        "ended_at": ended_at.isoformat(),
+        "started_at": started_at_str,
+        "ended_at": ended_at_str,
         "duration_seconds": duration_seconds,
         "direction": direction,
         "status": "completed",

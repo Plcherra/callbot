@@ -1,6 +1,7 @@
 // Call service for background call handling.
 // Shows native CallKit (iOS) / ConnectionService (Android) UI for call alerts.
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_callkit_incoming/entities/android_params.dart';
 import 'package:flutter_callkit_incoming/entities/call_event.dart';
 import 'package:flutter_callkit_incoming/entities/call_kit_params.dart';
@@ -23,7 +24,10 @@ class CallService {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
+    if (defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.android) {
+      FlutterCallkitIncoming.onEvent.listen(_onCallKitEvent);
+    }
     _initialized = true;
   }
 

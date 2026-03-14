@@ -315,7 +315,7 @@ async def receptionist_prompt(
         }
 
     supabase = create_service_role_client()
-    prompt, greeting = _build_from_supabase_sync(receptionist_id, supabase)
+    prompt, greeting, _ = _build_from_supabase_sync(receptionist_id, supabase)
     return {"prompt": prompt, "greeting": greeting}
 
 

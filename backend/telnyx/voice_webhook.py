@@ -122,10 +122,10 @@ def _insert_call_log(
     from_number: str,
     to_number: str,
     direction: str,
-) -> None:
-    """Insert call_logs row on call.initiated."""
+) -> str | None:
+    """Insert call_logs row on call.initiated. Returns inserted row id or None."""
     try:
-        supabase.table("call_logs").insert({
+        result = supabase.table("call_logs").insert({
             "call_control_id": call_control_id,
             "receptionist_id": receptionist_id,
             "user_id": user_id,
@@ -134,9 +134,14 @@ def _insert_call_log(
             "direction": direction,
             "status": "initiated",
         }).execute()
-        logger.info("call_logs inserted for %s", call_control_id)
+        inserted_id = None
+        if result.data and len(result.data) > 0:
+            inserted_id = result.data[0].get("id")
+        logger.info("[CALL_DIAG] call_logs inserted id=%s for call_control_id=%s", inserted_id, call_control_id)
+        return inserted_id
     except Exception as e:
-        logger.warning("call_logs insert failed: %s", e)
+        logger.warning("[CALL_DIAG] call_logs insert failed: %s", e)
+        return None
 
 
 def _update_call_log(supabase, call_control_id: str, updates: dict) -> None:
@@ -158,11 +163,21 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     data = body.get("data") or {}
     payload = data.get("payload") or data
     call_control_id = payload.get("call_control_id") or data.get("call_control_id")
+    call_session_id = payload.get("call_session_id")
+    call_leg_id = payload.get("call_leg_id")
+
+    # [CALL_DIAG] Temporary debug logging for call lifecycle tracing
+    logger.info(
+        "[CALL_DIAG] voice_webhook received event_type=%s call_control_id=%s call_session_id=%s call_leg_id=%s",
+        event_type, call_control_id, call_session_id, call_leg_id,
+    )
+
     supabase = create_service_role_client()
 
     # call.hangup / call.call-ended: Telnyx sends these to the same voice webhook URL.
     # Forward to CDR handler so call_logs get finalized and call history updates.
     if event_type in ("call.hangup", "call.call-ended"):
+        logger.info("[CALL_DIAG] Forwarding %s to CDR handler", event_type)
         from telnyx.cdr_webhook import handle_cdr_webhook
         return await handle_cdr_webhook(raw_body, headers or {})
 
@@ -201,7 +216,8 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
 
     # call_logs: insert on call.initiated (every call counts, even short/rejected)
     if receptionist_id and user_id:
-        _insert_call_log(supabase, call_control_id, receptionist_id, str(user_id), from_number, to_number, direction)
+        inserted_id = _insert_call_log(supabase, call_control_id, receptionist_id, str(user_id), from_number, to_number, direction)
+        logger.info("[CALL_DIAG] call.initiated processed call_control_id=%s inserted_call_logs_id=%s", call_control_id, inserted_id)
 
     # Check inbound quota for fixed-plan users before answering
     if user_id:

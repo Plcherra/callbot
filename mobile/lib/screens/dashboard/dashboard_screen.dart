@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/receptionist.dart';
 import '../../models/user_profile.dart';
 import '../../services/api_client.dart';
+import '../../widgets/constrained_scaffold_body.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -117,6 +118,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       int totalCalls = 0;
       double totalCallMinutes = 0.0;
       List<Map<String, dynamic>> recentCalls = [];
+      int usageMinutesRealtime = 0;
       try {
         final summaryRes = await ApiClient.get('/api/mobile/dashboard-summary');
         if (summaryRes.statusCode >= 200 && summaryRes.statusCode < 300 && summaryRes.body.isNotEmpty) {
@@ -124,8 +126,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
           totalCalls = decoded?['total_calls'] as int? ?? 0;
           totalCallMinutes = (decoded?['total_minutes'] as num?)?.toDouble() ?? 0.0;
           recentCalls = List<Map<String, dynamic>>.from((decoded?['recent_calls'] as List?) ?? []);
+          usageMinutesRealtime = (decoded?['usage_minutes_realtime'] as num?)?.toInt() ?? 0;
         }
       } catch (_) {}
+
+      // Use real-time minutes from user_plans when usage_snapshots is 0 (before daily cron runs)
+      if (usageMin == 0 && usageMinutesRealtime > 0) {
+        usageMin = usageMinutesRealtime;
+        if (included != null && !isPayg) {
+          remaining = (included - usageMin).clamp(0, included);
+        }
+      }
 
       setState(() {
         _profile = Map<String, dynamic>.from(profileRes ?? {});
@@ -261,10 +272,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+      body: constrainedScaffoldBody(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
             if (!profile.onboardingComplete && isActive)
               _buildOnboardingAlert(context),
@@ -281,6 +293,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ],
         ),
+      ),
       ),
     );
   }

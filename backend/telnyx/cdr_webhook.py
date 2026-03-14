@@ -100,17 +100,24 @@ def _parse_event(raw_body: bytes) -> dict | None:
         return None
 
 
-def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_seconds: int) -> None:
-    """Finalize call_logs on call.hangup: status=completed, ended_at, duration_seconds."""
+def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_seconds: int) -> str | None:
+    """Finalize call_logs on call.hangup: status=completed, ended_at, duration_seconds. Returns finalized row id if found."""
     try:
+        # Fetch existing row to get id for logging
+        sel = supabase.table("call_logs").select("id").eq("call_control_id", call_control_id).limit(1).execute()
+        row_id = None
+        if sel.data and len(sel.data) > 0:
+            row_id = sel.data[0].get("id")
         supabase.table("call_logs").update({
             "status": "completed",
             "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else ended_at,
             "duration_seconds": duration_seconds,
         }).eq("call_control_id", call_control_id).execute()
-        logger.debug("call_logs finalized for %s", call_control_id)
+        logger.info("[CALL_DIAG] call_logs finalized id=%s call_control_id=%s duration_seconds=%s", row_id, call_control_id, duration_seconds)
+        return row_id
     except Exception as e:
-        logger.warning("call_logs finalize failed: %s", e)
+        logger.warning("[CALL_DIAG] call_logs finalize failed: %s", e)
+        return None
 
 
 def _patch_call_log_cost(supabase, call_control_id: str, cost_cents: int) -> None:
@@ -128,19 +135,30 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
     """
     event = _parse_event(raw_body)
     if not event:
+        logger.info("[CALL_DIAG] CDR: parse_event returned None")
         return {"received": True}
 
     event_type = event["event_type"]
     if event_type not in ("call.call-ended", "call.hangup", "call.cost", "call.recording.saved"):
+        logger.info("[CALL_DIAG] CDR: ignoring event_type=%s", event_type)
         return {"received": True}
 
     data = event.get("data") or {}
     payload = data.get("payload") or data
 
+    # Robust extraction: Telnyx may use different field names in different events
     call_control_id = (
         payload.get("call_control_id")
         or payload.get("call_leg_id")
         or payload.get("call_session_id")
+        or data.get("call_control_id")
+    )
+    call_session_id = payload.get("call_session_id") or data.get("call_session_id")
+    call_leg_id = payload.get("call_leg_id") or data.get("call_leg_id")
+
+    logger.info(
+        "[CALL_DIAG] CDR received event_type=%s call_control_id=%s call_session_id=%s call_leg_id=%s payload_keys=%s",
+        event_type, call_control_id, call_session_id, call_leg_id, list(payload.keys()) if isinstance(payload, dict) else [],
     )
     to_num = payload.get("to") or ""
     from_num = payload.get("from") or ""
@@ -150,6 +168,10 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
     # Inbound: to = our DID. Outbound: from = our DID.
     our_did = to_num if direction == "inbound" else from_num
     if not call_control_id or not our_did:
+        logger.warning(
+            "[CALL_DIAG] CDR: missing call_control_id or our_did - call_control_id=%s our_did=%s from=%s to=%s",
+            call_control_id, our_did, from_num, to_num,
+        )
         return {"received": True}
 
     supabase = create_service_role_client()
@@ -201,15 +223,22 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         insert_row["user_id"] = receptionist["user_id"]
 
     # call_logs: finalize on call.hangup (every call counts, even 0 billable minutes)
+    finalized_id = None
     if call_control_id and event_type in ("call.call-ended", "call.hangup"):
-        _finalize_call_log(supabase, call_control_id, ended_at, duration_seconds)
+        finalized_id = _finalize_call_log(supabase, call_control_id, ended_at, duration_seconds)
+        logger.info("[CALL_DIAG] CDR finalized call_logs id=%s for call_control_id=%s", finalized_id, call_control_id)
 
     inserted = True
+    call_usage_id = None
     try:
-        supabase.table("call_usage").insert(insert_row).execute()
+        ins_result = supabase.table("call_usage").insert(insert_row).execute()
+        if ins_result.data and len(ins_result.data) > 0:
+            call_usage_id = ins_result.data[0].get("id")
+        logger.info("[CALL_DIAG] call_usage inserted id=%s for call_control_id=%s duration_seconds=%s", call_usage_id, call_control_id, duration_seconds)
     except Exception as e:
         error_msg = str(e)
         if "23505" in error_msg or "duplicate" in error_msg.lower() or "unique" in error_msg.lower():
+            logger.info("[CALL_DIAG] call_usage insert skipped (duplicate) for call_control_id=%s", call_control_id)
             inserted = False
         else:
             logger.error("[telnyx/cdr] insertCallUsage failed: %s", e)

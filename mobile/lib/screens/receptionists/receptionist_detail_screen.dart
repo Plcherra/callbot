@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/receptionist.dart';
 import '../../strings.dart';
 import '../../services/api_client.dart';
+import '../../widgets/constrained_scaffold_body.dart';
 
 class ReceptionistDetailScreen extends StatefulWidget {
   final String receptionistId;
@@ -137,10 +138,11 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
+      body: constrainedScaffoldBody(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           children: [
             Row(
               children: [
@@ -331,6 +333,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/receptionist.dart';
 import '../../strings.dart';
 import '../../services/api_client.dart';
+import '../../widgets/constrained_scaffold_body.dart';
 import 'receptionist_detail_screen.dart';
 import 'create_receptionist_screen.dart';
 
@@ -170,16 +171,17 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(child: Text('Error: $_error'))
-              : !_isSubscribed
-                  ? _buildUpgradePrompt()
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
+      body: constrainedScaffoldBody(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(child: Text('Error: $_error'))
+                : !_isSubscribed
+                    ? _buildUpgradePrompt()
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                         children: [
                           _buildCreateStepper(),
                           const SizedBox(height: 24),
@@ -203,6 +205,7 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
                         ],
                       ),
                     ),
+      ),
     );
   }
 

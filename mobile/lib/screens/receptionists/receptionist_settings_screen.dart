@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../services/api_client.dart';
 import '../../strings.dart';
+import '../../widgets/constrained_scaffold_body.dart';
 
 class ReceptionistSettingsScreen extends StatefulWidget {
   final String receptionistId;
@@ -76,9 +77,10 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
           ],
         ),
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
+      body: constrainedScaffoldBody(
+        child: TabBarView(
+          controller: _tabController,
+          children: [
           _StaffTab(receptionistId: widget.receptionistId),
           _ServicesTab(receptionistId: widget.receptionistId),
           _LocationsTab(receptionistId: widget.receptionistId),
@@ -86,6 +88,7 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
           _WebsiteTab(receptionistId: widget.receptionistId),
           _InstructionsTab(receptionistId: widget.receptionistId),
         ],
+        ),
       ),
     );
   }
@@ -553,18 +556,29 @@ class _InstructionsTabState extends State<_InstructionsTab> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await Supabase.instance.client.from('receptionists').update({
-        'system_prompt': _coreInstructionsController.text.trim().isEmpty ? null : _coreInstructionsController.text.trim(),
-        'greeting': _greetingController.text.trim().isEmpty ? null : _greetingController.text.trim(),
-        'voice_id': _voiceIdController.text.trim().isEmpty ? null : _voiceIdController.text.trim(),
-        'assistant_identity': _assistantIdentityController.text.trim().isEmpty ? null : _assistantIdentityController.text.trim(),
-        'extra_instructions': _extraNotesController.text.trim().isEmpty ? null : _extraNotesController.text.trim(),
-      }).eq('id', widget.receptionistId);
-      await _load();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved')),
+      final res = await ApiClient.patch(
+        '/api/mobile/receptionists/${widget.receptionistId}',
+        body: {
+          'system_prompt': _coreInstructionsController.text.trim().isEmpty ? null : _coreInstructionsController.text.trim(),
+          'greeting': _greetingController.text.trim().isEmpty ? null : _greetingController.text.trim(),
+          'voice_id': _voiceIdController.text.trim().isEmpty ? null : _voiceIdController.text.trim(),
+          'assistant_identity': _assistantIdentityController.text.trim().isEmpty ? null : _assistantIdentityController.text.trim(),
+          'extra_instructions': _extraNotesController.text.trim().isEmpty ? null : _extraNotesController.text.trim(),
+        },
       );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        await _load();
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved')),
+        );
+      } else {
+        final data = jsonDecode(res.body) as Map<String, dynamic>?;
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(data?['error'] as String? ?? AppStrings.couldNotSaveSettings)),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

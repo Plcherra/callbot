@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../models/plan.dart';
+import '../../widgets/constrained_scaffold_body.dart';
 
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
@@ -9,8 +10,9 @@ class LandingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        slivers: [
+      body: constrainedScaffoldBody(
+        child: CustomScrollView(
+          slivers: [
           _LandingHeader(),
           const SliverToBoxAdapter(child: _HeroSection()),
           const SliverToBoxAdapter(child: _PricingTeaser()),
@@ -18,6 +20,7 @@ class LandingScreen extends StatelessWidget {
           const SliverToBoxAdapter(child: _PricingSection()),
           const SliverToBoxAdapter(child: _TestimonialsSection()),
         ],
+        ),
       ),
     );
   }

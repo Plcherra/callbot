@@ -174,7 +174,7 @@ async def checkout(request: Request):
 
     price_id = get_price_id_for_plan_id(plan_id) or get_price_id_for_plan_id("starter")
     if not price_id:
-        return JSONResponse({"error": "Stripe is not configured or invalid plan."}, status_code=400)
+        return JSONResponse({"error": "Invalid plan. Choose starter, pro, or business."}, status_code=400)
 
     sk = (settings.stripe_secret_key or "").strip()
     if not sk:
@@ -221,7 +221,7 @@ async def billing_portal(request: Request):
     profile = (row.data or {}) if row.data else {}
     customer_id = profile.get("stripe_customer_id")
     if not customer_id:
-        return JSONResponse({"error": "No billing account. Upgrade first."}, status_code=400)
+        return JSONResponse({"error": "No billing account. Complete a subscription first."}, status_code=400)
 
     sk = (settings.stripe_secret_key or "").strip()
     if not sk:
@@ -548,7 +548,19 @@ async def dashboard_summary(request: Request):
     recs = supabase.table("receptionists").select("id").eq("user_id", user["id"]).execute()
     rec_ids = [r["id"] for r in (recs.data or [])]
     if not rec_ids:
-        return {"total_calls": 0, "total_minutes": 0.0, "recent_calls": []}
+        return {"total_calls": 0, "total_minutes": 0.0, "recent_calls": [], "usage_minutes_realtime": 0}
+
+    # Real-time usage from user_plans (updated by CDR immediately; use when usage_snapshots not yet populated)
+    usage_minutes_realtime = 0
+    try:
+        up = supabase.table("user_plans").select("used_inbound_minutes, used_outbound_minutes").eq("user_id", user["id"]).limit(1).execute()
+        if up.data and len(up.data) > 0:
+            row = up.data[0]
+            inbound = float(row.get("used_inbound_minutes") or 0)
+            outbound = float(row.get("used_outbound_minutes") or 0)
+            usage_minutes_realtime = round(inbound + outbound, 2)
+    except Exception as e:
+        logger.debug("[dashboard-summary] user_plans read failed: %s", e)
 
     # Aggregate from call_logs (every call counts, even 0 billable minutes)
     try:
@@ -563,6 +575,11 @@ async def dashboard_summary(request: Request):
 
     total_minutes = round(total_seconds / 60.0, 2)
 
+    logger.info(
+        "[CALL_DIAG] dashboard-summary user_id=%s total_calls=%s total_minutes=%s rec_count=%s",
+        user["id"], total_calls, total_minutes, len(rec_ids),
+    )
+
     recent = (
         supabase.table("call_logs")
         .select("id, call_control_id, receptionist_id, from_number, to_number, direction, status, started_at, ended_at, duration_seconds")
@@ -575,6 +592,7 @@ async def dashboard_summary(request: Request):
         "total_calls": total_calls,
         "total_minutes": total_minutes,
         "recent_calls": recent.data or [],
+        "usage_minutes_realtime": usage_minutes_realtime,
     }
 
 

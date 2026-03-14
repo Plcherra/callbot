@@ -85,9 +85,25 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               children: [
                 Text(_error!, textAlign: TextAlign.center),
                 const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Back'),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    FilledButton(
+                      onPressed: () {
+                        setState(() {
+                          _loading = true;
+                          _error = null;
+                        });
+                        _loadCheckoutUrl();
+                      },
+                      child: const Text('Retry'),
+                    ),
+                    const SizedBox(width: 16),
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Back'),
+                    ),
+                  ],
                 ),
               ],
             ),

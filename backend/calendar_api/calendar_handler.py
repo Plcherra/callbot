@@ -18,7 +18,14 @@ from utils.natural_datetime import parse_natural_datetime
 logger = logging.getLogger(__name__)
 
 DEFAULT_SLOT_MINUTES = 30
+# Default for broad availability queries (e.g. "tomorrow morning") when duration not specified.
+DEFAULT_AVAILABILITY_SLOT_MINUTES = 60
 DEFAULT_TIMEZONE = "America/New_York"
+
+# Business-day and period windows for range queries
+BUSINESS_DAY_START_HOUR = 9
+BUSINESS_DAY_END_HOUR = 17
+SUGGESTED_SLOTS_MAX = 4
 
 
 def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> tuple[dict[str, str] | None, str]:
@@ -73,9 +80,9 @@ def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> tu
         time_max = (d + timedelta(days=1)).isoformat()
         return {"timeMin": time_min, "timeMax": time_max}, "exact_time_window"
 
-    # Day-based query in business timezone.
-    day_start = d.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
+    # Full day: business hours 09:00-17:00 for bookable slot suggestions.
+    day_start = d.replace(hour=BUSINESS_DAY_START_HOUR, minute=0, second=0, microsecond=0)
+    day_end = d.replace(hour=BUSINESS_DAY_END_HOUR, minute=0, second=0, microsecond=0)
     return {"timeMin": day_start.isoformat(), "timeMax": day_end.isoformat()}, "full_day"
 
 
@@ -214,27 +221,42 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
     date_text = params.get("date_text")
     start_date = params.get("start_date") or date_text
     end_date = params.get("end_date")
-    duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
-    if isinstance(duration_minutes, str):
-        try:
-            duration_minutes = int(duration_minutes) or DEFAULT_SLOT_MINUTES
-        except (ValueError, TypeError):
-            duration_minutes = DEFAULT_SLOT_MINUTES
 
     if not start_date:
         return {"success": False, "error": "date_missing", "message": "Please provide a date and time (e.g. 'tomorrow at 4')."}
 
     range_data, parse_mode = _parse_datetime_range(start_date, timezone=timezone)
+    if not range_data:
+        return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. Could you rephrase it (e.g. 'March 17 at 7pm')?"}
+
+    # Duration: for range-based queries default to 60 min for spoken availability; otherwise 30.
+    range_modes = ("full_day", "range_morning", "range_afternoon", "range_evening")
+    if parse_mode in range_modes:
+        raw_dur = params.get("duration_minutes")
+        if raw_dur is None or raw_dur == "":
+            duration_minutes = DEFAULT_AVAILABILITY_SLOT_MINUTES
+        else:
+            try:
+                duration_minutes = int(raw_dur) if isinstance(raw_dur, str) else raw_dur
+                duration_minutes = duration_minutes or DEFAULT_AVAILABILITY_SLOT_MINUTES
+            except (ValueError, TypeError):
+                duration_minutes = DEFAULT_AVAILABILITY_SLOT_MINUTES
+    else:
+        duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
+        if isinstance(duration_minutes, str):
+            try:
+                duration_minutes = int(duration_minutes) or DEFAULT_SLOT_MINUTES
+            except (ValueError, TypeError):
+                duration_minutes = DEFAULT_SLOT_MINUTES
+
     logger.info(
         "[CAL_DATE] check_availability input=%r timezone=%s mode=%s timeMin=%s timeMax=%s",
         start_date,
         timezone,
         parse_mode,
-        range_data["timeMin"] if range_data else None,
-        range_data["timeMax"] if range_data else None,
+        range_data["timeMin"],
+        range_data["timeMax"],
     )
-    if not range_data:
-        return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. Could you rephrase it (e.g. 'March 17 at 7pm')?"}
 
     if end_date:
         try:
@@ -255,10 +277,65 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
     busy = cal.get("busy") or []
     free_slots = _get_free_slots(busy, range_data["timeMin"], range_data["timeMax"], duration_minutes)
 
+    requested_slot_start = None
+    requested_slot_end = None
+    slot_available = None
+    available_slots: list[str] = []
+    suggested_slots: list[str] = []
+    requested_range_start: str | None = None
+    requested_range_end: str | None = None
+
+    if parse_mode in range_modes:
+        requested_range_start = range_data["timeMin"]
+        requested_range_end = range_data["timeMax"]
+        available_slots = free_slots
+        suggested_slots = free_slots[:SUGGESTED_SLOTS_MAX]
+        logger.info(
+            "[CAL_DATE] range_slot_generation mode=%s range_start=%s range_end=%s duration_minutes=%s candidate_slots=%d returned_slots=%d",
+            parse_mode,
+            requested_range_start,
+            requested_range_end,
+            duration_minutes,
+            len(free_slots),
+            len(suggested_slots),
+        )
+
+    # For exact time requests (e.g. "tomorrow at 7pm"), check only that specific slot.
+    if parse_mode == "exact_time_window":
+        slot_start = _parse_iso_datetime_or_natural(start_date, timezone=timezone)
+        if slot_start:
+            slot_end = slot_start + timedelta(minutes=duration_minutes)
+            slot_fb = service.freebusy().query(
+                body={
+                    "timeMin": slot_start.isoformat(),
+                    "timeMax": slot_end.isoformat(),
+                    "items": [{"id": calendar_id}],
+                }
+            ).execute()
+            slot_cal = slot_fb.get("calendars", {}).get(calendar_id, {})
+            slot_busy = slot_cal.get("busy") or []
+            slot_available = len(slot_busy) == 0
+            requested_slot_start = slot_start.isoformat()
+            requested_slot_end = slot_end.isoformat()
+            logger.info(
+                "[CAL_DATE] check_availability_slot mode=exact_time_slot slot_start=%s slot_end=%s busy_count=%d",
+                requested_slot_start,
+                requested_slot_end,
+                len(slot_busy),
+            )
+
     return {
         "success": True,
         "free_slots": free_slots,
+        "available_slots": available_slots,
+        "suggested_slots": suggested_slots,
+        "requested_range_start": requested_range_start,
+        "requested_range_end": requested_range_end,
+        "slot_duration_minutes": duration_minutes,
         "busy_slots": [{"start": b.get("start"), "end": b.get("end")} for b in busy],
+        "requested_slot_start": requested_slot_start,
+        "requested_slot_end": requested_slot_end,
+        "slot_available": slot_available,
     }
 
 
@@ -280,7 +357,6 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
         return {"success": False, "error": "date_missing", "message": "What day and time should I book it for?"}
 
     try:
-        logger.info("[CAL_DATE] create_appointment input=%r timezone=%s", start_time, timezone)
         start_d = _parse_iso_datetime_or_natural(start_time, timezone=timezone)
         if not start_d:
             return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
@@ -288,11 +364,20 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
     except (ValueError, TypeError):
         return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
 
+    start_iso = start_d.isoformat()
+    end_iso = end_d.isoformat()
+    logger.info(
+        "[CAL_BOOK] create_appointment start=%s end=%s duration_minutes=%s",
+        start_iso,
+        end_iso,
+        duration_minutes,
+    )
+
     # Check busy before insert
     freebusy_res = service.freebusy().query(
         body={
-            "timeMin": start_d.isoformat(),
-            "timeMax": end_d.isoformat(),
+            "timeMin": start_iso,
+            "timeMax": end_iso,
             "items": [{"id": calendar_id}],
         }
     ).execute()
@@ -300,7 +385,6 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
 
     if busy:
         day_start = start_d.replace(hour=0, minute=0, second=0, microsecond=0)
-        from datetime import timedelta
         day_end = day_start + timedelta(days=1)
         day_fb = service.freebusy().query(
             body={
@@ -325,20 +409,64 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
 
     event_body = {
         "summary": summary,
-        "start": {"dateTime": start_d.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-        "end": {"dateTime": end_d.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+        "start": {"dateTime": start_iso, "timeZone": DEFAULT_TIMEZONE},
+        "end": {"dateTime": end_iso, "timeZone": DEFAULT_TIMEZONE},
     }
     if description:
         event_body["description"] = description
     if attendees and isinstance(attendees, list):
         event_body["attendees"] = [{"email": e} for e in attendees if isinstance(e, str)]
 
-    event = service.events().insert(
-        calendarId=calendar_id,
-        body=event_body,
-        sendUpdates="none",
-    ).execute()
+    try:
+        event = service.events().insert(
+            calendarId=calendar_id,
+            body=event_body,
+            sendUpdates="none",
+        ).execute()
+    except Exception as e:
+        msg = str(e)
+        is_conflict = "Conflict" in msg or "409" in msg or "not found" in msg.lower() or "busy" in msg.lower()
+        if is_conflict:
+            day_start = start_d.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            try:
+                day_fb = service.freebusy().query(
+                    body={
+                        "timeMin": day_start.isoformat(),
+                        "timeMax": day_end.isoformat(),
+                        "items": [{"id": calendar_id}],
+                    }
+                ).execute()
+                day_busy = day_fb.get("calendars", {}).get(calendar_id, {}).get("busy") or []
+                suggested = _get_free_slots(
+                    day_busy,
+                    day_start.isoformat(),
+                    day_end.isoformat(),
+                    duration_minutes,
+                )[:5]
+            except Exception:
+                suggested = []
+            logger.info(
+                "[CAL_BOOK] create_appointment error type=slot_unavailable message=%s",
+                msg[:200],
+            )
+            return {
+                "success": False,
+                "error": "slot_unavailable",
+                "message": "That time slot is no longer available.",
+                "suggested_slots": suggested,
+            }
+        logger.warning(
+            "[CAL_BOOK] create_appointment error type=calendar_internal_error message=%s",
+            msg[:200],
+        )
+        return {
+            "success": False,
+            "error": "calendar_internal_error",
+            "message": "I had trouble creating the appointment, but the slot may still be available.",
+        }
 
+    logger.info("[CAL_BOOK] create_appointment success event_id=%s", event.get("id"))
     return {
         "success": True,
         "event_id": event.get("id"),
@@ -370,7 +498,6 @@ def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
         start_d = _parse_iso_datetime_or_natural(new_start, timezone=timezone)
         if not start_d:
             return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}
-        from datetime import timedelta
         end_d = start_d + timedelta(minutes=duration_minutes)
     except (ValueError, TypeError):
         return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}

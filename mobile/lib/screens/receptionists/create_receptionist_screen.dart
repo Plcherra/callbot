@@ -39,6 +39,7 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   String? _successId;
   String? _successPhone;
   String? _successName;
+  final TextEditingController _transferNumberController = TextEditingController();
 
   bool _isStep5TransferInvalid() {
     if (_formData.fallbackBehavior != 'transfer') return false;
@@ -47,10 +48,27 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
     return normalizePhoneToE164(raw) == null;
   }
 
+  /// Inline error for transfer number (empty when valid).
+  String? _step5TransferErrorText() {
+    if (_formData.fallbackBehavior != 'transfer') return null;
+    final raw = _formData.fallbackTransferNumber?.trim() ?? '';
+    if (raw.isEmpty) return 'Transfer phone number is required';
+    if (normalizePhoneToE164(raw) == null) {
+      return 'Enter a valid phone number (e.g. +1 555 123 4567)';
+    }
+    return null;
+  }
+
   @override
   void initState() {
     super.initState();
     _loadDefaults();
+  }
+
+  @override
+  void dispose() {
+    _transferNumberController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadDefaults() async {
@@ -768,19 +786,43 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
           items: fallbackBehaviorOptions
               .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
               .toList(),
-          onChanged: (v) => setState(() => _formData.fallbackBehavior = v),
+          onChanged: (v) {
+            setState(() {
+              _formData.fallbackBehavior = v;
+              if (v == 'transfer') {
+                _transferNumberController.text = _formData.fallbackTransferNumber ?? '';
+              }
+            });
+            if (kDebugMode) {
+              debugPrint('[Step5] fallback=$v transferNumber="${_formData.fallbackTransferNumber}" step5Invalid=${_isStep5TransferInvalid()}');
+            }
+          },
         ),
         if (_formData.fallbackBehavior == 'transfer') ...[
           const SizedBox(height: 16),
           TextFormField(
-            initialValue: _formData.fallbackTransferNumber ?? '',
-            decoration: const InputDecoration(
+            controller: _transferNumberController,
+            decoration: InputDecoration(
               labelText: 'Transfer phone number',
               hintText: '+1 555 123 4567',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              errorText: _step5TransferErrorText(),
             ),
             keyboardType: TextInputType.phone,
-            onChanged: (v) => _formData.fallbackTransferNumber = v,
+            onChanged: (v) {
+              setState(() {
+                _formData.fallbackTransferNumber = v;
+                if (!_isStep5TransferInvalid()) _error = null;
+              });
+              if (kDebugMode) {
+                final raw = v.trim();
+                final normalized = normalizePhoneToE164(raw);
+                debugPrint(
+                  '[Step5] fallback=transfer raw="$raw" normalized=${normalized ?? "invalid"} '
+                  'step5Invalid=${_isStep5TransferInvalid()} nextEnabled=${!_isStep5TransferInvalid()}',
+                );
+              }
+            },
           ),
           const SizedBox(height: 8),
           Text(

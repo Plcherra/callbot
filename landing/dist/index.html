@@ -205,6 +205,7 @@
         font-size: 0.78rem;
         font-weight: 600;
         padding: 0.55rem 1.2rem;
+        min-height: 2.75rem;
         border: 1px solid transparent;
         cursor: pointer;
         transition: all var(--transition-fast);
@@ -426,11 +427,11 @@
       .feature-grid {
         display: grid;
         gap: 1rem;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        border-radius: 999px;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-radius: 24px;
         border: 1px solid rgba(30, 64, 175, 0.7);
         background: rgba(15, 23, 42, 0.92);
-        padding: 0.8rem 1rem;
+        padding: 1rem 1.25rem;
         box-shadow: 0 18px 50px rgba(15, 23, 42, 0.9);
       }
 
@@ -672,6 +673,45 @@
         color: #e5e7eb;
       }
 
+      /* Demo / video section (hide until VIDEO_ID is set in iframe src) */
+      .demo-section {
+        padding: 2.5rem 0 3.5rem;
+      }
+
+      .demo-section[data-hidden="true"] {
+        display: none;
+      }
+
+      .demo-title {
+        font-size: 1.5rem;
+        letter-spacing: -0.02em;
+        margin-bottom: 0.35rem;
+      }
+
+      .demo-subtitle {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        margin-bottom: 1.25rem;
+      }
+
+      .demo-video-wrap {
+        position: relative;
+        border-radius: 16px;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.8);
+        aspect-ratio: 16 / 9;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+
+      .demo-video-wrap iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
       /* Responsive */
       @media (max-width: 960px) {
         .hero-grid {
@@ -693,8 +733,8 @@
         }
 
         .feature-grid {
-          border-radius: 20px;
           grid-template-columns: repeat(2, minmax(0, 1fr));
+          border-radius: 20px;
         }
 
         .nav-links {
@@ -715,6 +755,11 @@
           font-size: 1.9rem;
         }
 
+        .btn {
+          min-height: 2.875rem;
+          padding: 0.65rem 1.35rem;
+        }
+
         .feature-grid {
           grid-template-columns: minmax(0, 1fr);
           border-radius: 18px;
@@ -730,6 +775,24 @@
 
         .nav-links {
           display: none;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .shell {
+          padding: 0 1rem;
+        }
+
+        .hero-cta-row {
+          flex-direction: column;
+        }
+
+        .hero-cta-row .btn {
+          width: 100%;
+        }
+
+        .plan-actions .btn {
+          width: 100%;
         }
       }
 
@@ -755,20 +818,26 @@
             <a href="#how-it-works" class="nav-link">How it works</a>
             <a href="#pricing" class="nav-link">Pricing</a>
             <a href="#testimonials" class="nav-link">Stories</a>
+            <a href="mailto:hello@echodesk.us" class="nav-link">Contact</a>
           </nav>
           <div class="nav-cta-row">
             <a
-              href="mailto:hello@echodesk.us"
-              class="btn btn-ghost"
-              style="display: none"
-              >Contact</a
+              href="https://apps.apple.com/app/echodesk"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="btn btn-secondary"
+              aria-label="Download Echodesk on the App Store"
             >
+              iOS
+            </a>
             <a
-              href="#pricing"
+              href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+              target="_blank"
+              rel="noopener noreferrer"
               class="btn btn-primary"
-              aria-label="Get started with Echodesk"
+              aria-label="Get Echodesk on Google Play"
             >
-              Get started
+              Get the app
             </a>
           </div>
         </div>
@@ -787,10 +856,9 @@
                 – Never Miss a Booking
               </h1>
               <p class="hero-subtitle">
-                Echodesk answers calls, qualifies callers, and books directly
-                into your Google Calendar. For individuals and small businesses
-                &mdash; salons, barbers, spas, handymen, and more &mdash; so
-                your schedule stays full even when you can’t pick up.
+                Your AI receptionist answers calls 24/7, books appointments, and syncs
+                with Google Calendar. Built for solo pros and small teams &mdash;
+                salons, barbers, spas, handymen, clinics &mdash; so you never miss a booking.
               </p>
               <div class="hero-badges">
                 <div class="hero-badge">
@@ -807,16 +875,25 @@
                 </div>
               </div>
               <div class="hero-cta-row">
-                <a href="#pricing" class="btn btn-primary"> Start free trial </a>
                 <a
-                  href="mailto:hello@echodesk.us"
-                  class="btn btn-secondary"
-                  >Talk to us</a
+                  href="https://apps.apple.com/app/echodesk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-primary"
                 >
+                  Download for iOS
+                </a>
+                <a
+                  href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn btn-secondary"
+                >
+                  Get it on Google Play
+                </a>
               </div>
               <p class="hero-meta">
-                From <strong>$69/month</strong>. No contracts. Pause or cancel
-                anytime.
+                From <strong>$69/month</strong>. No contracts. Pause or cancel anytime.
               </p>
             </div>
 
@@ -872,6 +949,22 @@
                 zero.” &mdash; Salon owner, Austin
               </div>
             </aside>
+          </div>
+        </section>
+
+        <!-- Demo: set data-hidden="false" and replace VIDEO_ID in the iframe src with your YouTube video ID. Leave data-hidden="true" or remove section if no demo yet. -->
+        <section class="demo-section" id="demo" data-hidden="true">
+          <div class="shell">
+            <h2 class="demo-title">See Echodesk in action</h2>
+            <p class="demo-subtitle">How the AI receptionist answers calls and books into your calendar.</p>
+            <div class="demo-video-wrap">
+              <iframe
+                src="https://www.youtube.com/embed/VIDEO_ID"
+                title="Echodesk demo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+              ></iframe>
+            </div>
           </div>
         </section>
 
@@ -938,8 +1031,8 @@
                 <p class="plan-kicker">Try it first</p>
                 <h3 class="plan-title">Free</h3>
                 <p class="plan-description">
-                  Test your greeting, call flow, and calendar integration before
-                  going live.
+                  Test the AI receptionist, your greeting, and Google Calendar
+                  sync with no credit card required.
                 </p>
                 <div class="plan-price-row">
                   <div class="plan-price">$0</div>
@@ -961,8 +1054,21 @@
                   </li>
                 </ul>
                 <div class="plan-actions">
-                  <a href="#top" class="btn btn-secondary">
-                    Start free
+                  <a
+                    href="https://apps.apple.com/app/echodesk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-secondary"
+                  >
+                    Download for iOS
+                  </a>
+                  <a
+                    href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-ghost"
+                  >
+                    Get on Google Play
                   </a>
                 </div>
               </article>
@@ -972,8 +1078,8 @@
                 <p class="plan-kicker">For busy calendars</p>
                 <h3 class="plan-title">Starter</h3>
                 <p class="plan-description">
-                  Ideal for solo operators and small studios that never want to
-                  miss a new client.
+                  For solo pros and small teams: dedicated number, 24/7 answering,
+                  and real bookings in your calendar.
                 </p>
                 <div class="plan-price-row">
                   <div class="plan-price">$69</div>
@@ -1005,14 +1111,21 @@
                   </li>
                 </ul>
                 <div class="plan-actions">
-                  <a href="#top" class="btn btn-primary">
+                  <a
+                    href="https://apps.apple.com/app/echodesk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn btn-primary"
+                  >
                     Get started with Starter
                   </a>
                   <a
-                    href="mailto:hello@echodesk.us"
+                    href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     class="btn btn-ghost"
                   >
-                    Ask about fit
+                    Get on Google Play
                   </a>
                 </div>
               </article>
@@ -1021,8 +1134,8 @@
                 <p class="plan-kicker">Growing teams</p>
                 <h3 class="plan-title">Business</h3>
                 <p class="plan-description">
-                  For multi‑chair salons, clinics, or offices with higher call
-                  volume and more complex routing.
+                  For growing teams: multiple calendars, higher minutes, and
+                  priority support.
                 </p>
                 <div class="plan-price-row">
                   <div class="plan-price">$149</div>
@@ -1116,6 +1229,8 @@
           <div>&copy; Echodesk. AI receptionist for small businesses.</div>
           <div class="footer-links">
             <a href="mailto:hello@echodesk.us" class="footer-link">Contact</a>
+            <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="footer-link">iOS</a>
+            <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="footer-link">Android</a>
             <a href="#top" class="footer-link">Back to top</a>
           </div>
         </div>

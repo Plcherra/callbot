@@ -50,24 +50,30 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
     _receptionistName = res?['name'] as String?;
     _mode = (res?['mode'] as String?) ?? 'personal';
 
-  // Build tabs based on mode: always include Calendar + Services + Instructions;
-  // Staff/Locations/Promos only appear for business assistants.
-    final tabs = <Tab>[
-      const Tab(text: 'Calendar'),
-    const Tab(text: 'Services'),
-    const Tab(text: 'Instructions'),
-    ];
+    // Exact tab order per spec:
+    // Personal/Solo: Calendar, Services, Website, Instructions
+    // Business/Team: Calendar, Staff, Services, Locations, Promos, Website, Instructions
+    final List<Tab> tabs;
     if (_mode == 'business') {
-      tabs.insertAll(1, const [
-      Tab(text: 'Staff'),
-      Tab(text: 'Locations'),
-      Tab(text: 'Promos'),
-      Tab(text: 'Website'),
-      ]);
+      tabs = const [
+        Tab(text: 'Calendar'),
+        Tab(text: 'Staff'),
+        Tab(text: 'Services'),
+        Tab(text: 'Locations'),
+        Tab(text: 'Promos'),
+        Tab(text: 'Website'),
+        Tab(text: 'Instructions'),
+      ];
     } else {
-    tabs.insert(2, const Tab(text: 'Website'));
+      tabs = const [
+        Tab(text: 'Calendar'),
+        Tab(text: 'Services'),
+        Tab(text: 'Website'),
+        Tab(text: 'Instructions'),
+      ];
     }
 
+    if (!mounted) return;
     setState(() {
       _tabs = tabs;
       _loading = false;
@@ -109,23 +115,29 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
   }
 
   Future<void> _loadCalendarStatus() async {
+    if (!mounted) return;
     setState(() => _loadingCalendarStatus = true);
     try {
       final res = await ApiClient.get(
         '/api/mobile/receptionists/${widget.receptionistId}/calendar-status',
       );
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final decoded = jsonDecode(res.body);
-        if (decoded is Map<String, dynamic>) {
-          if (!mounted) return;
-          setState(() {
-            _calendarStatus = decoded;
-          });
+      Map<String, dynamic>? decoded;
+      if (res.statusCode >= 200 && res.statusCode < 300 && res.body.trim().isNotEmpty) {
+        try {
+          final data = jsonDecode(res.body);
+          if (data is Map<String, dynamic>) {
+            decoded = data;
+          }
+        } catch (_) {
+          // Invalid JSON or wrong shape; leave _calendarStatus as-is or null.
         }
       }
+      if (!mounted) return;
+      setState(() {
+        _calendarStatus = decoded;
+        _loadingCalendarStatus = false;
+      });
     } catch (_) {
-      // Swallow; UI will just show a generic message.
-    } finally {
       if (!mounted) return;
       setState(() => _loadingCalendarStatus = false);
     }
@@ -182,16 +194,22 @@ class _CalendarTab extends StatelessWidget {
     required this.onRefresh,
   });
 
+  static String _str(dynamic v) {
+    if (v == null) return '';
+    if (v is String) return v;
+    return v.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = status ?? {};
-    final mode = (s['mode'] as String?) ?? 'personal';
-    final assistantName = s['assistant_name'] as String? ?? '';
-    final connectedEmail = s['connected_google_email'] as String?;
-    final bookingCalendar = s['booking_calendar_label'] as String? ??
-        s['booking_calendar_id'] as String? ??
-        'primary';
-    final connected = (s['calendar_connected'] as bool?) ?? false;
+    final mode = _str(s['mode']).isEmpty ? 'personal' : _str(s['mode']);
+    final assistantName = _str(s['assistant_name']);
+    final connectedEmail = _str(s['connected_google_email']).isEmpty ? null : _str(s['connected_google_email']);
+    final bookingLabel = _str(s['booking_calendar_label']);
+    final bookingId = _str(s['booking_calendar_id']);
+    final bookingCalendar = bookingLabel.isNotEmpty ? bookingLabel : (bookingId.isNotEmpty ? bookingId : 'primary');
+    final connected = s['calendar_connected'] == true;
 
     return RefreshIndicator(
       onRefresh: onRefresh,
@@ -481,6 +499,7 @@ class _ServicesTabState extends State<_ServicesTab> {
                   if (requiresLocation) ...[
                     const SizedBox(height: 4),
                     DropdownButtonFormField<String>(
+                      // ignore: deprecated_member_use -- value is the current selection; initialValue is for uncontrolled form fields
                       value: defaultLocationType,
                       decoration: const InputDecoration(
                         labelText: 'Location type',
@@ -679,23 +698,29 @@ class _WebsiteTabState extends State<_WebsiteTab> {
                         body: {'url': url},
                       );
                       if (res.statusCode >= 200 && res.statusCode < 300) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Website content saved')),
-                        );
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Website content saved')),
+                          );
+                        }
                       } else {
-                        final data = jsonDecode(res.body);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(data['error'] ?? 'Failed'),
-                          ),
-                        );
+                        final data = jsonDecode(res.body) as Map<String, dynamic>?;
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text((data?['error'] as String?) ?? 'Failed'),
+                            ),
+                          );
+                        }
                       }
                     } catch (_) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text(AppStrings.couldNotFetchWebsite)),
-                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text(AppStrings.couldNotFetchWebsite)),
+                        );
+                      }
                     }
-                    setState(() => _loading = false);
+                    if (mounted) setState(() => _loading = false);
                   },
             child: _loading
                 ? const SizedBox(
@@ -764,6 +789,7 @@ class _InstructionsTabState extends State<_InstructionsTab> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
+    final ctx = context;
     try {
       final res = await ApiClient.patch(
         '/api/mobile/receptionists/${widget.receptionistId}',
@@ -777,20 +803,20 @@ class _InstructionsTabState extends State<_InstructionsTab> {
       );
       if (res.statusCode >= 200 && res.statusCode < 300) {
         await _load();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (!ctx.mounted) return;
+        ScaffoldMessenger.of(ctx).showSnackBar(
           const SnackBar(content: Text('Saved')),
         );
       } else {
         final data = jsonDecode(res.body) as Map<String, dynamic>?;
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (!ctx.mounted) return;
+        ScaffoldMessenger.of(ctx).showSnackBar(
           SnackBar(content: Text(data?['error'] as String? ?? AppStrings.couldNotSaveSettings)),
         );
       }
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
         const SnackBar(content: Text(AppStrings.couldNotSaveSettings)),
       );
     }

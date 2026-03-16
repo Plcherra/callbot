@@ -15,7 +15,7 @@ const _steps = [
   'Phone',
   'Instructions',
   'Business',
-  'Advanced',
+  'Call behavior',
   'Review',
 ];
 
@@ -721,17 +721,7 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Advanced settings (optional)'),
-        const SizedBox(height: 16),
-        TextFormField(
-          initialValue: _formData.voiceId,
-          decoration: const InputDecoration(
-            labelText: 'Voice ID (optional)',
-            hintText: 'ElevenLabs voice ID — leave blank for default',
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (v) => _formData.voiceId = v,
-        ),
+        const Text('Call behavior (optional)'),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _formData.voicePersonality ?? 'friendly',

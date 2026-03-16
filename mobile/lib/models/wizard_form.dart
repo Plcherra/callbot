@@ -97,7 +97,8 @@ class WizardFormData {
       'staff': staff.where((s) => s.name.trim().isNotEmpty).map((s) => s.toJson()).toList(),
     };
     if (greeting != null && greeting!.trim().isNotEmpty) body['greeting'] = greeting!.trim();
-    if (voiceId != null && voiceId!.trim().isNotEmpty) body['voice_id'] = voiceId!.trim();
+    // Always send a valid voice_id: map from voice personality (onboarding hides raw Voice ID).
+    body['voice_id'] = voiceIdFromPersonality(voicePersonality);
     if (assistantIdentity != null && assistantIdentity!.trim().isNotEmpty) body['assistant_identity'] = assistantIdentity!.trim();
     if (phoneStrategy == 'new') {
       body['area_code'] = areaCode == 'other' ? '212' : (areaCode ?? '212');
@@ -166,6 +167,22 @@ const voicePersonalityOptions = [
   SelectOption('energetic', 'Energetic'),
   SelectOption('calm', 'Calm & Soothing'),
 ];
+
+/// Maps user-facing voice personality to internal TTS voice ID.
+/// Used so onboarding only exposes personality; voice_id is sent to the API internally.
+String voiceIdFromPersonality(String? personality) {
+  switch (personality) {
+    case 'professional':
+      return 'voice_professional_v1';
+    case 'energetic':
+      return 'voice_energetic_v1';
+    case 'calm':
+      return 'voice_calm_v1';
+    case 'friendly':
+    default:
+      return 'voice_friendly_v1';
+  }
+}
 
 const fallbackBehaviorOptions = [
   SelectOption('voicemail', 'Take voicemail'),

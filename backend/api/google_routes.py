@@ -9,6 +9,7 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse
 
 from config import settings
+from google_oauth_scopes import SCOPES
 from supabase_client import create_service_role_client
 
 logger = logging.getLogger(__name__)
@@ -64,12 +65,7 @@ async def google_callback_get(request: Request):
                     "redirect_uris": [redirect_uri],
                 }
             },
-            scopes=[
-                "https://www.googleapis.com/auth/calendar",
-                "https://www.googleapis.com/auth/calendar.events",
-                "email",
-                "profile",
-            ],
+            scopes=SCOPES,
             redirect_uri=redirect_uri,
             # Keep consistent with /api/mobile/google-auth-url: server-side OAuth without PKCE.
             autogenerate_code_verifier=False,
@@ -80,6 +76,7 @@ async def google_callback_get(request: Request):
             bool(getattr(flow, "code_verifier", None)),
             "yes" if getattr(flow, "code_verifier", None) else "no",
         )
+        logger.info("[Google callback] scopes=%s", " ".join(SCOPES))
         flow.fetch_token(code=code)
         credentials = flow.credentials
         if not credentials.refresh_token:

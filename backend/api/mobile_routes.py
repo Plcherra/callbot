@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from api.auth import get_user_from_request
 from config import settings
+from google_oauth_scopes import SCOPES
 from prompts.fetch import _build_from_supabase_sync
 from quota import check_outbound_quota
 from stripe_plans import get_price_id_for_plan_id, plan_from_subscription
@@ -137,12 +138,7 @@ async def google_auth_url(request: Request):
                     "redirect_uris": [redirect_uri],
                 }
             },
-            scopes=[
-                "https://www.googleapis.com/auth/calendar",
-                "https://www.googleapis.com/auth/calendar.events",
-                "email",
-                "profile",
-            ],
+            scopes=SCOPES,
             redirect_uri=redirect_uri,
             # IMPORTANT: We want pure server-side OAuth for this flow (no PKCE).
             # PKCE requires persisting the code_verifier across request/callback, which we do not do.
@@ -157,10 +153,11 @@ async def google_auth_url(request: Request):
         # Debug: confirm redirect URI and whether PKCE is enabled (it should NOT be)
         pkce_enabled = bool(getattr(flow, "code_verifier", None))
         logger.info(
-            "[google-auth-url] redirect_uri=%r pkce_enabled=%s return_to=%s",
+            "[google-auth-url] redirect_uri=%r pkce_enabled=%s return_to=%s scopes=%s",
             redirect_uri,
             pkce_enabled,
             return_to,
+            " ".join(SCOPES),
         )
         return {"url": url}
     except Exception as e:

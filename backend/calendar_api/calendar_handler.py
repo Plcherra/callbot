@@ -11,6 +11,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 from config import settings
+from google_oauth_scopes import SCOPES
 from supabase_client import create_service_role_client
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ def _get_calendar_service(refresh_token: str):
         token_uri="https://oauth2.googleapis.com/token",
         client_id=settings.google_client_id,
         client_secret=settings.google_client_secret,
-        scopes=["https://www.googleapis.com/auth/calendar"],
+        scopes=SCOPES,
     )
     creds.refresh(Request())
     return build("calendar", "v3", credentials=creds)

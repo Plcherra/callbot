@@ -108,6 +108,65 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
     );
   }
 
+  Future<void> _loadCalendarStatus() async {
+    setState(() => _loadingCalendarStatus = true);
+    try {
+      final res = await ApiClient.get(
+        '/api/mobile/receptionists/${widget.receptionistId}/calendar-status',
+      );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        if (!mounted) return;
+        setState(() {
+          _calendarStatus = data;
+        });
+      }
+    } catch (_) {
+      // Swallow; UI will just show a generic message.
+    } finally {
+      if (!mounted) return;
+      setState(() => _loadingCalendarStatus = false);
+    }
+  }
+
+  List<Widget> _buildTabViews() {
+    final views = <Widget>[];
+    for (final tab in _tabs) {
+      switch (tab.text) {
+        case 'Calendar':
+          views.add(_CalendarTab(
+            receptionistId: widget.receptionistId,
+            status: _calendarStatus,
+            loading: _loadingCalendarStatus,
+            onRefresh: _loadCalendarStatus,
+          ));
+          break;
+        case 'Staff':
+          views.add(_StaffTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Services':
+          views.add(_ServicesTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Locations':
+          views.add(_LocationsTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Promos':
+          views.add(_PromosTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Website':
+          views.add(_WebsiteTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Instructions':
+          views.add(_InstructionsTab(receptionistId: widget.receptionistId));
+          break;
+        default:
+          views.add(const SizedBox.shrink());
+      }
+    }
+    return views;
+  }
+}
+
 class _CalendarTab extends StatelessWidget {
   final String receptionistId;
   final Map<String, dynamic>? status;
@@ -172,65 +231,6 @@ class _CalendarTab extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-  Future<void> _loadCalendarStatus() async {
-    setState(() => _loadingCalendarStatus = true);
-    try {
-      final res = await ApiClient.get(
-        '/api/mobile/receptionists/${widget.receptionistId}/calendar-status',
-      );
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        if (!mounted) return;
-        setState(() {
-          _calendarStatus = data;
-        });
-      }
-    } catch (_) {
-      // Swallow; UI will just show a generic message.
-    } finally {
-      if (!mounted) return;
-      setState(() => _loadingCalendarStatus = false);
-    }
-  }
-
-  List<Widget> _buildTabViews() {
-    final views = <Widget>[];
-    for (final tab in _tabs) {
-      switch (tab.text) {
-        case 'Calendar':
-          views.add(_CalendarTab(
-            receptionistId: widget.receptionistId,
-            status: _calendarStatus,
-            loading: _loadingCalendarStatus,
-            onRefresh: _loadCalendarStatus,
-          ));
-          break;
-        case 'Staff':
-          views.add(_StaffTab(receptionistId: widget.receptionistId));
-          break;
-        case 'Services':
-          views.add(_ServicesTab(receptionistId: widget.receptionistId));
-          break;
-        case 'Locations':
-          views.add(_LocationsTab(receptionistId: widget.receptionistId));
-          break;
-        case 'Promos':
-          views.add(_PromosTab(receptionistId: widget.receptionistId));
-          break;
-        case 'Website':
-          views.add(_WebsiteTab(receptionistId: widget.receptionistId));
-          break;
-        case 'Instructions':
-          views.add(_InstructionsTab(receptionistId: widget.receptionistId));
-          break;
-        default:
-          views.add(const SizedBox.shrink());
-      }
-    }
-    return views;
   }
 }
 

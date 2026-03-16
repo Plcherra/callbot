@@ -126,6 +126,7 @@ async def google_auth_url(request: Request):
     return_to = request.query_params.get("return_to", "dashboard")
     try:
         from google_auth_oauthlib.flow import Flow
+        redirect_uri = settings.get_google_redirect_uri()
         flow = Flow.from_client_config(
             {
                 "web": {
@@ -133,7 +134,7 @@ async def google_auth_url(request: Request):
                     "client_secret": settings.google_client_secret,
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [settings.get_google_redirect_uri()],
+                    "redirect_uris": [redirect_uri],
                 }
             },
             scopes=[
@@ -142,13 +143,24 @@ async def google_auth_url(request: Request):
                 "email",
                 "profile",
             ],
-            redirect_uri=settings.get_google_redirect_uri(),
+            redirect_uri=redirect_uri,
+            # IMPORTANT: We want pure server-side OAuth for this flow (no PKCE).
+            # PKCE requires persisting the code_verifier across request/callback, which we do not do.
+            autogenerate_code_verifier=False,
         )
         state = f"{user['id']}:{return_to}" if return_to else user["id"]
         url, _ = flow.authorization_url(
             access_type="offline",
             prompt="consent",
             state=state,
+        )
+        # Debug: confirm redirect URI and whether PKCE is enabled (it should NOT be)
+        pkce_enabled = bool(getattr(flow, "code_verifier", None))
+        logger.info(
+            "[google-auth-url] redirect_uri=%r pkce_enabled=%s return_to=%s",
+            redirect_uri,
+            pkce_enabled,
+            return_to,
         )
         return {"url": url}
     except Exception as e:

@@ -37,6 +37,13 @@ async def google_callback_get(request: Request):
     user_id = parts[0] if parts else raw_state
     return_to = parts[1] if len(parts) > 1 else "dashboard"
 
+    logger.info(
+        "[Google callback] received code=%s state_return_to=%s redirect_uri=%r",
+        "set" if code else "missing",
+        return_to,
+        redirect_uri,
+    )
+
     supabase = create_service_role_client()
     r = supabase.table("users").select("id").eq("id", user_id).limit(1).execute()
     if not r.data or len(r.data) == 0:
@@ -64,6 +71,14 @@ async def google_callback_get(request: Request):
                 "profile",
             ],
             redirect_uri=redirect_uri,
+            # Keep consistent with /api/mobile/google-auth-url: server-side OAuth without PKCE.
+            autogenerate_code_verifier=False,
+        )
+
+        logger.info(
+            "[Google callback] token_exchange pkce_enabled=%s (code_verifier_present=%s)",
+            bool(getattr(flow, "code_verifier", None)),
+            "yes" if getattr(flow, "code_verifier", None) else "no",
         )
         flow.fetch_token(code=code)
         credentials = flow.credentials

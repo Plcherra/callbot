@@ -49,6 +49,8 @@ class WizardFormData {
   String systemPrompt;
   String? greeting;
   String? voiceId;
+  /// Curated voice preset key (e.g. friendly_warm). Sent as voice_preset_key; backend resolves to voice_id.
+  String? voicePresetKey;
   String? assistantIdentity;
   List<StaffItem> staff;
   List<ServiceItem> services;
@@ -74,6 +76,7 @@ class WizardFormData {
         "You are a friendly, professional receptionist for a [business or personal context, e.g. salon, consulting, personal]. Answer calls politely, book appointments into Google Calendar, confirm details, and be helpful. Never be pushy.",
     this.greeting,
     this.voiceId,
+    this.voicePresetKey = 'friendly_warm',
     this.assistantIdentity,
     List<StaffItem>? staff,
     List<ServiceItem>? services,
@@ -99,8 +102,7 @@ class WizardFormData {
       'staff': staff.where((s) => s.name.trim().isNotEmpty).map((s) => s.toJson()).toList(),
     };
     if (greeting != null && greeting!.trim().isNotEmpty) body['greeting'] = greeting!.trim();
-    // Always send a valid voice_id: map from voice personality (onboarding hides raw Voice ID).
-    body['voice_id'] = voiceIdFromPersonality(voicePersonality);
+    if (voicePresetKey != null && voicePresetKey!.trim().isNotEmpty) body['voice_preset_key'] = voicePresetKey!.trim();
     if (assistantIdentity != null && assistantIdentity!.trim().isNotEmpty) body['assistant_identity'] = assistantIdentity!.trim();
     if (phoneStrategy == 'new') {
       body['area_code'] = areaCode == 'other' ? '212' : (areaCode ?? '212');

@@ -82,3 +82,30 @@ async def text_to_speech_stream(
             async for chunk in resp.aiter_bytes(chunk_size=1024):
                 if chunk:
                     yield chunk
+
+
+# Format for in-app preview (widely playable). Telephony uses ulaw_8000.
+PREVIEW_FORMAT = "mp3_44100_128"
+
+
+async def text_to_speech_preview(
+    text: str,
+    voice_id: str,
+    api_key: str,
+    model_id: str = DEFAULT_MODEL,
+    output_format: str = PREVIEW_FORMAT,
+) -> bytes:
+    """Generate short preview audio (e.g. MP3) for voice preset playback. Lightweight, one-off."""
+    url = f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format={output_format}"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            url,
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            json={"text": text, "model_id": model_id},
+        )
+        resp.raise_for_status()
+        return resp.content

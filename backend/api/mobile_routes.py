@@ -10,9 +10,11 @@ from typing import Any
 import httpx
 import stripe
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from api.auth import get_user_from_request
+from voice_presets import DEFAULT_PRESET_KEY, get_preset, list_presets_for_api, resolve_voice_id
+from voice.elevenlabs_client import text_to_speech_preview
 from config import settings
 from google_oauth_scopes import SCOPES
 from prompts.fetch import _build_from_supabase_sync
@@ -58,6 +60,41 @@ async def push_token(request: Request):
     except Exception as e:
         logger.exception("[push-token] %s", e)
         return JSONResponse({"error": "Failed to register token"}, status_code=500)
+
+
+# --- Voice presets (receptionist voice selection) ---
+@router.get("/voice-presets")
+async def list_voice_presets(request: Request):
+    """Return curated voice presets for receptionist creation/settings. No raw voice_id exposed."""
+    user, _ = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    return {"presets": list_presets_for_api()}
+
+
+@router.get("/voice-presets/{key}/preview")
+async def voice_preset_preview(request: Request, key: str):
+    """Return short preview audio for a voice preset. Requires auth. Lightweight on-demand generation."""
+    user, _ = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    preset = get_preset(key)
+    if not preset:
+        return JSONResponse({"error": "Preset not found"}, status_code=404)
+    api_key = (settings.elevenlabs_api_key or "").strip()
+    if not api_key:
+        return JSONResponse({"error": "Voice preview not configured"}, status_code=503)
+    try:
+        audio_bytes = await text_to_speech_preview(
+            text=preset.get("sample_text") or "Hello. How can I help you today?",
+            voice_id=preset["voice_id"],
+            api_key=api_key,
+            model_id=preset.get("model_id") or "eleven_flash_v2_5",
+        )
+        return Response(content=audio_bytes, media_type="audio/mpeg")
+    except Exception as e:
+        logger.warning("[voice-presets/preview] %s: %s", key, e)
+        return JSONResponse({"error": "Preview failed"}, status_code=502)
 
 
 # --- Sync session (Stripe Checkout session_id) ---
@@ -325,7 +362,14 @@ async def create_receptionist(request: Request):
     extra_instructions = (body.get("extra_instructions") or "").strip() or None
     system_prompt = (body.get("system_prompt") or "").strip() or None
     greeting = (body.get("greeting") or "").strip() or None
-    voice_id = (body.get("voice_id") or "").strip() or None
+    raw_voice_id = (body.get("voice_id") or "").strip() or None  # legacy/admin only
+    voice_preset_key = (body.get("voice_preset_key") or "").strip() or None
+    voice_id = resolve_voice_id(voice_preset_key, raw_voice_id)
+    if not voice_id:
+        default_preset = get_preset(DEFAULT_PRESET_KEY)
+        voice_id = default_preset["voice_id"] if default_preset else (settings.elevenlabs_voice_id or None)
+    if not voice_preset_key and voice_id:
+        voice_preset_key = DEFAULT_PRESET_KEY  # store default for UI label
     assistant_identity = (body.get("assistant_identity") or "").strip() or None
     promotions = (body.get("promotions") or body.get("promos") or "").strip()
     mode = (body.get("mode") or "personal").strip().lower()
@@ -346,6 +390,7 @@ async def create_receptionist(request: Request):
         "system_prompt": system_prompt,
         "greeting": greeting,
         "voice_id": voice_id,
+        "voice_preset_key": voice_preset_key,
         "assistant_identity": assistant_identity,
     }
     try:
@@ -464,7 +509,7 @@ async def get_receptionist(request: Request, receptionist_id: str):
     r = supabase.table("receptionists").select(
         "id, name, phone_number, inbound_phone_number, calendar_id, status, mode, "
         "website_url, extra_instructions, payment_settings, created_at, "
-        "system_prompt, greeting, voice_id, assistant_identity"
+        "system_prompt, greeting, voice_id, voice_preset_key, assistant_identity"
     ).eq("id", receptionist_id).single().execute()
     if not r.data:
         return JSONResponse({"error": "Receptionist not found"}, status_code=404)
@@ -545,7 +590,13 @@ async def update_receptionist(request: Request, receptionist_id: str):
         updates["system_prompt"] = (body["system_prompt"] or "").strip() or None
     if "greeting" in body:
         updates["greeting"] = (body["greeting"] or "").strip() or None
-    if "voice_id" in body:
+    if "voice_preset_key" in body:
+        preset_key = (body.get("voice_preset_key") or "").strip() or None
+        resolved = resolve_voice_id(preset_key, None)
+        updates["voice_preset_key"] = preset_key
+        if resolved is not None:
+            updates["voice_id"] = resolved
+    elif "voice_id" in body:
         updates["voice_id"] = (body["voice_id"] or "").strip() or None
     if "assistant_identity" in body:
         updates["assistant_identity"] = (body["assistant_identity"] or "").strip() or None

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,10 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   String? _successPhone;
   String? _successName;
   final TextEditingController _transferNumberController = TextEditingController();
+  List<Map<String, dynamic>> _voicePresets = [];
+  bool _voicePresetsLoading = false;
+  final AudioPlayer _previewPlayer = AudioPlayer();
+  String? _previewPlayingKey;
 
   bool _isStep5TransferInvalid() {
     if (_formData.fallbackBehavior != 'transfer') return false;
@@ -68,7 +73,53 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   @override
   void dispose() {
     _transferNumberController.dispose();
+    _previewPlayer.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadVoicePresets() async {
+    if (_voicePresets.isNotEmpty) return;
+    setState(() => _voicePresetsLoading = true);
+    try {
+      final res = await ApiClient.get('/api/mobile/voice-presets');
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>?;
+        final list = data?['presets'] as List<dynamic>?;
+        setState(() {
+          _voicePresets = list?.cast<Map<String, dynamic>>() ?? [];
+          _voicePresetsLoading = false;
+        });
+      } else {
+        setState(() => _voicePresetsLoading = false);
+      }
+    } catch (_) {
+      setState(() => _voicePresetsLoading = false);
+    }
+  }
+
+  Future<void> _playPresetPreview(String key) async {
+    if (_previewPlayingKey == key) {
+      await _previewPlayer.stop();
+      setState(() => _previewPlayingKey = null);
+      return;
+    }
+    setState(() => _previewPlayingKey = key);
+    try {
+      final path = '/api/mobile/voice-presets/$key/preview';
+      final res = await ApiClient.get(path);
+      if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
+        await _previewPlayer.stop();
+        await _previewPlayer.setSource(BytesSource(res.bodyBytes, mimeType: 'audio/mpeg'));
+        await _previewPlayer.resume();
+        _previewPlayer.onPlayerComplete.listen((_) {
+          if (mounted) setState(() => _previewPlayingKey = null);
+        });
+      } else {
+        if (mounted) setState(() => _previewPlayingKey = null);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _previewPlayingKey = null);
+    }
   }
 
   Future<void> _loadDefaults() async {
@@ -760,22 +811,88 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   }
 
   Widget _buildStep5() {
+    if (_voicePresets.isEmpty && !_voicePresetsLoading) {
+      _loadVoicePresets();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text('Call behavior (optional)'),
         const SizedBox(height: 16),
-        DropdownButtonFormField<String>(
-          value: _formData.voicePersonality ?? 'friendly',
-          decoration: const InputDecoration(
-            labelText: 'Voice personality',
-            border: OutlineInputBorder(),
-          ),
-          items: voicePersonalityOptions
-              .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
-              .toList(),
-          onChanged: (v) => setState(() => _formData.voicePersonality = v),
+        const Text(
+          'Choose a voice',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
+        const SizedBox(height: 4),
+        Text(
+          'How your receptionist sounds — name and voice are separate choices.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 12),
+        if (_voicePresetsLoading)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else
+          ..._voicePresets.map((p) {
+            final key = p['key'] as String? ?? '';
+            final label = p['label'] as String? ?? key;
+            final description = p['description'] as String? ?? '';
+            final selected = _formData.voicePresetKey == key;
+            final playing = _previewPlayingKey == key;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              color: selected
+                  ? Theme.of(context).colorScheme.primaryContainer
+                  : null,
+              child: InkWell(
+                onTap: () => setState(() => _formData.voicePresetKey = key),
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Radio<String>(
+                        value: key,
+                        groupValue: _formData.voicePresetKey ?? 'friendly_warm',
+                        onChanged: (v) =>
+                            setState(() => _formData.voicePresetKey = v ?? key),
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              label,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (description.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                description,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: Icon(
+                          playing ? Icons.stop : Icons.play_circle_outline,
+                        ),
+                        onPressed: () => _playPresetPreview(key),
+                        tooltip: playing ? 'Stop' : 'Preview',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _formData.fallbackBehavior ?? 'voicemail',
@@ -876,6 +993,16 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
                 _ReviewRow(
                   'Prompt',
                   '${(_formData.systemPrompt).substring(0, _formData.systemPrompt.length.clamp(0, 80))}...',
+                ),
+                _ReviewRow(
+                  'Voice',
+                  () {
+                    final found = _voicePresets
+                        .where((p) => p['key'] == _formData.voicePresetKey);
+                    return found.isEmpty
+                        ? (_formData.voicePresetKey ?? 'Default')
+                        : (found.first['label'] as String? ?? 'Default');
+                  }(),
                 ),
               ],
             ),

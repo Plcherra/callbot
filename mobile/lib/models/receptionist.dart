@@ -8,6 +8,8 @@ class Receptionist {
   final String? systemPrompt;
   final String? greeting;
   final String? voiceId;
+  /// Curated voice preset key (e.g. friendly_warm) for UI label. Internal/admin only: voice_id is used for TTS.
+  final String? voicePresetKey;
   final String? assistantIdentity;
   final String? extraInstructions;
 
@@ -21,6 +23,7 @@ class Receptionist {
     this.systemPrompt,
     this.greeting,
     this.voiceId,
+    this.voicePresetKey,
     this.assistantIdentity,
     this.extraInstructions,
   });
@@ -38,6 +41,7 @@ class Receptionist {
       systemPrompt: json['system_prompt'] as String?,
       greeting: json['greeting'] as String?,
       voiceId: json['voice_id'] as String?,
+      voicePresetKey: json['voice_preset_key'] as String?,
       assistantIdentity: json['assistant_identity'] as String?,
       extraInstructions: json['extra_instructions'] as String?,
     );

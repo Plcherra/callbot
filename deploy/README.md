@@ -29,24 +29,34 @@ deploy/
 
 ## Landing Page Deploy (echodesk.us)
 
-The static marketing landing for `https://echodesk.us` is served directly by nginx from `/var/www/echodesk-landing`.
+The static marketing landing for `https://echodesk.us` is served by nginx from `/var/www/echodesk-landing`.
 
-- **Source of truth**: `landing/dist/index.html` (and any other static assets in `landing/dist/`)
-- **Deploy target**: `/var/www/echodesk-landing`
+| | Path |
+|--|------|
+| **Source** | `landing/dist/` (project root) |
+| **Target** | `/var/www/echodesk-landing` |
 
-You can deploy the landing in two ways:
+**Canonical command** (from project root on VPS):
 
 ```bash
-# 1) Run with bash (no execute bit required)
 bash deploy/scripts/deploy-landing.sh
-
-# 2) Or mark it executable once, then run directly
-chmod +x deploy/scripts/deploy-landing.sh
-./deploy/scripts/deploy-landing.sh
 ```
 
-The script syncs `landing/dist/` → `/var/www/echodesk-landing` using `rsync`, then applies safe
-ownership and permissions for the nginx user.
+**Optional:** run as executable after making it executable once:
+
+```bash
+chmod +x deploy/scripts/deploy-landing.sh && ./deploy/scripts/deploy-landing.sh
+```
+
+The script syncs `landing/dist/` → `/var/www/echodesk-landing` via `rsync`, then sets ownership and permissions for the nginx user.
+
+### Landing deploy troubleshooting
+
+- **Permission denied** when running `./deploy/scripts/deploy-landing.sh`  
+  The script is not executable. Use the canonical form: `bash deploy/scripts/deploy-landing.sh`. Or run once: `chmod +x deploy/scripts/deploy-landing.sh`, then `./deploy/scripts/deploy-landing.sh`.
+
+- **`sudo ./deploy/scripts/deploy-landing.sh` → command not found**  
+  `sudo` may reset `PATH` or the current directory; the shebang can’t find `bash`. Run without `sudo`: `bash deploy/scripts/deploy-landing.sh` (the script uses `sudo` only for the commands that need it: mkdir, rsync, chown, chmod).
 
 ## Docs
 

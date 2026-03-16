@@ -10,13 +10,6 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/wizard_form.dart';
 import '../../services/api_client.dart';
 
-bool _isStep5TransferInvalid() {
-  if (_formData.fallbackBehavior != 'transfer') return false;
-  final raw = _formData.fallbackTransferNumber?.trim() ?? '';
-  if (raw.isEmpty) return true;
-  return normalizePhoneToE164(raw) == null;
-}
-
 const _steps = [
   'Basics',
   'Phone',
@@ -46,6 +39,13 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   String? _successId;
   String? _successPhone;
   String? _successName;
+
+  bool _isStep5TransferInvalid() {
+    if (_formData.fallbackBehavior != 'transfer') return false;
+    final raw = _formData.fallbackTransferNumber?.trim() ?? '';
+    if (raw.isEmpty) return true;
+    return normalizePhoneToE164(raw) == null;
+  }
 
   @override
   void initState() {

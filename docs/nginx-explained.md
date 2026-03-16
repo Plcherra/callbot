@@ -2,7 +2,32 @@
 
 Copy of working nginx config with a comment for every block and location. Use this instead of guessing—wrong configs break SSL or routing.
 
+## Important: do not add HTTP→HTTPS redirect when using Cloudflare Tunnel
+
+If `echodesk.us` is routed through **Cloudflare Tunnel** to `http://127.0.0.1:80`, do **not** use an nginx `server` block on port 80 that returns:
+
+```nginx
+return 301 https://$server_name$request_uri;
+```
+
+That redirect creates an infinite loop because Cloudflare already terminates HTTPS at the edge and forwards HTTP to nginx on the origin.
+
+Use the **port 80 no-redirect pattern** shown in the Cloudflare Tunnel section below.
+
 ## Full Config (echodesk.us) – **direct DNS (no Cloudflare Tunnel)**
+
+For **direct DNS / bare-metal only** (no Cloudflare proxy/tunnel in front), it is valid to redirect HTTP to HTTPS with a separate port 80 server like this:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name echodesk.us www.echodesk.us;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+Then serve the main site on 443:
 
 ```nginx
 # === HTTPS server (bare-metal, no Cloudflare Tunnel) ===
@@ -58,8 +83,20 @@ server {
 
 ## When using **Cloudflare Tunnel → http://127.0.0.1:80**
 
-When Cloudflare (or cloudflared tunnel) terminates TLS and forwards **HTTP** to nginx on port 80,  
-you **must not** redirect port 80 back to HTTPS. That causes an infinite loop:
+When Cloudflare (or cloudflared tunnel) terminates TLS and forwards **HTTP** to nginx on port 80, you **must not** redirect port 80 back to HTTPS.
+
+Do **not** deploy a block like this on the origin:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name echodesk.us www.echodesk.us;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+That block is wrong for Tunnel/proxied origin traffic. Replace it with this pattern instead:
 
 ```nginx
 server {
@@ -110,7 +147,21 @@ Cloudflare handles HTTP→HTTPS at the edge; nginx simply serves `/` and proxies
 ## Install
 
 ```bash
+# Copy the production template that is safe for Cloudflare/Tunnel setups
 sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
-sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/callbot
 sudo nginx -t && sudo systemctl reload nginx
+
+# Sanity check from the VPS: this should NOT return 301
+curl -I -H "Host: echodesk.us" http://127.0.0.1/
 ```
+
+## Quick verification
+
+If you are behind Cloudflare Tunnel, this command should return `200 OK` (or your landing page headers), **not** `301 Moved Permanently`:
+
+```bash
+curl -I -H "Host: echodesk.us" http://127.0.0.1/
+```
+
+If it returns `Location: https://echodesk.us/`, your nginx origin config still has the bad port 80 redirect active.

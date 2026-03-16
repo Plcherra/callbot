@@ -60,7 +60,7 @@ def _build_from_supabase_sync(receptionist_id: str, supabase) -> tuple[str, str,
             prompt += f"\n\nAdditional instructions from the business:\n{rec['extra_instructions'].strip()}"
     else:
         staff_res = supabase.table("staff").select("name, role, specialties").eq("receptionist_id", receptionist_id).order("name").execute()
-        services_res = supabase.table("services").select("name, description, price_cents, duration_minutes, category").eq("receptionist_id", receptionist_id).execute()
+        services_res = supabase.table("services").select("name, description, price_cents, duration_minutes, category, requires_location, default_location_type").eq("receptionist_id", receptionist_id).execute()
         locations_res = supabase.table("locations").select("name, address, notes").eq("receptionist_id", receptionist_id).execute()
         promos_res = supabase.table("promos").select("description, code, discount_type, discount_value").eq("receptionist_id", receptionist_id).execute()
         rules_res = supabase.table("reminder_rules").select("type, content").eq("receptionist_id", receptionist_id).execute()

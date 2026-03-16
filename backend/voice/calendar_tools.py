@@ -31,7 +31,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_appointment",
-            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot.",
+            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot. If the service requires a location, you must collect and pass location_type and location_text or customer_address before calling.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -41,6 +41,13 @@ CALENDAR_TOOLS = [
                     "summary": {"type": "string", "description": "Appointment title/summary (e.g. client name and service)"},
                     "description": {"type": "string", "description": "Optional additional details"},
                     "attendees": {"type": "array", "description": "Optional array of attendee email addresses", "items": {"type": "string"}},
+                    "service_id": {"type": "string", "description": "UUID of the service if booking a configured service."},
+                    "service_name": {"type": "string", "description": "Name of the service (e.g. House Cleaning) for the appointment."},
+                    "location_type": {"type": "string", "description": "One of: no_location, customer_address, phone_call, video_meeting, custom. Use when the appointment has a location."},
+                    "location_text": {"type": "string", "description": "Free-form location (e.g. Zoom link, custom instructions, or 'Phone call'). Use with location_type."},
+                    "customer_address": {"type": "string", "description": "Street address when location_type is customer_address (e.g. 123 Main St, Apt 4B)."},
+                    "notes": {"type": "string", "description": "Optional notes (e.g. buzz code, gate instructions)."},
+                    "price_cents": {"type": "integer", "description": "Optional price in cents for the appointment."},
                 },
                 "required": ["summary"],
             },
@@ -84,6 +91,11 @@ async def call_calendar_tool(
                 normalized[k] = int(v) or 30
             except (ValueError, TypeError):
                 normalized[k] = 30
+        elif k == "price_cents" and v is not None:
+            try:
+                normalized[k] = int(v)
+            except (TypeError, ValueError):
+                pass
         elif k == "attendees" and isinstance(v, list):
             normalized[k] = [x for x in v if isinstance(x, str)]
         else:

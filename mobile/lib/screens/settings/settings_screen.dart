@@ -19,6 +19,13 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _loadingBilling = false;
   bool _loadingCalendar = false;
+  Map<String, dynamic>? _calendarInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCalendarInfo();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: constrainedScaffoldBody(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        children: [
+          children: [
           const Text('Business'),
           ListTile(
             title: const Text('Business name & address'),
@@ -65,8 +72,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const Divider(),
           const Text('Integrations'),
+          if (_calendarInfo != null) ...[
+            ListTile(
+              title: const Text('Google Calendar'),
+              subtitle: Text(
+                _calendarInfo!['connected_google_email'] != null
+                    ? 'Connected as ${_calendarInfo!['connected_google_email']}'
+                    : 'Not connected',
+              ),
+            ),
+            ListTile(
+              title: const Text('Booking calendar'),
+              subtitle: Text(
+                _calendarInfo!['booking_calendar_label'] ??
+                    _calendarInfo!['booking_calendar_id'] ??
+                    'primary',
+              ),
+            ),
+          ],
           ListTile(
-            title: const Text('Connect Google Calendar'),
+            title: const Text('Connect / change Google Calendar'),
             subtitle: const Text('Required for appointment booking'),
             trailing: _loadingCalendar
                 ? const SizedBox(
@@ -212,7 +237,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _loadingCalendar = false);
+      if (mounted) {
+        setState(() => _loadingCalendar = false);
+      }
+      // After connect attempt, refresh basic calendar info for the user
+      await _loadCalendarInfo();
+    }
+  }
+
+  Future<void> _loadCalendarInfo() async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+      final res = await Supabase.instance.client
+          .from('users')
+          .select('email, calendar_id, calendar_refresh_token')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (!mounted) return;
+      setState(() {
+        _calendarInfo = {
+          'connected_google_email': (res?['calendar_id'] as String?) ??
+              (res?['email'] as String?),
+          'booking_calendar_id':
+              (res?['calendar_id'] as String?) ?? 'primary',
+          'booking_calendar_label':
+              (res?['calendar_id'] as String?) ?? 'primary',
+        };
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _calendarInfo = null);
     }
   }
 }

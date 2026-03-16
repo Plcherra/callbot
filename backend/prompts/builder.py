@@ -82,8 +82,14 @@ def build_receptionist_prompt(
             price = f"${(s.get('price_cents') or 0) / 100:.2f}"
             dur = f", {s.get('duration_minutes', 0)} min" if s.get("duration_minutes") else ""
             desc = f" ({s.get('description')})" if s.get('description') and not compact else ""
-            parts.append(f"{s.get('name', '')}: {price}{dur}{desc}")
+            loc_req = " [requires location]" if s.get("requires_location") else ""
+            parts.append(f"{s.get('name', '')}: {price}{dur}{desc}{loc_req}")
         sections.append(f"Services and pricing: {'; '.join(parts)}. Quote prices and duration when asked.")
+        any_requires_location = any(s.get("requires_location") for s in svc_list)
+        if any_requires_location:
+            sections.append(
+                "Location for bookings: Some services require a location. For those, you MUST collect the location before calling create_appointment. Ask whether the appointment is at a customer address, by phone call, by video meeting, or other. Pass location_type (customer_address, phone_call, video_meeting, or custom) and either customer_address (for street addresses) or location_text (e.g. Zoom link, 'Phone call', or custom instructions). Do not create the appointment until you have the location when the service requires it."
+            )
 
     if locations:
         parts = []
@@ -128,8 +134,14 @@ def build_receptionist_prompt(
 
     # 6. Booking flow
     sections.append(
-        "Booking flow: (1) Confirm what they want (e.g. which service). (2) Get date and time (or offer to check availability). (3) Get their name and optionally phone for the appointment. (4) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (5) Use the create_appointment tool. (6) Confirm success and say what happens next (e.g. reminder, payment link). For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, always speak 2–4 concrete times (e.g. \"Pedro has 9, 10, and 11 AM open tomorrow morning. Which works best?\" or \"I can do 10 to 11 AM, or 11 to noon.\"). Do not say only that a period is available without offering actual times. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
+        "Booking flow: (1) Confirm what they want (e.g. which service). (2) Get date and time (or offer to check availability). (3) If the selected service requires a location, ask for it (customer address, phone call, video meeting, or custom) and collect the address or details before booking. (4) Get their name and optionally phone for the appointment. (5) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (6) Use the create_appointment tool, passing service_name, duration_minutes, and when relevant location_type and customer_address or location_text and notes. (7) Confirm success and say what happens next. For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, always speak 2–4 concrete times. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
     )
+
+    # 6b. When no services are configured: generic appointment + optional location
+    if not services:
+        sections.append(
+            "No services are configured: For generic appointments, ask for an appointment title (summary), duration (in minutes), and whether the appointment needs a location. If they need a location, ask if it's a customer address, phone call, video meeting, or something else; then collect the address or details. Pass summary, duration_minutes, and when relevant location_type and customer_address or location_text to create_appointment. Do not ask for location if they say they don't need one."
+        )
 
     if extra_instructions and extra_instructions.strip():
         sections.append(f"Additional instructions from the business:\n{extra_instructions.strip()}")

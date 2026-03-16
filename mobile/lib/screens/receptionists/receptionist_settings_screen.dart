@@ -22,12 +22,16 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String? _receptionistName;
+  String _mode = 'personal';
+  Map<String, dynamic>? _calendarStatus;
+  bool _loadingCalendarStatus = false;
   bool _loading = true;
+  List<Tab> _tabs = const [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 0, vsync: this);
     _load();
   }
 
@@ -40,13 +44,38 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
   Future<void> _load() async {
     final res = await Supabase.instance.client
         .from('receptionists')
-        .select('name')
+        .select('name, mode')
         .eq('id', widget.receptionistId)
         .maybeSingle();
+    _receptionistName = res?['name'] as String?;
+    _mode = (res?['mode'] as String?) ?? 'personal';
+
+  // Build tabs based on mode: always include Calendar + Services + Instructions;
+  // Staff/Locations/Promos only appear for business assistants.
+    final tabs = <Tab>[
+      const Tab(text: 'Calendar'),
+    const Tab(text: 'Services'),
+    const Tab(text: 'Instructions'),
+    ];
+    if (_mode == 'business') {
+      tabs.insertAll(1, const [
+      Tab(text: 'Staff'),
+      Tab(text: 'Locations'),
+      Tab(text: 'Promos'),
+      Tab(text: 'Website'),
+      ]);
+    } else {
+    tabs.insert(2, const Tab(text: 'Website'));
+    }
+
     setState(() {
-      _receptionistName = res?['name'] as String?;
+      _tabs = tabs;
       _loading = false;
+      _tabController.dispose();
+      _tabController = TabController(length: _tabs.length, vsync: this);
     });
+
+    await _loadCalendarStatus();
   }
 
   @override
@@ -67,30 +96,141 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
-          tabs: const [
-            Tab(text: 'Staff'),
-            Tab(text: 'Services'),
-            Tab(text: 'Locations'),
-            Tab(text: 'Promos'),
-            Tab(text: 'Website'),
-            Tab(text: 'Instructions'),
-          ],
+          tabs: _tabs,
         ),
       ),
       body: constrainedScaffoldBody(
         child: TabBarView(
           controller: _tabController,
-          children: [
-          _StaffTab(receptionistId: widget.receptionistId),
-          _ServicesTab(receptionistId: widget.receptionistId),
-          _LocationsTab(receptionistId: widget.receptionistId),
-          _PromosTab(receptionistId: widget.receptionistId),
-          _WebsiteTab(receptionistId: widget.receptionistId),
-          _InstructionsTab(receptionistId: widget.receptionistId),
-        ],
+          children: _buildTabViews(),
         ),
       ),
     );
+  }
+
+class _CalendarTab extends StatelessWidget {
+  final String receptionistId;
+  final Map<String, dynamic>? status;
+  final bool loading;
+  final Future<void> Function() onRefresh;
+
+  const _CalendarTab({
+    required this.receptionistId,
+    required this.status,
+    required this.loading,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = status ?? {};
+    final mode = (s['mode'] as String?) ?? 'personal';
+    final assistantName = s['assistant_name'] as String? ?? '';
+    final connectedEmail = s['connected_google_email'] as String?;
+    final bookingCalendar = s['booking_calendar_label'] as String? ??
+        s['booking_calendar_id'] as String? ??
+        'primary';
+    final connected = (s['calendar_connected'] as bool?) ?? false;
+
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          ListTile(
+            title: const Text('Assistant'),
+            subtitle: Text(
+              assistantName.isNotEmpty ? assistantName : receptionistId,
+            ),
+          ),
+          ListTile(
+            title: const Text('Mode'),
+            subtitle:
+                Text(mode == 'business' ? 'Business / Team' : 'Personal / Solo'),
+          ),
+          ListTile(
+            title: const Text('Google account'),
+            subtitle: Text(
+              connectedEmail ?? 'Not connected',
+            ),
+            trailing: Icon(
+              connected ? Icons.check_circle : Icons.error_outline,
+              color: connected ? Colors.green : Colors.orange,
+            ),
+          ),
+          ListTile(
+            title: const Text('Booking calendar'),
+            subtitle: Text(bookingCalendar),
+          ),
+          const SizedBox(height: 8),
+          if (loading) const LinearProgressIndicator(),
+          const SizedBox(height: 8),
+          Text(
+            'This calendar is used for availability checks and bookings for this assistant.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+  Future<void> _loadCalendarStatus() async {
+    setState(() => _loadingCalendarStatus = true);
+    try {
+      final res = await ApiClient.get(
+        '/api/mobile/receptionists/${widget.receptionistId}/calendar-status',
+      );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body) as Map<String, dynamic>;
+        if (!mounted) return;
+        setState(() {
+          _calendarStatus = data;
+        });
+      }
+    } catch (_) {
+      // Swallow; UI will just show a generic message.
+    } finally {
+      if (!mounted) return;
+      setState(() => _loadingCalendarStatus = false);
+    }
+  }
+
+  List<Widget> _buildTabViews() {
+    final views = <Widget>[];
+    for (final tab in _tabs) {
+      switch (tab.text) {
+        case 'Calendar':
+          views.add(_CalendarTab(
+            receptionistId: widget.receptionistId,
+            status: _calendarStatus,
+            loading: _loadingCalendarStatus,
+            onRefresh: _loadCalendarStatus,
+          ));
+          break;
+        case 'Staff':
+          views.add(_StaffTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Services':
+          views.add(_ServicesTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Locations':
+          views.add(_LocationsTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Promos':
+          views.add(_PromosTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Website':
+          views.add(_WebsiteTab(receptionistId: widget.receptionistId));
+          break;
+        case 'Instructions':
+          views.add(_InstructionsTab(receptionistId: widget.receptionistId));
+          break;
+        default:
+          views.add(const SizedBox.shrink());
+      }
+    }
+    return views;
   }
 }
 
@@ -257,13 +397,26 @@ class _ServicesTabState extends State<_ServicesTab> {
   Future<void> _load() async {
     final res = await Supabase.instance.client
         .from('services')
-        .select('id, name, description, price_cents, duration_minutes')
+        .select('id, name, description, price_cents, duration_minutes, requires_location, default_location_type')
         .eq('receptionist_id', widget.receptionistId)
         .order('name');
     setState(() {
       _services = (res as List).cast<Map<String, dynamic>>();
       _loading = false;
     });
+  }
+
+  Future<void> _updateService(String id, {bool? requiresLocation, String? defaultLocationType}) async {
+    final updates = <String, dynamic>{};
+    if (requiresLocation != null) updates['requires_location'] = requiresLocation;
+    if (defaultLocationType != null) updates['default_location_type'] = defaultLocationType.isEmpty ? null : defaultLocationType;
+    if (updates.isEmpty) return;
+    await Supabase.instance.client
+        .from('services')
+        .update(updates)
+        .eq('id', id)
+        .eq('receptionist_id', widget.receptionistId);
+    _load();
   }
 
   @override
@@ -274,25 +427,79 @@ class _ServicesTabState extends State<_ServicesTab> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Service menu with pricing and duration.'),
+        const Text('Service menu with pricing, duration, and optional location.'),
         const SizedBox(height: 16),
-        ..._services.map((s) => ListTile(
-              title: Text(s['name'] ?? ''),
-              subtitle: Text(
-                '${(s['price_cents'] ?? 0) / 100} · ${s['duration_minutes'] ?? 0} min',
+        ..._services.map((s) {
+          final requiresLocation = (s['requires_location'] as bool?) ?? false;
+          final rawType = s['default_location_type'] as String?;
+          final defaultLocationType = (rawType == null || rawType == 'no_location') ? 'customer_address' : rawType;
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(s['name'] ?? '', style: Theme.of(context).textTheme.titleMedium),
+                            Text(
+                              '\$${(s['price_cents'] ?? 0) / 100} · ${s['duration_minutes'] ?? 0} min',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete),
+                        onPressed: () async {
+                          await Supabase.instance.client
+                              .from('services')
+                              .delete()
+                              .eq('id', s['id'])
+                              .eq('receptionist_id', widget.receptionistId);
+                          _load();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  CheckboxListTile(
+                    title: const Text('Requires location', style: TextStyle(fontSize: 14)),
+                    value: requiresLocation,
+                    onChanged: (v) => _updateService(s['id'] as String, requiresLocation: v ?? false),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+                  if (requiresLocation) ...[
+                    const SizedBox(height: 4),
+                    DropdownButtonFormField<String>(
+                      value: defaultLocationType,
+                      decoration: const InputDecoration(
+                        labelText: 'Location type',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      isExpanded: true,
+                      items: const [
+                        DropdownMenuItem(value: 'customer_address', child: Text('Customer address')),
+                        DropdownMenuItem(value: 'phone_call', child: Text('Phone call')),
+                        DropdownMenuItem(value: 'video_meeting', child: Text('Video meeting')),
+                        DropdownMenuItem(value: 'custom', child: Text('Custom text')),
+                      ],
+                      onChanged: (v) => _updateService(s['id'] as String, defaultLocationType: v ?? 'customer_address'),
+                    ),
+                  ],
+                ],
               ),
-              trailing: IconButton(
-                icon: const Icon(Icons.delete),
-                onPressed: () async {
-                  await Supabase.instance.client
-                      .from('services')
-                      .delete()
-                      .eq('id', s['id'])
-                      .eq('receptionist_id', widget.receptionistId);
-                  _load();
-                },
-              ),
-            )),
+            ),
+          );
+        }),
       ],
     );
   }

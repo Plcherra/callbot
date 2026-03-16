@@ -321,12 +321,16 @@ async def create_receptionist(request: Request):
         return JSONResponse({"error": "Calendar ID is required."}, status_code=400)
 
     staff_list = body.get("staff") or []
+    service_list = body.get("services") or []
     extra_instructions = (body.get("extra_instructions") or "").strip() or None
     system_prompt = (body.get("system_prompt") or "").strip() or None
     greeting = (body.get("greeting") or "").strip() or None
     voice_id = (body.get("voice_id") or "").strip() or None
     assistant_identity = (body.get("assistant_identity") or "").strip() or None
     promotions = (body.get("promotions") or body.get("promos") or "").strip()
+    mode = (body.get("mode") or "personal").strip().lower()
+    if mode not in ("personal", "business"):
+        mode = "personal"
 
     insert_data = {
         "user_id": user["id"],
@@ -337,6 +341,7 @@ async def create_receptionist(request: Request):
         "telnyx_phone_number": telnyx_phone or inbound_number,
         "calendar_id": calendar_id,
         "status": "active",
+        "mode": mode,
         "extra_instructions": extra_instructions,
         "system_prompt": system_prompt,
         "greeting": greeting,
@@ -363,6 +368,33 @@ async def create_receptionist(request: Request):
                     "role": (s.get("description") or "").strip() or None,
                     "is_active": True,
                 }).execute()
+        for svc in service_list:
+            nm = (svc.get("name") or "").strip()
+            if not nm:
+                continue
+            desc = (svc.get("description") or "").strip() or None
+            dur = svc.get("duration_minutes")
+            price_cents = svc.get("price_cents")
+            requires_location = bool(svc.get("requires_location"))
+            default_location_type = (svc.get("default_location_type") or "").strip() or None
+            try:
+                dur_val = int(dur) if dur is not None else 0
+            except (TypeError, ValueError):
+                dur_val = 0
+            try:
+                price_val = int(price_cents) if price_cents is not None else 0
+            except (TypeError, ValueError):
+                price_val = 0
+            row = {
+                "receptionist_id": rec_id,
+                "name": nm,
+                "description": desc,
+                "duration_minutes": dur_val,
+                "price_cents": price_val,
+                "requires_location": requires_location,
+                "default_location_type": default_location_type,
+            }
+            supabase.table("services").insert(row).execute()
         if promotions:
             supabase.table("promos").insert({"receptionist_id": rec_id, "description": promotions, "code": "WIZARD"}).execute()
 
@@ -393,13 +425,63 @@ async def get_receptionist(request: Request, receptionist_id: str):
         return JSONResponse({"error": err}, status_code=404)
 
     r = supabase.table("receptionists").select(
-        "id, name, phone_number, inbound_phone_number, calendar_id, status, "
+        "id, name, phone_number, inbound_phone_number, calendar_id, status, mode, "
         "website_url, extra_instructions, payment_settings, created_at, "
         "system_prompt, greeting, voice_id, assistant_identity"
     ).eq("id", receptionist_id).single().execute()
     if not r.data:
         return JSONResponse({"error": "Receptionist not found"}, status_code=404)
     return r.data
+
+
+@router.get("/receptionists/{receptionist_id}/calendar-status")
+async def receptionist_calendar_status(request: Request, receptionist_id: str):
+    """Return calendar connection details for a given receptionist."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_receptionist_ownership(receptionist_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    rec = (
+        supabase.table("receptionists")
+        .select("id, name, user_id, calendar_id, mode")
+        .eq("id", receptionist_id)
+        .single()
+        .execute()
+    )
+    if not rec.data:
+        return JSONResponse({"error": "Receptionist not found"}, status_code=404)
+
+    rec_data = rec.data or {}
+    owner_id = rec_data.get("user_id") or user["id"]
+
+    user_row = (
+        supabase.table("users")
+        .select("email, calendar_id, calendar_refresh_token")
+        .eq("id", owner_id)
+        .single()
+        .execute()
+    )
+    u = user_row.data or {}
+
+    connected_email = u.get("calendar_id") or u.get("email")
+    booking_calendar_id = (rec_data.get("calendar_id") or u.get("calendar_id") or "primary").strip()
+    mode = (rec_data.get("mode") or "personal").strip()
+
+    # For now, label is just the ID; can be enhanced later by querying Google Calendar list.
+    booking_calendar_label = booking_calendar_id
+
+    return {
+        "connected_google_email": connected_email,
+        "booking_calendar_id": booking_calendar_id,
+        "booking_calendar_label": booking_calendar_label,
+        "mode": mode,
+        "assistant_name": rec_data.get("name"),
+        "calendar_connected": bool(u.get("calendar_refresh_token")),
+    }
 
 
 @router.patch("/receptionists/{receptionist_id}")
@@ -447,15 +529,37 @@ async def delete_receptionist(request: Request, receptionist_id: str):
     if err:
         return JSONResponse({"error": err}, status_code=404)
 
-    rec = supabase.table("receptionists").select("telnyx_phone_number_id").eq("id", receptionist_id).single().execute()
-    telnyx_id = (rec.data or {}).get("telnyx_phone_number_id") if rec.data else None
+    rec = (
+        supabase.table("receptionists")
+        .select("telnyx_phone_number_id, inbound_phone_number, status, deleted_at, active")
+        .eq("id", receptionist_id)
+        .single()
+        .execute()
+    )
+    data = rec.data or {}
+
+    # Release Telnyx number if provisioned
+    telnyx_id = data.get("telnyx_phone_number_id")
     if telnyx_id:
         try:
             telnyx_provision.release_number(telnyx_id)
         except Exception as ex:
             logger.warning("[delete] Failed to release Telnyx number: %s", ex)
-    supabase.table("receptionists").delete().eq("id", receptionist_id).execute()
-    return {"success": True}
+
+    # Soft delete receptionist: keep history, hide from UI/routing
+    now_iso = datetime.utcnow().isoformat() + "Z"
+    updates: dict[str, object] = {
+        "status": "paused",
+        "active": False,
+        "deleted_at": now_iso,
+        "updated_at": now_iso,
+    }
+    supabase.table("receptionists").update(updates).eq("id", receptionist_id).execute()
+
+    return {
+        "success": True,
+        "message": "Assistant deleted. Call history, usage records, and billing data are preserved.",
+    }
 
 
 @router.post("/receptionists/{receptionist_id}/website")

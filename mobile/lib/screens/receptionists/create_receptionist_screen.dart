@@ -71,6 +71,10 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
       }
       return true;
     }
+    if (_step == 4 && _formData.mode == 'personal') {
+      // No validation needed for business-only step in personal mode.
+      return true;
+    }
     if (_step == 2) {
       if (_formData.phoneStrategy == 'new') {
         if (_formData.areaCode == null || _formData.areaCode!.isEmpty) {
@@ -287,6 +291,26 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const Text(
+          'Who is this assistant for?',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        RadioListTile<String>(
+          title: const Text('Personal / Solo'),
+          subtitle: const Text('Book time directly on my own calendar'),
+          value: 'personal',
+          groupValue: _formData.mode,
+          onChanged: (v) => setState(() => _formData.mode = v ?? 'personal'),
+        ),
+        RadioListTile<String>(
+          title: const Text('Business / Team'),
+          subtitle: const Text('Use staff, services, and locations'),
+          value: 'business',
+          groupValue: _formData.mode,
+          onChanged: (v) => setState(() => _formData.mode = v ?? 'business'),
+        ),
+        const SizedBox(height: 16),
         TextFormField(
           initialValue: _formData.name,
           decoration: const InputDecoration(
@@ -440,6 +464,169 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
   }
 
   Widget _buildStep4() {
+    // Personal: optional services only. Business: existing staff/services/locations/promos fields.
+    if (_formData.mode == 'personal') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Services (optional)'),
+          const SizedBox(height: 8),
+          const Text(
+            'Add services you offer so your assistant can suggest durations automatically. '
+            'If you skip this, the assistant will book generic appointments and ask for duration.',
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Services'),
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  _formData.services.add(
+                    ServiceItem(
+                      name: '',
+                      description: '',
+                      durationMinutes: null,
+                      priceCents: null,
+                      requiresLocation: false,
+                      defaultLocationType: null,
+                    ),
+                  );
+                }),
+                icon: const Icon(Icons.add),
+                label: const Text('Add service'),
+              ),
+            ],
+          ),
+          ..._formData.services.asMap().entries.map((e) {
+            final i = e.key;
+            final s = e.value;
+            return Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: TextFormField(
+                          initialValue: s.name,
+                          decoration: const InputDecoration(
+                            hintText: 'Service name',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            _formData.services[i] = ServiceItem(
+                              name: v ?? '',
+                              description: s.description,
+                              durationMinutes: s.durationMinutes,
+                              priceCents: s.priceCents,
+                              requiresLocation: s.requiresLocation,
+                              defaultLocationType: s.defaultLocationType,
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 3,
+                        child: TextFormField(
+                          initialValue: s.description,
+                          decoration: const InputDecoration(
+                            hintText: 'Description',
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            _formData.services[i] = ServiceItem(
+                              name: s.name,
+                              description: v ?? '',
+                              durationMinutes: s.durationMinutes,
+                              priceCents: s.priceCents,
+                              requiresLocation: s.requiresLocation,
+                              defaultLocationType: s.defaultLocationType,
+                            );
+                          },
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete),
+                        onPressed: () => setState(() => _formData.services.removeAt(i)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 180,
+                        child: CheckboxListTile(
+                          title: const Text('Requires location', style: TextStyle(fontSize: 14)),
+                          value: s.requiresLocation,
+                          onChanged: (v) {
+                            _formData.services[i] = ServiceItem(
+                              name: s.name,
+                              description: s.description,
+                              durationMinutes: s.durationMinutes,
+                              priceCents: s.priceCents,
+                              requiresLocation: v ?? false,
+                              defaultLocationType: s.defaultLocationType,
+                            );
+                            setState(() {});
+                          },
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                          dense: true,
+                        ),
+                      ),
+                      if (s.requiresLocation) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: s.defaultLocationType ?? 'customer_address',
+                            decoration: const InputDecoration(
+                              labelText: 'Location type',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            isExpanded: true,
+                            items: locationTypeOptions
+                                .where((o) => o.value != 'no_location')
+                                .map((o) => DropdownMenuItem(value: o.value, child: Text(o.label)))
+                                .toList(),
+                            onChanged: (v) {
+                              _formData.services[i] = ServiceItem(
+                                name: s.name,
+                                description: s.description,
+                                durationMinutes: s.durationMinutes,
+                                priceCents: s.priceCents,
+                                requiresLocation: s.requiresLocation,
+                                defaultLocationType: v,
+                              );
+                              setState(() {});
+                            },
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+          if (_formData.services.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('Defaults (optional)', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text(
+              'You can edit duration, price, and location settings later from the Services screen.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

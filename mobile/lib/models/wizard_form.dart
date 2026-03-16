@@ -9,10 +9,39 @@ class StaffItem {
       {'name': name, 'description': description};
 }
 
+class ServiceItem {
+  final String name;
+  final String description;
+  final int? durationMinutes;
+  final int? priceCents;
+  final bool requiresLocation;
+  final String? defaultLocationType;
+
+  ServiceItem({
+    required this.name,
+    required this.description,
+    this.durationMinutes,
+    this.priceCents,
+    this.requiresLocation = false,
+    this.defaultLocationType,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'description': description,
+        if (durationMinutes != null) 'duration_minutes': durationMinutes,
+        if (priceCents != null) 'price_cents': priceCents,
+        'requires_location': requiresLocation,
+        if (defaultLocationType != null && defaultLocationType!.isNotEmpty)
+          'default_location_type': defaultLocationType,
+      };
+}
+
 class WizardFormData {
   String name;
   String country;
   String calendarId;
+  String mode; // 'personal' | 'business'
   String phoneStrategy; // 'new' | 'own'
   String? areaCode;
   String? ownPhone;
@@ -22,6 +51,7 @@ class WizardFormData {
   String? voiceId;
   String? assistantIdentity;
   List<StaffItem> staff;
+  List<ServiceItem> services;
   String? promotions;
   String? businessHours;
   String? extraInstructions;
@@ -34,6 +64,7 @@ class WizardFormData {
     this.name = '',
     this.country = 'US',
     this.calendarId = 'primary',
+    this.mode = 'personal',
     this.phoneStrategy = 'new',
     this.areaCode = '212',
     this.ownPhone,
@@ -44,6 +75,7 @@ class WizardFormData {
     this.voiceId,
     this.assistantIdentity,
     List<StaffItem>? staff,
+    List<ServiceItem>? services,
     this.promotions,
     this.businessHours,
     this.extraInstructions,
@@ -51,13 +83,15 @@ class WizardFormData {
     this.fallbackBehavior = 'voicemail',
     this.maxCallDurationMinutes,
     this.consent = false,
-  }) : staff = staff ?? [];
+  })  : staff = staff ?? [],
+        services = services ?? [];
 
   Map<String, dynamic> toApiBody() {
     final body = <String, dynamic>{
       'name': name.trim(),
       'country': country,
       'calendar_id': calendarId.trim(),
+      'mode': mode,
       'phone_strategy': phoneStrategy,
       'system_prompt': systemPrompt.trim(),
       'staff': staff.where((s) => s.name.trim().isNotEmpty).map((s) => s.toJson()).toList(),
@@ -83,6 +117,13 @@ class WizardFormData {
     }
     if (businessHours != null && businessHours!.trim().isNotEmpty) {
       body['business_hours'] = businessHours!.trim();
+    }
+    final servicePayload = services
+        .where((s) => s.name.trim().isNotEmpty)
+        .map((s) => s.toJson())
+        .toList();
+    if (servicePayload.isNotEmpty) {
+      body['services'] = servicePayload;
     }
     if (voicePersonality != null) body['voice_personality'] = voicePersonality;
     if (fallbackBehavior != null) body['fallback_behavior'] = fallbackBehavior;
@@ -129,4 +170,12 @@ const voicePersonalityOptions = [
 const fallbackBehaviorOptions = [
   SelectOption('voicemail', 'Take voicemail'),
   SelectOption('transfer', 'Transfer to human'),
+];
+
+const locationTypeOptions = [
+  SelectOption('no_location', 'No location'),
+  SelectOption('customer_address', 'Customer address'),
+  SelectOption('phone_call', 'Phone call'),
+  SelectOption('video_meeting', 'Video meeting'),
+  SelectOption('custom', 'Custom text'),
 ];

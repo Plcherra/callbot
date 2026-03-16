@@ -202,7 +202,7 @@ async def handle_calendar_request(body: dict) -> dict:
         if action == "check_availability":
             return _handle_check_availability(service, calendar_id, params)
         if action == "create_appointment":
-            return _handle_create_appointment(service, calendar_id, params)
+            return _handle_create_appointment(service, calendar_id, params, receptionist_id, supabase)
         return _handle_reschedule(service, calendar_id, params)
     except Exception as e:
         msg = str(e)
@@ -265,6 +265,14 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
         except (ValueError, TypeError):
             pass
 
+    logger.info(
+        "[CALENDAR_CTX] availability_check calendar_id=%s timezone=%s timeMin=%s timeMax=%s",
+        calendar_id,
+        timezone,
+        range_data["timeMin"],
+        range_data["timeMax"],
+    )
+
     freebusy = service.freebusy().query(
         body={
             "timeMin": range_data["timeMin"],
@@ -305,6 +313,12 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
         slot_start = _parse_iso_datetime_or_natural(start_date, timezone=timezone)
         if slot_start:
             slot_end = slot_start + timedelta(minutes=duration_minutes)
+            logger.info(
+                "[CALENDAR_CTX] availability_slot_check calendar_id=%s slot_start=%s slot_end=%s",
+                calendar_id,
+                slot_start.isoformat(),
+                slot_end.isoformat(),
+            )
             slot_fb = service.freebusy().query(
                 body={
                     "timeMin": slot_start.isoformat(),
@@ -339,19 +353,34 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
     }
 
 
-def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
+def _handle_create_appointment(service, calendar_id: str, params: dict, receptionist_id: str, supabase) -> dict:
     timezone = (params.get("timezone") or DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
     start_time = params.get("start_time") or params.get("date_text")
     duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
     summary = params.get("summary") or "Appointment"
     description = params.get("description")
     attendees = params.get("attendees")
+    # Optional appointment / booking fields (provider-ready)
+    location_type = (params.get("location_type") or "").strip() or None
+    location_text = (params.get("location_text") or "").strip() or None
+    customer_address = (params.get("customer_address") or "").strip() or None
+    service_id = params.get("service_id")
+    service_name = (params.get("service_name") or "").strip() or None
+    notes = (params.get("notes") or "").strip() or None
+    price_cents = params.get("price_cents")
 
     if isinstance(duration_minutes, str):
         try:
             duration_minutes = int(duration_minutes) or DEFAULT_SLOT_MINUTES
         except (ValueError, TypeError):
             duration_minutes = DEFAULT_SLOT_MINUTES
+    if service_id is not None and isinstance(service_id, str) and not service_id.strip():
+        service_id = None
+    if price_cents is not None:
+        try:
+            price_cents = int(price_cents)
+        except (TypeError, ValueError):
+            price_cents = None
 
     if not start_time:
         return {"success": False, "error": "date_missing", "message": "What day and time should I book it for?"}
@@ -367,11 +396,25 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
     start_iso = start_d.isoformat()
     end_iso = end_d.isoformat()
     logger.info(
-        "[CAL_BOOK] create_appointment start=%s end=%s duration_minutes=%s",
+        "[CAL_BOOK] create_appointment calendar_id=%s start=%s end=%s duration_minutes=%s",
+        calendar_id,
         start_iso,
         end_iso,
         duration_minutes,
     )
+
+    # Build description: optional location line for calendar event
+    desc_parts = []
+    if description:
+        desc_parts.append(description)
+    location_display = customer_address or location_text
+    if location_display and location_type:
+        desc_parts.append(f"Location ({location_type}): {location_display}")
+    elif location_display:
+        desc_parts.append(f"Location: {location_display}")
+    if notes:
+        desc_parts.append(f"Notes: {notes}")
+    event_description = "\n\n".join(desc_parts) if desc_parts else None
 
     # Check busy before insert
     freebusy_res = service.freebusy().query(
@@ -412,8 +455,8 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
         "start": {"dateTime": start_iso, "timeZone": DEFAULT_TIMEZONE},
         "end": {"dateTime": end_iso, "timeZone": DEFAULT_TIMEZONE},
     }
-    if description:
-        event_body["description"] = description
+    if event_description:
+        event_body["description"] = event_description
     if attendees and isinstance(attendees, list):
         event_body["attendees"] = [{"email": e} for e in attendees if isinstance(e, str)]
 
@@ -467,6 +510,29 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
         }
 
     logger.info("[CAL_BOOK] create_appointment success event_id=%s", event.get("id"))
+
+    # Persist extended booking record (provider-ready for Square etc.)
+    try:
+        supabase.table("appointments").insert({
+            "receptionist_id": receptionist_id,
+            "event_id": event.get("id"),
+            "start_time": start_iso,
+            "end_time": end_iso,
+            "duration_minutes": duration_minutes,
+            "summary": summary,
+            "description": event_description,
+            "service_id": service_id,
+            "service_name": service_name,
+            "location_type": location_type,
+            "location_text": location_text,
+            "customer_address": customer_address,
+            "price_cents": price_cents,
+            "notes": notes,
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }).execute()
+    except Exception as ex:
+        logger.warning("[CAL_BOOK] appointments insert failed (event already created): %s", ex)
+
     return {
         "success": True,
         "event_id": event.get("id"),

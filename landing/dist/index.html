@@ -1,240 +1,574 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Receptionist – Never Miss a Booking | Echodesk</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    body { font-family: 'Inter', sans-serif; }
-  </style>
-</head>
-<body class="antialiased">
-  <!-- Header -->
-  <header class="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur">
-    <div class="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-      <a href="/" class="font-semibold text-gray-900">AI Receptionist</a>
-      <nav class="flex items-center gap-3">
-        <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="rounded-md px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100">iOS</a>
-        <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="rounded-md bg-violet-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-700">Android</a>
-      </nav>
-    </div>
-  </header>
-
-  <!-- Hero -->
-  <section class="relative overflow-hidden bg-gradient-to-br from-violet-600 via-purple-600 to-indigo-700 px-6 py-24 text-white sm:py-32">
-    <div class="mx-auto max-w-4xl text-center">
-      <h1 class="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
-        AI Receptionist – Never Miss a Booking
-      </h1>
-      <p class="mt-6 text-lg text-white/90 sm:text-xl">
-        Your AI answers calls, books appointments, and syncs with Google
-        Calendar. For individuals and small businesses—salons, barbers, spas, handymen, and more.
-      </p>
-      <p class="mt-4 text-2xl font-semibold">From $69/mo</p>
-      <div class="mt-10 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
-        <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg bg-white px-6 py-3 text-base font-medium text-purple-700 hover:bg-white/90">
-          Download for iOS
-        </a>
-        <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="inline-flex items-center rounded-lg border border-white/50 bg-transparent px-6 py-3 text-base font-medium text-white hover:bg-white/10">
-          Get it on Google Play
-        </a>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Receptionist – Never Miss a Booking | Echodesk</title>
+    <meta
+      name="description"
+      content="Echodesk is an AI receptionist that answers calls, books appointments into Google Calendar, and makes sure you never miss a booking."
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-50 antialiased">
+    <!-- Page chrome -->
+    <div class="relative flex min-h-screen flex-col">
+      <!-- Glow / background -->
+      <div
+        aria-hidden="true"
+        class="pointer-events-none fixed inset-0 -z-10 bg-slate-950"
+      >
+        <div
+          class="absolute left-1/2 top-[-15%] h-72 w-[52rem] -translate-x-1/2 rounded-full bg-violet-600/30 blur-3xl"
+        ></div>
+        <div
+          class="absolute left-[8%] top-[40%] h-64 w-64 rounded-full bg-indigo-500/20 blur-3xl"
+        ></div>
+        <div
+          class="absolute bottom-[-10%] right-[5%] h-80 w-80 rounded-full bg-purple-500/25 blur-3xl"
+        ></div>
       </div>
-    </div>
-  </section>
 
-  <!-- Pricing Teaser -->
-  <section class="px-6 py-12">
-    <div class="mx-auto max-w-5xl">
-      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="flex flex-col rounded-lg border-2 border-violet-100 bg-white p-6 shadow-md transition-colors hover:border-violet-200">
-          <h3 class="text-base font-semibold">Free</h3>
-          <p class="text-sm text-gray-500">Try free</p>
-          <div class="mt-2 flex items-baseline gap-1">
-            <span class="text-2xl font-bold">$0</span>
-            <span class="text-sm text-gray-500">/mo</span>
-          </div>
-          <div class="mt-4 flex-1 flex gap-2">
-            <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-violet-700">iOS</a>
-            <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium hover:bg-gray-50">Android</a>
+      <!-- Header -->
+      <header
+        class="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/80 backdrop-blur"
+      >
+        <div
+          class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6"
+        >
+          <a href="/" class="flex items-center gap-2">
+            <div
+              class="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 text-xs font-semibold text-white shadow-lg shadow-violet-500/40"
+            >
+              EA
+            </div>
+            <div class="flex flex-col">
+              <span class="text-sm font-semibold tracking-tight">
+                Echodesk
+              </span>
+              <span class="text-[11px] font-medium text-slate-400">
+                AI Receptionist
+              </span>
+            </div>
+          </a>
+          <nav class="hidden items-center gap-6 text-sm text-slate-300 sm:flex">
+            <a href="#how-it-works" class="hover:text-slate-50">How it works</a>
+            <a href="#pricing" class="hover:text-slate-50">Pricing</a>
+            <a href="#testimonials" class="hover:text-slate-50">Stories</a>
+            <a
+              href="mailto:hello@echodesk.us"
+              class="hidden text-slate-400 hover:text-slate-50 sm:inline"
+              >Contact</a
+            >
+          </nav>
+          <div class="flex items-center gap-2">
+            <a
+              href="https://apps.apple.com/app/echodesk"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hidden rounded-full border border-slate-700/80 bg-slate-900/60 px-3 py-1.5 text-xs font-medium text-slate-200 shadow-sm hover:border-slate-500 hover:text-white sm:inline-flex"
+            >
+              iOS app
+            </a>
+            <a
+              href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-violet-500/40 hover:brightness-110"
+            >
+              <span class="hidden sm:inline">Get started</span>
+              <span class="sm:hidden">Download</span>
+              <svg
+                class="h-3.5 w-3.5"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M4 12L12 4M7 4H12V9"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </a>
           </div>
         </div>
-        <div class="flex flex-col rounded-lg border-2 border-violet-100 bg-white p-6 shadow-md transition-colors hover:border-violet-200">
-          <h3 class="text-base font-semibold">Starter</h3>
-          <p class="text-sm text-gray-500">300 min included</p>
-          <div class="mt-2 flex items-baseline gap-1">
-            <span class="text-2xl font-bold">$69</span>
-            <span class="text-sm text-gray-500">/mo</span>
-          </div>
-          <ul class="mt-4 space-y-1.5 text-xs">
-            <li class="flex gap-2">✓ AI answers 24/7</li>
-            <li class="flex gap-2">✓ Google Calendar</li>
-            <li class="flex gap-2">✓ Your phone number</li>
-          </ul>
-          <div class="mt-4 flex gap-2">
-            <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-violet-700">iOS</a>
-            <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium hover:bg-gray-50">Android</a>
-          </div>
-        </div>
-        <div class="flex flex-col rounded-lg border-2 border-violet-100 bg-white p-6 shadow-md transition-colors hover:border-violet-200">
-          <h3 class="text-base font-semibold">Pro</h3>
-          <p class="text-sm text-gray-500">800 min included</p>
-          <div class="mt-2 flex items-baseline gap-1">
-            <span class="text-2xl font-bold">$149</span>
-            <span class="text-sm text-gray-500">/mo</span>
-          </div>
-          <ul class="mt-4 space-y-1.5 text-xs">
-            <li class="flex gap-2">✓ AI answers 24/7</li>
-            <li class="flex gap-2">✓ Google Calendar</li>
-            <li class="flex gap-2">✓ Your phone number</li>
-          </ul>
-          <div class="mt-4 flex gap-2">
-            <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-violet-700">iOS</a>
-            <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium hover:bg-gray-50">Android</a>
-          </div>
-        </div>
-        <div class="flex flex-col rounded-lg border-2 border-violet-100 bg-white p-6 shadow-md transition-colors hover:border-violet-200">
-          <h3 class="text-base font-semibold">Business</h3>
-          <p class="text-sm text-gray-500">1,500 min included</p>
-          <div class="mt-2 flex items-baseline gap-1">
-            <span class="text-2xl font-bold">$249</span>
-            <span class="text-sm text-gray-500">/mo</span>
-          </div>
-          <ul class="mt-4 space-y-1.5 text-xs">
-            <li class="flex gap-2">✓ AI answers 24/7</li>
-            <li class="flex gap-2">✓ Google Calendar</li>
-            <li class="flex gap-2">✓ Your phone number</li>
-          </ul>
-          <div class="mt-4 flex gap-2">
-            <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-2 text-center text-sm font-medium text-white hover:bg-violet-700">iOS</a>
-            <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-center text-sm font-medium hover:bg-gray-50">Android</a>
-          </div>
-        </div>
-      </div>
-      <p class="mt-4 text-center">
-        <a href="#pricing" class="text-sm font-medium text-violet-600 underline underline-offset-2 hover:text-violet-700">
-          See all plans →
-        </a>
-      </p>
-    </div>
-  </section>
+      </header>
 
-  <!-- Demo video -->
-  <section class="px-6 py-16">
-    <div class="mx-auto max-w-4xl">
-      <h2 class="text-center text-2xl font-bold sm:text-3xl">See it in action</h2>
-      <div class="mt-8 aspect-video overflow-hidden rounded-lg bg-gray-200">
-        <iframe
-          class="h-full w-full"
-          src="https://www.youtube.com/embed/dQw4w9WgXcQ"
-          title="Product demo"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowfullscreen
-        ></iframe>
-      </div>
-      <!-- Replace dQw4w9WgXcQ with DEMO_VIDEO_ID env var in deploy -->
-    </div>
-  </section>
-
-  <!-- Pricing -->
-  <section id="pricing" class="px-6 py-16 sm:py-24">
-    <div class="mx-auto max-w-6xl">
-      <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">Simple pricing</h2>
-      <p class="mt-4 text-center text-gray-500">Choose a plan with included minutes. No hidden fees.</p>
-
-      <div class="mt-12">
-        <h3 class="text-center text-lg font-semibold text-gray-500">Subscription plans</h3>
-        <div class="mt-6 grid gap-6 sm:grid-cols-3">
-          <div class="flex flex-col rounded-lg border-2 border-violet-200 p-6 shadow-lg">
-            <h4 class="text-lg font-semibold">Starter</h4>
-            <p class="text-sm text-gray-500">300 minutes included</p>
-            <div class="mt-4 flex items-baseline gap-1">
-              <span class="text-4xl font-bold">$69</span>
-              <span class="text-gray-500">/month</span>
+      <!-- Main content -->
+      <main class="flex-1">
+        <!-- Hero -->
+        <section
+          class="px-4 py-16 sm:px-6 sm:py-20 md:py-24 lg:py-28"
+          id="top"
+        >
+          <div
+            class="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[minmax(0,1.25fr),minmax(0,1fr)] lg:items-center"
+          >
+            <div>
+              <div
+                class="inline-flex items-center gap-2 rounded-full border border-violet-500/40 bg-slate-900/60 px-2.5 py-1 text-[11px] font-medium text-violet-100 shadow-sm shadow-violet-500/20"
+              >
+                <span
+                  class="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400"
+                ></span>
+                <span>Live on iOS &amp; Android</span>
+              </div>
+              <h1
+                class="mt-5 text-balance text-4xl font-semibold tracking-tight text-slate-50 sm:text-5xl md:text-6xl"
+              >
+                AI receptionist<br class="hidden sm:block" />
+                that never misses a booking.
+              </h1>
+              <p
+                class="mt-5 max-w-xl text-balance text-sm leading-relaxed text-slate-300 sm:text-base"
+              >
+                Echodesk answers calls, qualifies callers, and books directly
+                into your Google Calendar — so your chair, treatment room, or
+                schedule is always full, even when you can’t pick up.
+              </p>
+              <div
+                class="mt-6 flex flex-wrap items-center gap-3 text-xs text-slate-300"
+              >
+                <div class="inline-flex items-center gap-1.5 rounded-full bg-slate-900/70 px-3 py-1">
+                  <span class="text-[10px]">✔</span>
+                  <span>24/7 answering</span>
+                </div>
+                <div class="inline-flex items-center gap-1.5 rounded-full bg-slate-900/70 px-3 py-1">
+                  <span class="text-[10px]">✔</span>
+                  <span>Google Calendar sync</span>
+                </div>
+                <div class="inline-flex items-center gap-1.5 rounded-full bg-slate-900/70 px-3 py-1">
+                  <span class="text-[10px]">✔</span>
+                  <span>Your own phone number</span>
+                </div>
+              </div>
+              <div
+                class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"
+              >
+                <a
+                  href="https://apps.apple.com/app/echodesk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-violet-500/30 hover:bg-slate-100"
+                >
+                  Download for iOS
+                </a>
+                <a
+                  href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center rounded-xl border border-slate-700 bg-slate-950/40 px-5 py-2.5 text-sm font-semibold text-slate-100 hover:border-slate-500"
+                >
+                  Get it on Google Play
+                </a>
+              </div>
+              <p class="mt-4 text-xs text-slate-400">
+                From <span class="font-semibold text-slate-100">$69/month</span
+                >. No contracts. Pause or cancel anytime.
+              </p>
             </div>
-            <ul class="mt-6 space-y-3 text-sm">
-              <li class="flex items-center gap-2">✓ AI answers 24/7</li>
-              <li class="flex items-center gap-2">✓ Books into Google Calendar</li>
-              <li class="flex items-center gap-2">✓ Your dedicated phone number</li>
-              <li class="flex items-center gap-2">✓ Cancel anytime</li>
-            </ul>
-            <div class="mt-auto flex gap-2 pt-6">
-              <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-3 text-center font-medium text-white hover:bg-violet-700">Download App</a>
-              <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-center font-medium hover:bg-gray-50">Android</a>
+
+            <!-- Right column: "How it works" cards -->
+            <div
+              id="how-it-works"
+              class="rounded-3xl border border-slate-800/80 bg-slate-950/70 p-5 shadow-xl shadow-slate-950/60 backdrop-blur-sm sm:p-6"
+            >
+              <h2
+                class="text-sm font-semibold uppercase tracking-[0.16em] text-slate-400"
+              >
+                How it works
+              </h2>
+              <div class="mt-4 space-y-4 text-sm text-slate-200">
+                <div
+                  class="flex gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-3.5"
+                >
+                  <div
+                    class="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-violet-600/90 text-[11px] font-semibold"
+                  >
+                    1
+                  </div>
+                  <div>
+                    <p class="font-medium">Connect your Google Calendar</p>
+                    <p class="mt-1 text-xs text-slate-300">
+                      Link your existing Google account so Echodesk can see
+                      availability and create real appointments.
+                    </p>
+                  </div>
+                </div>
+                <div
+                  class="flex gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-3.5"
+                >
+                  <div
+                    class="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-violet-600/90 text-[11px] font-semibold"
+                  >
+                    2
+                  </div>
+                  <div>
+                    <p class="font-medium">Pick your number &amp; greeting</p>
+                    <p class="mt-1 text-xs text-slate-300">
+                      Choose a local number, write a short greeting, and decide
+                      how you want calls to be handled.
+                    </p>
+                  </div>
+                </div>
+                <div
+                  class="flex gap-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-3.5"
+                >
+                  <div
+                    class="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-violet-600/90 text-[11px] font-semibold"
+                  >
+                    3
+                  </div>
+                  <div>
+                    <p class="font-medium">AI answers and books for you</p>
+                    <p class="mt-1 text-xs text-slate-300">
+                      Calls are answered instantly. The AI receptionist
+                      qualifies callers and books into the right calendar
+                      without you lifting a finger.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-[11px] text-emerald-100"
+              >
+                <p>
+                  “We went from missing half our after-hours calls to zero.”
+                  <span class="font-medium text-emerald-50"
+                    >– Salon owner, Austin</span
+                  >
+                </p>
+              </div>
             </div>
           </div>
-          <div class="flex flex-col rounded-lg border-2 border-violet-200 p-6 shadow-lg">
-            <h4 class="text-lg font-semibold">Pro</h4>
-            <p class="text-sm text-gray-500">800 minutes included</p>
-            <div class="mt-4 flex items-baseline gap-1">
-              <span class="text-4xl font-bold">$149</span>
-              <span class="text-gray-500">/month</span>
+        </section>
+
+        <!-- Feature strip -->
+        <section class="px-4 pb-8 sm:px-6 sm:pb-12">
+          <div
+            class="mx-auto grid max-w-6xl gap-4 rounded-3xl border border-slate-800/80 bg-slate-950/80 p-4 text-xs text-slate-200 sm:grid-cols-3 sm:p-5 lg:grid-cols-4"
+          >
+            <div class="flex items-start gap-2">
+              <span class="mt-[3px] text-emerald-400">●</span>
+              <div>
+                <p class="font-semibold">24/7 call answering</p>
+                <p class="mt-1 text-[11px] text-slate-400">
+                  Never lose a client to voicemail, after-hours, or a busy
+                  day.
+                </p>
+              </div>
             </div>
-            <ul class="mt-6 space-y-3 text-sm">
-              <li class="flex items-center gap-2">✓ AI answers 24/7</li>
-              <li class="flex items-center gap-2">✓ Books into Google Calendar</li>
-              <li class="flex items-center gap-2">✓ Your dedicated phone number</li>
-              <li class="flex items-center gap-2">✓ Cancel anytime</li>
-            </ul>
-            <div class="mt-auto flex gap-2 pt-6">
-              <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-3 text-center font-medium text-white hover:bg-violet-700">Download App</a>
-              <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-center font-medium hover:bg-gray-50">Android</a>
+            <div class="flex items-start gap-2">
+              <span class="mt-[3px] text-emerald-400">●</span>
+              <div>
+                <p class="font-semibold">Google Calendar sync</p>
+                <p class="mt-1 text-[11px] text-slate-400">
+                  Real bookings on your real calendar, not a separate inbox.
+                </p>
+              </div>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="mt-[3px] text-emerald-400">●</span>
+              <div>
+                <p class="font-semibold">Designed for solo &amp; small teams</p>
+                <p class="mt-1 text-[11px] text-slate-400">
+                  Salons, barbers, spas, clinics, handymen, and more.
+                </p>
+              </div>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="mt-[3px] text-emerald-400">●</span>
+              <div>
+                <p class="font-semibold">Transparent pricing</p>
+                <p class="mt-1 text-[11px] text-slate-400">
+                  Minutes included, fair overage. No long-term contracts.
+                </p>
+              </div>
             </div>
           </div>
-          <div class="flex flex-col rounded-lg border-2 border-violet-200 p-6 shadow-lg">
-            <h4 class="text-lg font-semibold">Business</h4>
-            <p class="text-sm text-gray-500">1,500 minutes included</p>
-            <div class="mt-4 flex items-baseline gap-1">
-              <span class="text-4xl font-bold">$249</span>
-              <span class="text-gray-500">/month</span>
+        </section>
+
+        <!-- Demo video -->
+        <section class="px-4 pb-16 sm:px-6 sm:pb-20">
+          <div class="mx-auto max-w-5xl">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div>
+                <h2 class="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  See Echodesk in action
+                </h2>
+                <p class="mt-1 text-sm text-slate-400">
+                  A quick walkthrough of how calls turn into booked
+                  appointments.
+                </p>
+              </div>
+              <p
+                class="mt-2 text-xs text-slate-500 sm:ml-auto sm:mt-0 sm:text-right"
+              >
+                Replace the YouTube ID in <code>landing/dist/index.html</code>
+                with your own demo.
+              </p>
             </div>
-            <ul class="mt-6 space-y-3 text-sm">
-              <li class="flex items-center gap-2">✓ AI answers 24/7</li>
-              <li class="flex items-center gap-2">✓ Books into Google Calendar</li>
-              <li class="flex items-center gap-2">✓ Your dedicated phone number</li>
-              <li class="flex items-center gap-2">✓ Cancel anytime</li>
-            </ul>
-            <div class="mt-auto flex gap-2 pt-6">
-              <a href="https://apps.apple.com/app/echodesk" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg bg-violet-600 px-4 py-3 text-center font-medium text-white hover:bg-violet-700">Download App</a>
-              <a href="https://play.google.com/store/apps/details?id=com.echodesk.app" target="_blank" rel="noopener noreferrer" class="flex-1 rounded-lg border border-gray-300 px-4 py-3 text-center font-medium hover:bg-gray-50">Android</a>
+            <div
+              class="mt-6 overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60 shadow-lg"
+            >
+              <div class="aspect-video bg-slate-900">
+                <iframe
+                  class="h-full w-full"
+                  src="https://www.youtube.com/embed/dQw4w9WgXcQ"
+                  title="Echodesk demo"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowfullscreen
+                ></iframe>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-  </section>
+        </section>
 
-  <!-- Testimonials -->
-  <section class="bg-gray-50 px-6 py-16 sm:py-24">
-    <div class="mx-auto max-w-5xl">
-      <h2 class="text-center text-3xl font-bold tracking-tight sm:text-4xl">What owners are saying</h2>
-      <div class="mt-12 grid gap-6 sm:grid-cols-3">
-        <div class="rounded-lg border bg-white p-6">
-          <p class="text-gray-600">&ldquo;We went from missing half our after-hours calls to zero. The assistant books directly into our calendar.&rdquo;</p>
-          <p class="mt-4 font-medium">Maria L.</p>
-          <p class="text-sm text-gray-500">Salon owner</p>
-        </div>
-        <div class="rounded-lg border bg-white p-6">
-          <p class="text-gray-600">&ldquo;Set up in 10 minutes. Our clients think they're talking to a real person. Game changer.&rdquo;</p>
-          <p class="mt-4 font-medium">James T.</p>
-          <p class="text-sm text-gray-500">Barbershop</p>
-        </div>
-        <div class="rounded-lg border bg-white p-6">
-          <p class="text-gray-600">&ldquo;Finally something that works for individuals and small businesses. Worth every penny.&rdquo;</p>
-          <p class="mt-4 font-medium">Sarah K.</p>
-          <p class="text-sm text-gray-500">Spa & wellness</p>
-        </div>
-      </div>
-    </div>
-  </section>
+        <!-- Pricing -->
+        <section
+          id="pricing"
+          class="border-y border-slate-800/80 bg-slate-950/70 px-4 py-16 sm:px-6 sm:py-24"
+        >
+          <div class="mx-auto max-w-6xl">
+            <div class="text-center">
+              <h2 class="text-3xl font-semibold tracking-tight sm:text-4xl">
+                Simple, usage-based pricing
+              </h2>
+              <p class="mt-3 text-sm text-slate-400 sm:text-base">
+                Choose a plan with minutes included. Pay only for what you use.
+              </p>
+            </div>
 
-  <footer class="border-t px-6 py-8">
-    <div class="mx-auto max-w-6xl text-center text-sm text-gray-500">
-      &copy; Echodesk. AI Receptionist for small businesses.
+            <div
+              class="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.1fr),minmax(0,1fr),minmax(0,1fr)]"
+            >
+              <!-- Free -->
+              <div
+                class="flex flex-col rounded-2xl border border-slate-800 bg-slate-950/80 p-6 text-sm text-slate-200"
+              >
+                <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Try it first
+                </p>
+                <h3 class="mt-2 text-lg font-semibold">Free</h3>
+                <p class="mt-1 text-xs text-slate-400">
+                  Perfect to test your call flow and calendar setup.
+                </p>
+                <div class="mt-4 flex items-baseline gap-1">
+                  <span class="text-3xl font-semibold">$0</span>
+                  <span class="text-xs text-slate-400">/month</span>
+                </div>
+                <ul class="mt-5 space-y-2 text-xs text-slate-300">
+                  <li>• Limited minutes to test the product</li>
+                  <li>• Connect one Google Calendar</li>
+                  <li>• One receptionist line</li>
+                </ul>
+                <div class="mt-auto pt-5">
+                  <a
+                    href="https://apps.apple.com/app/echodesk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center justify-center rounded-xl bg-slate-800 px-4 py-2 text-xs font-medium text-slate-50 hover:bg-slate-700"
+                  >
+                    Start free on iOS
+                  </a>
+                </div>
+              </div>
+
+              <!-- Starter (featured) -->
+              <div
+                class="relative flex flex-col rounded-2xl border border-violet-500/70 bg-slate-950/90 p-6 text-sm text-slate-100 shadow-[0_0_45px_rgba(129,140,248,0.35)]"
+              >
+                <div
+                  class="absolute -top-3 right-4 rounded-full bg-violet-500 px-2 py-0.5 text-[10px] font-semibold text-white shadow-md shadow-violet-500/50"
+                >
+                  Most popular
+                </div>
+                <p class="text-xs font-semibold uppercase tracking-[0.14em] text-violet-300">
+                  For busy calendars
+                </p>
+                <h3 class="mt-2 text-lg font-semibold">Starter</h3>
+                <p class="mt-1 text-xs text-slate-300">
+                  Ideal for solo operators and small studios.
+                </p>
+                <div class="mt-4 flex items-baseline gap-1">
+                  <span class="text-4xl font-semibold">$69</span>
+                  <span class="text-xs text-slate-400">/month</span>
+                </div>
+                <p class="mt-1 text-xs text-slate-400">
+                  300 included minutes, then fair per‑minute overage.
+                </p>
+                <ul class="mt-6 space-y-2 text-xs text-slate-200">
+                  <li>• AI receptionist answers 24/7</li>
+                  <li>• Google Calendar integration</li>
+                  <li>• Dedicated local phone number</li>
+                  <li>• Caller summaries and call history</li>
+                  <li>• Email support</li>
+                </ul>
+                <div class="mt-auto space-y-2 pt-6">
+                  <a
+                    href="https://apps.apple.com/app/echodesk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center justify-center rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/50 hover:bg-violet-400"
+                  >
+                    Start with Starter
+                  </a>
+                  <a
+                    href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center justify-center rounded-xl border border-violet-500/60 bg-slate-950 px-4 py-2 text-xs font-medium text-violet-100 hover:bg-violet-500/10"
+                  >
+                    Android app
+                  </a>
+                </div>
+              </div>
+
+              <!-- Pro / Business -->
+              <div
+                class="flex flex-col rounded-2xl border border-slate-800 bg-slate-950/80 p-6 text-sm text-slate-200"
+              >
+                <p class="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                  Growing teams
+                </p>
+                <h3 class="mt-2 text-lg font-semibold">Pro</h3>
+                <p class="mt-1 text-xs text-slate-400">
+                  For multi‑chair salons, clinics, or busy offices.
+                </p>
+                <div class="mt-4 flex items-baseline gap-1">
+                  <span class="text-3xl font-semibold">$149</span>
+                  <span class="text-xs text-slate-400">/month</span>
+                </div>
+                <p class="mt-1 text-xs text-slate-400">
+                  800 included minutes, priority support.
+                </p>
+                <ul class="mt-6 space-y-2 text-xs text-slate-200">
+                  <li>• Everything in Starter</li>
+                  <li>• Higher included minutes</li>
+                  <li>• Advanced call routing</li>
+                  <li>• Priority onboarding help</li>
+                </ul>
+                <div class="mt-auto pt-6">
+                  <a
+                    href="https://apps.apple.com/app/echodesk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="flex items-center justify-center rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-50 hover:bg-slate-700"
+                  >
+                    Talk to sales
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Testimonials -->
+        <section
+          id="testimonials"
+          class="px-4 py-16 sm:px-6 sm:py-24"
+        >
+          <div class="mx-auto max-w-5xl">
+            <div class="text-center">
+              <h2 class="text-3xl font-semibold tracking-tight sm:text-4xl">
+                Owners who stopped missing calls
+              </h2>
+              <p class="mt-3 text-sm text-slate-400 sm:text-base">
+                Echodesk runs quietly in the background so you can focus on the
+                work in front of you.
+              </p>
+            </div>
+            <div class="mt-10 grid gap-6 sm:grid-cols-3">
+              <article
+                class="flex flex-col rounded-2xl border border-slate-800 bg-slate-950/80 p-5 text-sm text-slate-200"
+              >
+                <p class="text-sm text-slate-200">
+                  “We went from missing half our after‑hours calls to almost
+                  zero. The assistant books straight into our calendar and sends
+                  us a summary after each call.”
+                </p>
+                <div class="mt-4">
+                  <p class="font-semibold">Maria L.</p>
+                  <p class="text-xs text-slate-400">Salon owner · Austin, TX</p>
+                </div>
+              </article>
+              <article
+                class="flex flex-col rounded-2xl border border-slate-800 bg-slate-950/80 p-5 text-sm text-slate-200"
+              >
+                <p class="text-sm text-slate-200">
+                  “Setup took under 10 minutes. Our clients think they’re
+                  talking to a real person, and my team doesn’t have to juggle
+                  calls while cutting hair.”
+                </p>
+                <div class="mt-4">
+                  <p class="font-semibold">James T.</p>
+                  <p class="text-xs text-slate-400">Barbershop · Chicago, IL</p>
+                </div>
+              </article>
+              <article
+                class="flex flex-col rounded-2xl border border-slate-800 bg-slate-950/80 p-5 text-sm text-slate-200"
+              >
+                <p class="text-sm text-slate-200">
+                  “Echodesk feels built for small businesses like ours. Clients
+                  can reach us at all hours, but my staff doesn’t have to be on
+                  call 24/7.”
+                </p>
+                <div class="mt-4">
+                  <p class="font-semibold">Sarah K.</p>
+                  <p class="text-xs text-slate-400">Spa &amp; wellness · NYC</p>
+                </div>
+              </article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Footer -->
+      <footer
+        class="border-t border-slate-900/80 bg-slate-950/95 px-4 py-6 text-xs text-slate-500 sm:px-6"
+      >
+        <div
+          class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 sm:flex-row"
+        >
+          <p>&copy; Echodesk. AI Receptionist for small businesses.</p>
+          <div class="flex items-center gap-4">
+            <a
+              href="mailto:hello@echodesk.us"
+              class="hover:text-slate-300"
+              >Contact</a
+            >
+            <a
+              href="https://apps.apple.com/app/echodesk"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-slate-300"
+              >iOS</a
+            >
+            <a
+              href="https://play.google.com/store/apps/details?id=com.echodesk.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-slate-300"
+              >Android</a
+            >
+          </div>
+        </div>
+      </footer>
     </div>
-  </footer>
-</body>
+  </body>
 </html>

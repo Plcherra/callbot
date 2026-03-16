@@ -115,11 +115,13 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
         '/api/mobile/receptionists/${widget.receptionistId}/calendar-status',
       );
       if (res.statusCode >= 200 && res.statusCode < 300) {
-        final data = jsonDecode(res.body) as Map<String, dynamic>;
-        if (!mounted) return;
-        setState(() {
-          _calendarStatus = data;
-        });
+        final decoded = jsonDecode(res.body);
+        if (decoded is Map<String, dynamic>) {
+          if (!mounted) return;
+          setState(() {
+            _calendarStatus = decoded;
+          });
+        }
       }
     } catch (_) {
       // Swallow; UI will just show a generic message.

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Deploy static landing page for echodesk.us
-# Usage (on VPS, from repo root): ./deploy/scripts/deploy-landing.sh
 #
-# - Assumes landing/dist contains the built/static landing site
-# - Syncs landing/dist -> /var/www/echodesk-landing
-# - Sets safe ownership/permissions for nginx (www-data)
+# Source:  landing/dist/  (repo path from project root)
+# Target:  /var/www/echodesk-landing  (nginx document root for echodesk.us)
+#
+# Run from project root on VPS:
+#   bash deploy/scripts/deploy-landing.sh
+# Or (after chmod +x):  ./deploy/scripts/deploy-landing.sh
+#
+# Requires: rsync, sudo. Sets ownership to www-data for nginx.
 
 set -euo pipefail
 

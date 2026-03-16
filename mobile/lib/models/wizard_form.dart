@@ -57,6 +57,7 @@ class WizardFormData {
   String? extraInstructions;
   String? voicePersonality;
   String? fallbackBehavior;
+  String? fallbackTransferNumber;
   int? maxCallDurationMinutes;
   bool consent;
 
@@ -81,6 +82,7 @@ class WizardFormData {
     this.extraInstructions,
     this.voicePersonality = 'friendly',
     this.fallbackBehavior = 'voicemail',
+    this.fallbackTransferNumber,
     this.maxCallDurationMinutes,
     this.consent = false,
   })  : staff = staff ?? [],
@@ -128,11 +130,38 @@ class WizardFormData {
     }
     if (voicePersonality != null) body['voice_personality'] = voicePersonality;
     if (fallbackBehavior != null) body['fallback_behavior'] = fallbackBehavior;
+    if (fallbackBehavior == 'transfer') {
+      final normalized = normalizePhoneToE164(fallbackTransferNumber ?? '');
+      if (normalized != null && normalized.isNotEmpty) {
+        body['fallback_transfer_number'] = normalized;
+      }
+    }
     if (maxCallDurationMinutes != null) {
       body['max_call_duration_minutes'] = maxCallDurationMinutes;
     }
     return body;
   }
+}
+
+/// Normalizes user input to E.164 (e.g. +16176137764).
+/// Accepts spaces, dashes, parentheses; returns null if invalid.
+String? normalizePhoneToE164(String input) {
+  final onlyPlusAndDigits = input.replaceAll(RegExp(r'[^\d+]'), '');
+  if (onlyPlusAndDigits.isEmpty) return null;
+  final digits = onlyPlusAndDigits.replaceAll('+', '');
+  if (digits.isEmpty) return null;
+  String e164;
+  if (digits.length == 10 && !digits.startsWith('0')) {
+    e164 = '+1$digits';
+  } else if (digits.length == 11 && digits.startsWith('1')) {
+    e164 = '+$digits';
+  } else if (digits.length >= 10 && digits.length <= 15) {
+    e164 = '+$digits';
+  } else {
+    return null;
+  }
+  if (!RegExp(r'^\+\d{10,15}$').hasMatch(e164)) return null;
+  return e164;
 }
 
 /// Constants from wizard schemas

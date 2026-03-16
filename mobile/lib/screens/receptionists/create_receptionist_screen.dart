@@ -10,6 +10,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/wizard_form.dart';
 import '../../services/api_client.dart';
 
+bool _isStep5TransferInvalid() {
+  if (_formData.fallbackBehavior != 'transfer') return false;
+  final raw = _formData.fallbackTransferNumber?.trim() ?? '';
+  if (raw.isEmpty) return true;
+  return normalizePhoneToE164(raw) == null;
+}
+
 const _steps = [
   'Basics',
   'Phone',
@@ -98,6 +105,21 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
       if (_formData.systemPrompt.trim().isEmpty) {
         setState(() => _error = 'System prompt is required');
         return false;
+      }
+      return true;
+    }
+    if (_step == 5) {
+      if (_formData.fallbackBehavior == 'transfer') {
+        final raw = _formData.fallbackTransferNumber?.trim() ?? '';
+        if (raw.isEmpty) {
+          setState(() => _error = 'Transfer phone number is required');
+          return false;
+        }
+        final e164 = normalizePhoneToE164(raw);
+        if (e164 == null) {
+          setState(() => _error = 'Enter a valid phone number (e.g. +1 555 123 4567)');
+          return false;
+        }
       }
       return true;
     }
@@ -210,18 +232,20 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
                     FilledButton(
                       onPressed: _loading
                           ? null
-                          : () async {
-                              if (_step < 6) {
-                                if (_validateStep()) {
-                                  setState(() {
-                                    _step++;
-                                    _error = null;
-                                  });
-                                }
-                              } else {
-                                await _submit();
-                              }
-                            },
+                          : (_step == 5 && _isStep5TransferInvalid())
+                              ? null
+                              : () async {
+                                  if (_step < 6) {
+                                    if (_validateStep()) {
+                                      setState(() {
+                                        _step++;
+                                        _error = null;
+                                      });
+                                    }
+                                  } else {
+                                    await _submit();
+                                  }
+                                },
                       child: _loading
                           ? const SizedBox(
                               height: 20,
@@ -746,6 +770,27 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
               .toList(),
           onChanged: (v) => setState(() => _formData.fallbackBehavior = v),
         ),
+        if (_formData.fallbackBehavior == 'transfer') ...[
+          const SizedBox(height: 16),
+          TextFormField(
+            initialValue: _formData.fallbackTransferNumber ?? '',
+            decoration: const InputDecoration(
+              labelText: 'Transfer phone number',
+              hintText: '+1 555 123 4567',
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.phone,
+            onChanged: (v) => _formData.fallbackTransferNumber = v,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "Calls will be forwarded to this number when Eve cannot help or when the caller asks to speak with a person.",
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 16),
+        ],
         const SizedBox(height: 16),
         TextFormField(
           initialValue: _formData.maxCallDurationMinutes?.toString(),

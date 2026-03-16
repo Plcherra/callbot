@@ -73,7 +73,7 @@ class PushService {
         macOS: iosSettings,
       );
       await _localNotifications.initialize(
-        initSettings,
+        settings: initSettings,
         onDidReceiveNotificationResponse: _onNotificationTapped,
       );
 
@@ -202,10 +202,10 @@ class PushService {
       iOS: iosDetails,
     );
     await _localNotifications.show(
-      data.hashCode & 0x7FFFFFFF,
-      title,
-      body,
-      details,
+      id: data.hashCode & 0x7FFFFFFF,
+      title: title,
+      body: body,
+      notificationDetails: details,
       payload: jsonEncode(data),
     );
   }

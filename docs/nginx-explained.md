@@ -2,18 +2,10 @@
 
 Copy of working nginx config with a comment for every block and location. Use this instead of guessing—wrong configs break SSL or routing.
 
-## Full Config (echodesk.us)
+## Full Config (echodesk.us) – **direct DNS (no Cloudflare Tunnel)**
 
 ```nginx
-# === HTTP: redirect to HTTPS ===
-server {
-    listen 80;
-    listen [::]:80;
-    server_name echodesk.us www.echodesk.us;
-    return 301 https://$server_name$request_uri;   # 301 permanent redirect
-}
-
-# === HTTPS server ===
+# === HTTPS server (bare-metal, no Cloudflare Tunnel) ===
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
@@ -64,12 +56,44 @@ server {
 }
 ```
 
-## Block-by-block
+## When using **Cloudflare Tunnel → http://127.0.0.1:80**
+
+When Cloudflare (or cloudflared tunnel) terminates TLS and forwards **HTTP** to nginx on port 80,  
+you **must not** redirect port 80 back to HTTPS. That causes an infinite loop:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name echodesk.us www.echodesk.us;
+
+    # Voice + API → FastAPI on 8000
+    location ^~ /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Landing/static site
+    location / {
+        root /var/www/echodesk-landing;  # adjust to your landing root
+        try_files $uri $uri/ /index.html;
+    }
+}
+```
+
+Use this **port 80** pattern when Cloudflare Tunnel is routing `echodesk.us` → `http://127.0.0.1:80`.
+Cloudflare handles HTTP→HTTPS at the edge; nginx simply serves `/` and proxies `/api/` without its own redirect.
+
+
+## Block-by-block (bare-metal example above)
 
 | Block | Purpose |
 |-------|---------|
-| `server { listen 80 }` | Redirect HTTP → HTTPS |
-| `server { listen 443 ssl }` | Main HTTPS server |
+| `server { listen 443 ssl }` | Main HTTPS server (bare-metal, no tunnel) |
 | `ssl_certificate*` | TLS cert paths; must exist |
 | `location ^~ /api/telnyx/voice` | Telnyx webhook → Python 8000. `^~` = highest-priority prefix, prevents fallthrough to `/` |
 | `location ^~ /api/voice/` | WebSocket → Python 8000. `Upgrade`/`Connection` for WS. Long timeouts for calls |

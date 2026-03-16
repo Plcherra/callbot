@@ -11,15 +11,19 @@ CALENDAR_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "date_text": {
+                        "type": "string",
+                        "description": "Natural language date/time like 'tomorrow at 4', 'March 17th at 7pm', 'next Friday morning'. Preferred when caller speaks naturally.",
+                    },
                     "start_date": {
                         "type": "string",
-                        "description": "ISO date (YYYY-MM-DD) or datetime to check availability for",
+                        "description": "ISO date (YYYY-MM-DD) or ISO datetime. Use if already normalized; otherwise pass date_text.",
                     },
                     "end_date": {"type": "string", "description": "Optional end date if checking a date range"},
                     "duration_minutes": {"type": "string", "description": "Appointment duration in minutes (default 30)"},
                     "timezone": {"type": "string", "description": "Timezone e.g. America/New_York (default America/New_York)"},
                 },
-                "required": ["start_date"],
+                "required": [],
             },
         },
     },
@@ -31,13 +35,14 @@ CALENDAR_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "date_text": {"type": "string", "description": "Natural language date/time for the appointment start (e.g. 'tomorrow at 4')."},
                     "start_time": {"type": "string", "description": "ISO datetime for appointment start"},
                     "duration_minutes": {"type": "string", "description": "Duration in minutes (default 30)"},
                     "summary": {"type": "string", "description": "Appointment title/summary (e.g. client name and service)"},
                     "description": {"type": "string", "description": "Optional additional details"},
                     "attendees": {"type": "array", "description": "Optional array of attendee email addresses", "items": {"type": "string"}},
                 },
-                "required": ["start_time", "summary"],
+                "required": ["summary"],
             },
         },
     },
@@ -50,10 +55,11 @@ CALENDAR_TOOLS = [
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "The calendar event ID to reschedule"},
+                    "date_text": {"type": "string", "description": "Natural language new date/time (e.g. 'next Tuesday at 11')."},
                     "new_start": {"type": "string", "description": "New ISO datetime for the appointment"},
                     "duration_minutes": {"type": "string", "description": "Duration in minutes (default 30)"},
                 },
-                "required": ["event_id", "new_start"],
+                "required": ["event_id"],
             },
         },
     },

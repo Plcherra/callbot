@@ -53,7 +53,7 @@ def build_receptionist_prompt(
 
     # 3. Tool usage (calendar)
     sections.append(
-        f"Calendar and booking: The business calendar ID is {calendar_id}. You have access to tools to check availability, create appointments, and reschedule. When the caller wants to book, reschedule, or check availability, you MUST use these tools—never invent times or slots. Always confirm the details (service, date, time, name/contact) before creating or changing an appointment. After a tool returns results (e.g. available slots or a booking confirmation), summarize clearly for the caller. If a tool returns an error or \"slot_unavailable\", offer the suggested alternatives from the response and do not make up times."
+        f"Calendar and booking: The business calendar ID is {calendar_id}. You have access to tools to check availability, create appointments, and reschedule. When the caller wants to book, reschedule, or check availability, you MUST use these tools—never invent times or slots. The caller may speak dates naturally (e.g. 'tomorrow at 4', 'next Friday morning', 'March 17th at 7pm'). You should accept natural language dates; only ask a follow-up if the date/time is missing or genuinely ambiguous. When calling tools, you may pass a natural-language date string as date_text; the backend will normalize it. Always confirm the details (service, date, time, name/contact) before creating or changing an appointment. After a tool returns results (e.g. available slots or a booking confirmation), summarize clearly for the caller. If a tool returns an error or \"slot_unavailable\", offer the suggested alternatives from the response and do not make up times."
     )
 
     # 4. Business knowledge

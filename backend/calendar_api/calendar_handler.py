@@ -13,6 +13,7 @@ from googleapiclient.discovery import build
 from config import settings
 from google_oauth_scopes import SCOPES
 from supabase_client import create_service_role_client
+from utils.natural_datetime import parse_natural_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +21,52 @@ DEFAULT_SLOT_MINUTES = 30
 DEFAULT_TIMEZONE = "America/New_York"
 
 
-def _parse_datetime(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> dict[str, str] | None:
+def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> dict[str, str] | None:
+    """
+    Parse either an ISO datetime/date or a natural language date into a timeMin/timeMax range.
+
+    - If the input includes an explicit time (or is ISO datetime), use a 24h window from that moment.
+    - If the input is date-only or natural language without explicit time, use the whole local day.
+    """
+    raw = (date_str or "").strip()
+    if not raw:
+        return None
+
+    # First, try ISO.
     try:
-        d = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         time_min = d.isoformat()
         time_max = (d + timedelta(days=1)).isoformat()
         return {"timeMin": time_min, "timeMax": time_max}
     except (ValueError, TypeError):
+        pass
+
+    parsed = parse_natural_datetime(raw, timezone=timezone)
+    if not parsed:
         return None
+
+    d = parsed.dt
+    if parsed.is_time_explicit:
+        time_min = d.isoformat()
+        time_max = (d + timedelta(days=1)).isoformat()
+        return {"timeMin": time_min, "timeMax": time_max}
+
+    # Day-based query in business timezone.
+    day_start = d.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+    return {"timeMin": day_start.isoformat(), "timeMax": day_end.isoformat()}
+
+
+def _parse_iso_datetime_or_natural(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> datetime | None:
+    """Parse ISO datetime or natural language datetime into an aware datetime."""
+    raw = (date_str or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        parsed = parse_natural_datetime(raw, timezone=timezone)
+        return parsed.dt if parsed else None
 
 
 def _get_free_slots(
@@ -149,7 +188,9 @@ async def handle_calendar_request(body: dict) -> dict:
 
 
 def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
-    start_date = params.get("start_date")
+    timezone = (params.get("timezone") or DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
+    date_text = params.get("date_text")
+    start_date = params.get("start_date") or date_text
     end_date = params.get("end_date")
     duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
     if isinstance(duration_minutes, str):
@@ -159,11 +200,12 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
             duration_minutes = DEFAULT_SLOT_MINUTES
 
     if not start_date:
-        return {"success": False, "error": "start_date required"}
+        return {"success": False, "error": "date_missing", "message": "Please provide a date and time (e.g. 'tomorrow at 4')."}
 
-    range_data = _parse_datetime(start_date)
+    logger.info("[CAL_DATE] check_availability input=%r timezone=%s", start_date, timezone)
+    range_data = _parse_datetime_range(start_date, timezone=timezone)
     if not range_data:
-        return {"success": False, "error": "Invalid start_date"}
+        return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. Could you rephrase it (e.g. 'March 17 at 7pm')?"}
 
     if end_date:
         try:
@@ -192,7 +234,8 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
 
 
 def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
-    start_time = params.get("start_time")
+    timezone = (params.get("timezone") or DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
+    start_time = params.get("start_time") or params.get("date_text")
     duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
     summary = params.get("summary") or "Appointment"
     description = params.get("description")
@@ -205,13 +248,16 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
             duration_minutes = DEFAULT_SLOT_MINUTES
 
     if not start_time:
-        return {"success": False, "error": "start_time required"}
+        return {"success": False, "error": "date_missing", "message": "What day and time should I book it for?"}
 
     try:
-        start_d = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        logger.info("[CAL_DATE] create_appointment input=%r timezone=%s", start_time, timezone)
+        start_d = _parse_iso_datetime_or_natural(start_time, timezone=timezone)
+        if not start_d:
+            return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
         end_d = start_d + timedelta(minutes=duration_minutes)
     except (ValueError, TypeError):
-        return {"success": False, "error": "Invalid start_time"}
+        return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
 
     # Check busy before insert
     freebusy_res = service.freebusy().query(
@@ -276,7 +322,8 @@ def _handle_create_appointment(service, calendar_id: str, params: dict) -> dict:
 
 def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
     event_id = params.get("event_id")
-    new_start = params.get("new_start")
+    timezone = (params.get("timezone") or DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
+    new_start = params.get("new_start") or params.get("date_text")
     duration_minutes = params.get("duration_minutes") or DEFAULT_SLOT_MINUTES
     if isinstance(duration_minutes, str):
         try:
@@ -284,15 +331,20 @@ def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
         except (ValueError, TypeError):
             duration_minutes = DEFAULT_SLOT_MINUTES
 
-    if not event_id or not new_start:
-        return {"success": False, "error": "event_id and new_start required"}
+    if not event_id:
+        return {"success": False, "error": "event_id_missing", "message": "Which appointment should I reschedule?"}
+    if not new_start:
+        return {"success": False, "error": "date_missing", "message": "What new day and time would you like?"}
 
     try:
-        start_d = datetime.fromisoformat(new_start.replace("Z", "+00:00"))
+        logger.info("[CAL_DATE] reschedule input=%r timezone=%s", new_start, timezone)
+        start_d = _parse_iso_datetime_or_natural(new_start, timezone=timezone)
+        if not start_d:
+            return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}
         from datetime import timedelta
         end_d = start_d + timedelta(minutes=duration_minutes)
     except (ValueError, TypeError):
-        return {"success": False, "error": "Invalid new_start"}
+        return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}
 
     try:
         event = service.events().patch(
@@ -314,7 +366,7 @@ def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
     except Exception as e:
         msg = str(e)
         if "Conflict" in msg or "409" in msg or "not found" in msg.lower():
-            range_data = _parse_datetime(new_start)
+            range_data = _parse_datetime_range(new_start, timezone=timezone)
             if range_data:
                 freebusy_res = service.freebusy().query(
                     body={

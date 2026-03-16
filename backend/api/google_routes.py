@@ -6,13 +6,105 @@ import logging
 from datetime import datetime
 
 from fastapi import Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from config import settings
 from google_oauth_scopes import SCOPES
 from supabase_client import create_service_role_client
 
 logger = logging.getLogger(__name__)
+
+SUCCESS_HTML = """<!DOCTYPE html>
+<html>
+<head>
+  <title>Calendar Connected</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+    }
+    .box {
+      max-width: 420px;
+      padding: 32px;
+      background: #1c1c1c;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }
+    h2 { margin: 0 0 12px; }
+    p { margin: 10px 0; opacity: 0.92; }
+    .muted { opacity: 0.75; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Calendar Connected</h2>
+    <p>Your Google Calendar is now linked to Echodesk.</p>
+    <p class="muted">You can safely close this page.</p>
+  </div>
+
+  <script>
+    setTimeout(() => { window.close(); }, 1200);
+  </script>
+</body>
+</html>
+"""
+
+def _error_html(msg: str) -> str:
+    safe = (msg or "Calendar connection failed").replace("<", "&lt;").replace(">", "&gt;")
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Calendar Connection Failed</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {{
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #111;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      text-align: center;
+    }}
+    .box {{
+      max-width: 520px;
+      padding: 32px;
+      background: #1c1c1c;
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+    }}
+    h2 {{ margin: 0 0 12px; }}
+    p {{ margin: 10px 0; opacity: 0.92; }}
+    code {{
+      display: inline-block;
+      padding: 2px 6px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+      word-break: break-word;
+    }}
+    .muted {{ opacity: 0.75; font-size: 14px; }}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>Calendar Connection Failed</h2>
+    <p class="muted">You can close this page and try again.</p>
+    <p><code>{safe}</code></p>
+  </div>
+</body>
+</html>"""
 
 
 async def google_callback_get(request: Request):
@@ -96,13 +188,17 @@ async def google_callback_get(request: Request):
         scheme = settings.mobile_redirect_scheme
         is_mobile = return_to in ("mobile", "settings")
         if is_mobile:
-            return RedirectResponse(url=f"{scheme}://google-callback?success=1")
+            # Mobile flow: show a friendly close-tab page (optionally the browser will close).
+            return HTMLResponse(SUCCESS_HTML)
         app_url = settings.get_app_url()
         path = "/onboarding" if return_to == "onboarding" else ("/receptionists" if return_to == "receptionists" else "/dashboard")
         return RedirectResponse(url=f"{app_url}{path}?calendar=connected")
     except Exception as e:
         logger.exception("[Google callback] %s", e)
-        return _redirect_error(f"Connection failed: {e}", return_to)
+        msg = f"Connection failed: {e}"
+        if return_to in ("mobile", "settings"):
+            return HTMLResponse(_error_html(msg), status_code=400)
+        return _redirect_error(msg, return_to)
 
 
 def _redirect_error(msg: str, return_to: str = "dashboard"):

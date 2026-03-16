@@ -18,8 +18,20 @@
 #   sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
 # Enable:
 #   sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/callbot
+
 # Test + reload:
 #   sudo nginx -t && sudo systemctl reload nginx
+#
+# IMPORTANT about LANDING_ROOT:
+#   {{LANDING_ROOT}} must be replaced with a REAL absolute path on the VPS.
+#   Do not leave the literal placeholder in the live nginx file.
+#   Prefer a path readable by nginx/www-data, e.g. /var/www/echodesk-landing 
+#   rather than a path under /home/adam unless permissions are opened correctly.
+#
+# Quick deploy example:
+#   sudo mkdir -p /var/www/echodesk-landing
+#   sudo rsync -a /home/adam/apps/callbot/landing/dist/ /var/www/echodesk-landing/
+#   sed "s|{{LANDING_ROOT}}|/var/www/echodesk-landing|g" deploy/nginx/callbot.conf.template | sudo tee /etc/nginx/sites-available/callbot >/dev/null
 
 server {
     listen 80;
@@ -94,6 +106,8 @@ server {
 
     # Main landing/static site.
     # No redirect here; Cloudflare Tunnel sends HTTP to origin and handles HTTPS externally.
+    # {{LANDING_ROOT}} must be replaced before deployment.
+    # The resolved directory must be readable by nginx/www-data.
     location / {
         root {{LANDING_ROOT}};
         try_files $uri $uri/ /index.html;
@@ -178,6 +192,7 @@ server {
     }
 
     # Static landing (served by nginx)
+    # The resolved LANDING_ROOT path must exist and be readable by nginx/www-data.
     location / {
         root {{LANDING_ROOT}};
         try_files $uri $uri/ /index.html;

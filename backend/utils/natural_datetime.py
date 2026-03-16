@@ -71,7 +71,18 @@ def parse_natural_datetime(
             if not dt:
                 return None
 
-    # Heuristic: treat as explicit time if text contains typical time markers.
+    # Safe year inference: if parsed date is still in the past relative to base, roll to next year.
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo(timezone))
+    if dt < base:
+        from datetime import timedelta
+
+        try:
+            dt = dt.replace(year=dt.year + 1)
+        except ValueError:
+            dt = dt + timedelta(days=365)
+
+    # Heuristic: treat as explicit time if text contains typical clock markers (not broad parts of day).
     t = text.lower()
     is_time_explicit = any(
         token in t
@@ -82,10 +93,6 @@ def parse_natural_datetime(
             " at ",
             " noon",
             " midnight",
-            "morning",
-            "afternoon",
-            "evening",
-            "tonight",
         )
     )
     return ParsedDateTime(dt=dt, is_time_explicit=is_time_explicit)

@@ -27,8 +27,16 @@ def test_next_tuesday_parses_date():
     out = parse_natural_datetime("next Tuesday", timezone="America/New_York", now=base)
     assert out is not None
     assert out.dt.tzinfo is not None
-    # Dateparser semantics can vary slightly; assert it lands in the future.
-    assert out.dt > base
+    # Should land at least a week in the future for 'next'.
+    assert (out.dt - base).days >= 7
+
+
+def test_march_17th_year_rollover_when_past():
+    base = datetime(2026, 4, 1, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+    out = parse_natural_datetime("March 17th at 7pm", timezone="America/New_York", now=base)
+    assert out is not None
+    # Parsed year should roll to the next year when March 17 has already passed.
+    assert out.dt.year == base.year + 1
 
 
 def test_ambiguous_short_date_fails_or_parses_but_is_not_required():

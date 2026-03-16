@@ -21,7 +21,7 @@ DEFAULT_SLOT_MINUTES = 30
 DEFAULT_TIMEZONE = "America/New_York"
 
 
-def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> dict[str, str] | None:
+def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> tuple[dict[str, str] | None, str]:
     """
     Parse either an ISO datetime/date or a natural language date into a timeMin/timeMax range.
 
@@ -30,31 +30,53 @@ def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> di
     """
     raw = (date_str or "").strip()
     if not raw:
-        return None
+        return None, "invalid"
 
     # First, try ISO.
     try:
         d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         time_min = d.isoformat()
         time_max = (d + timedelta(days=1)).isoformat()
-        return {"timeMin": time_min, "timeMax": time_max}
+        mode = "exact_time_window" if ("T" in raw or ":" in raw or " " in raw) else "full_day"
+        return {"timeMin": time_min, "timeMax": time_max}, mode
     except (ValueError, TypeError):
         pass
 
     parsed = parse_natural_datetime(raw, timezone=timezone)
     if not parsed:
-        return None
+        return None, "invalid"
 
     d = parsed.dt
+    t = raw.lower()
+    period = None
+    if "morning" in t:
+        period = "morning"
+        day_start = d.replace(hour=9, minute=0, second=0, microsecond=0)
+        day_end = d.replace(hour=12, minute=0, second=0, microsecond=0)
+    elif "afternoon" in t:
+        period = "afternoon"
+        day_start = d.replace(hour=12, minute=0, second=0, microsecond=0)
+        day_end = d.replace(hour=17, minute=0, second=0, microsecond=0)
+    elif "evening" in t:
+        period = "evening"
+        day_start = d.replace(hour=17, minute=0, second=0, microsecond=0)
+        day_end = d.replace(hour=20, minute=0, second=0, microsecond=0)
+    else:
+        period = None
+
+    if period:
+        mode = f"range_{period}"
+        return {"timeMin": day_start.isoformat(), "timeMax": day_end.isoformat()}, mode
+
     if parsed.is_time_explicit:
         time_min = d.isoformat()
         time_max = (d + timedelta(days=1)).isoformat()
-        return {"timeMin": time_min, "timeMax": time_max}
+        return {"timeMin": time_min, "timeMax": time_max}, "exact_time_window"
 
     # Day-based query in business timezone.
     day_start = d.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
-    return {"timeMin": day_start.isoformat(), "timeMax": day_end.isoformat()}
+    return {"timeMin": day_start.isoformat(), "timeMax": day_end.isoformat()}, "full_day"
 
 
 def _parse_iso_datetime_or_natural(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> datetime | None:
@@ -202,8 +224,15 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
     if not start_date:
         return {"success": False, "error": "date_missing", "message": "Please provide a date and time (e.g. 'tomorrow at 4')."}
 
-    logger.info("[CAL_DATE] check_availability input=%r timezone=%s", start_date, timezone)
-    range_data = _parse_datetime_range(start_date, timezone=timezone)
+    range_data, parse_mode = _parse_datetime_range(start_date, timezone=timezone)
+    logger.info(
+        "[CAL_DATE] check_availability input=%r timezone=%s mode=%s timeMin=%s timeMax=%s",
+        start_date,
+        timezone,
+        parse_mode,
+        range_data["timeMin"] if range_data else None,
+        range_data["timeMax"] if range_data else None,
+    )
     if not range_data:
         return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. Could you rephrase it (e.g. 'March 17 at 7pm')?"}
 
@@ -366,7 +395,7 @@ def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
     except Exception as e:
         msg = str(e)
         if "Conflict" in msg or "409" in msg or "not found" in msg.lower():
-            range_data = _parse_datetime_range(new_start, timezone=timezone)
+            range_data, parse_mode = _parse_datetime_range(new_start, timezone=timezone)
             if range_data:
                 freebusy_res = service.freebusy().query(
                     body={

@@ -1,19 +1,25 @@
 # Callbot nginx config template
-# Domain: echodesk.us (stream.echodesk.us for Telnyx media stream - direct to VPS)
+# Domain: echodesk.us (main site via Cloudflare Tunnel)
+# Stream: stream.echodesk.us (Telnyx media stream - direct to VPS, DNS-only)
 #
-# Ports: BOTH 80 and 443 are required.
+# Ports:
 #   - Port 80: Cloudflare Tunnel forwards echodesk.us here (http://127.0.0.1:80)
-#   - Port 443: stream.echodesk.us (DNS-only) connects DIRECT to VPS for wss://
-# Tunnel config: ingress hostname echodesk.us → service http://127.0.0.1:80
+#   - Port 443: direct HTTPS/WSS for stream.echodesk.us if you use the stream subdomain
 #
-# SSL: cert must include stream.echodesk.us, e.g.:
-#   sudo certbot certonly --webroot -w /var/www/html -d echodesk.us -d www.echodesk.us -d stream.echodesk.us --expand
+# IMPORTANT:
+#   - For Cloudflare Tunnel / proxied setups, DO NOT redirect origin port 80 back to HTTPS.
+#   - Cloudflare handles HTTPS for echodesk.us at the edge.
+#   - If `curl -I -H "Host: echodesk.us" http://127.0.0.1/` returns 301, origin config is wrong.
 #
-# Install: sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
-# Enable:  sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/
-# Test:    sudo nginx -t && sudo systemctl reload nginx
+# SSL cert should include:
+#   echodesk.us, www.echodesk.us, stream.echodesk.us
 #
-# Before first use: ensure SSL cert exists (see deploy/scripts/renew-cert.sh)
+# Install:
+#   sudo cp deploy/nginx/callbot.conf.template /etc/nginx/sites-available/callbot
+# Enable:
+#   sudo ln -sf /etc/nginx/sites-available/callbot /etc/nginx/sites-enabled/callbot
+# Test + reload:
+#   sudo nginx -t && sudo systemctl reload nginx
 
 server {
     listen 80;
@@ -31,7 +37,7 @@ server {
         proxy_send_timeout 60s;
     }
 
-    # Voice paths: serve directly (for Cloudflare Tunnel hitting :80)
+    # Voice webhook
     location ^~ /api/telnyx/voice {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -40,6 +46,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # Voice WebSocket stream
     location ^~ /api/voice/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -54,7 +62,7 @@ server {
         proxy_connect_timeout 60s;
     }
 
-    # CDR and outbound: Python backend (port 8000)
+    # Telnyx CDR
     location ^~ /api/telnyx/cdr {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -63,6 +71,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # Telnyx outbound
     location ^~ /api/telnyx/outbound {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -72,7 +82,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # All other API routes: Python backend (port 8000)
+    # All other API routes
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -82,7 +92,8 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Serve landing (Cloudflare Tunnel forwards to :80; redirect to HTTPS would loop)
+    # Main landing/static site.
+    # No redirect here; Cloudflare Tunnel sends HTTP to origin and handles HTTPS externally.
     location / {
         root {{LANDING_ROOT}};
         try_files $uri $uri/ /index.html;
@@ -111,7 +122,7 @@ server {
         proxy_send_timeout 60s;
     }
 
-    # Voice webhook - ^~ stops fallthrough to location /
+    # Voice webhook
     location ^~ /api/telnyx/voice {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -121,7 +132,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket voice stream - ^~ stops fallthrough to location /
+    # Voice WebSocket stream
     location ^~ /api/voice/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -136,7 +147,7 @@ server {
         proxy_connect_timeout 60s;
     }
 
-    # CDR and outbound: Python backend (port 8000)
+    # Telnyx CDR
     location ^~ /api/telnyx/cdr {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -145,6 +156,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # Telnyx outbound
     location ^~ /api/telnyx/outbound {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -154,7 +167,7 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # All other API routes: Python backend (port 8000)
+    # All other API routes
     location /api/ {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
@@ -171,8 +184,7 @@ server {
     }
 }
 
-# Dedicated stream.echodesk.us server block (Telnyx media - direct to VPS, no Cloudflare)
-# Isolates stream traffic from main site; only voice/health routes proxied to backend
+# Dedicated stream.echodesk.us server block (Telnyx media - direct to VPS, DNS-only)
 server {
     listen 80;
     listen [::]:80;

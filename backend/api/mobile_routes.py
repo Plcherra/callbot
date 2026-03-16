@@ -349,16 +349,43 @@ async def create_receptionist(request: Request):
         "assistant_identity": assistant_identity,
     }
     try:
-        row = supabase.table("receptionists").insert(insert_data).select("id").execute()
-        rec_id = (row.data[0]["id"] if row.data and len(row.data) > 0 else None)
+        logger.info("[receptionists/create] receptionist insert starting for user_id=%s name=%s", user["id"], name)
+        # Supabase Python sync client does not support .insert(...).select(...); insert then get id from response or follow-up query
+        insert_resp = supabase.table("receptionists").insert(insert_data).execute()
+        rec_id = None
+        if insert_resp.data and len(insert_resp.data) > 0:
+            rec_id = insert_resp.data[0].get("id") if isinstance(insert_resp.data[0], dict) else getattr(insert_resp.data[0], "id", None)
+        if not rec_id:
+            # Fallback: fetch by unique fields for this request
+            fetch = (
+                supabase.table("receptionists")
+                .select("id")
+                .eq("user_id", user["id"])
+                .eq("name", name)
+                .eq("calendar_id", calendar_id)
+                .eq("inbound_phone_number", inbound_number)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if fetch.data and len(fetch.data) > 0:
+                rec_id = fetch.data[0].get("id") if isinstance(fetch.data[0], dict) else getattr(fetch.data[0], "id", None)
+        logger.info(
+            "[receptionists/create] insert response type=%s has_data=%s rec_id=%s",
+            type(insert_resp).__name__,
+            bool(insert_resp.data),
+            rec_id,
+        )
         if not rec_id:
             if telnyx_id and phone_strategy != "own":
                 try:
                     telnyx_provision.release_number(telnyx_id)
                 except Exception:
                     pass
+            logger.warning("[receptionists/create] failed to resolve rec_id after insert")
             return JSONResponse({"error": "Failed to create receptionist"}, status_code=500)
 
+        staff_done = False
         for s in staff_list:
             sn = (s.get("name") or "").strip()
             if sn:
@@ -368,6 +395,8 @@ async def create_receptionist(request: Request):
                     "role": (s.get("description") or "").strip() or None,
                     "is_active": True,
                 }).execute()
+                staff_done = True
+        services_done = False
         for svc in service_list:
             nm = (svc.get("name") or "").strip()
             if not nm:
@@ -395,14 +424,21 @@ async def create_receptionist(request: Request):
                 "default_location_type": default_location_type,
             }
             supabase.table("services").insert(row).execute()
+            services_done = True
+        promos_done = False
         if promotions:
             supabase.table("promos").insert({"receptionist_id": rec_id, "description": promotions, "code": "WIZARD"}).execute()
+            promos_done = True
 
         supabase.table("users").update({
             "onboarding_completed_at": datetime.utcnow().isoformat() + "Z",
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }).eq("id", user["id"]).is_("onboarding_completed_at", "null").execute()
 
+        logger.info(
+            "[receptionists/create] success rec_id=%s staff_ran=%s services_ran=%s promos_ran=%s",
+            rec_id, staff_done, services_done, promos_done,
+        )
         return {"success": True, "id": rec_id, "phoneNumber": inbound_number}
     except Exception as e:
         if telnyx_id and phone_strategy != "own":
@@ -410,7 +446,8 @@ async def create_receptionist(request: Request):
                 telnyx_provision.release_number(telnyx_id)
             except Exception:
                 pass
-        logger.exception("[receptionists/create] %s", e)
+        logger.exception("[receptionists/create] failure: %s", e)
+        logger.info("[receptionists/create] final result: failure reason=%s", str(e))
         return JSONResponse({"error": str(e)}, status_code=400)
 
 

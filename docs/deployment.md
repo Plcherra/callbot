@@ -40,6 +40,22 @@ cd /path/to/callbot
 ./deploy/scripts/deploy.sh
 ```
 
+### 2b. Manual landing-only deploy
+
+To deploy just the static landing page (served at `https://echodesk.us`):
+
+```bash
+cd /path/to/callbot
+./deploy/scripts/deploy-landing.sh
+```
+
+This script will:
+
+- Validate that `landing/dist/index.html` exists.
+- Sync all files from `landing/dist/` to `/var/www/echodesk-landing/`.
+- Set safe ownership/permissions for nginx (`www-data` where available).
+- Print a short summary of deployed files.
+
 See [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md) for pre-deploy checks.
 
 ### 3. Nginx setup (one-time)

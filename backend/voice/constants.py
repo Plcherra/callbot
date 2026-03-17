@@ -1,3 +1,5 @@
+DEFAULT_GREETING = "Hello, thanks for calling. How can I help you today?"
+
 """Voice pipeline constants."""
 
 from config import settings

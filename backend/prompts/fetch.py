@@ -7,42 +7,52 @@ import logging
 from typing import Optional
 
 from prompts.builder import build_receptionist_prompt
+from voice.constants import DEFAULT_GREETING
 
 logger = logging.getLogger(__name__)
 
-# In-memory prompt cache: call_control_id -> (prompt, greeting, voice_id | None)
-_prompt_cache: dict[str, tuple[str, str, Optional[str]]] = {}
+# In-memory prompt cache: call_control_id -> (prompt, greeting, voice_id | None, voice_preset_key | None, greeting_source)
+_prompt_cache: dict[str, tuple[str, str, Optional[str], Optional[str], str]] = {}
 
 DEFAULT = (
     "You are an AI receptionist. Be helpful and concise.",
-    "Hello! Thanks for calling. How can I help you today?",
+    DEFAULT_GREETING,
     None,
+    None,
+    "fallback",
 )
 
 
-def set_prompt(call_control_id: str, prompt: str, greeting: str, voice_id: Optional[str] = None) -> None:
-    _prompt_cache[call_control_id] = (prompt, greeting, voice_id)
+def set_prompt(
+    call_control_id: str,
+    prompt: str,
+    greeting: str,
+    voice_id: Optional[str] = None,
+    voice_preset_key: Optional[str] = None,
+    greeting_source: str = "custom",
+) -> None:
+    _prompt_cache[call_control_id] = (prompt, greeting, voice_id, voice_preset_key, greeting_source)
 
 
-def get_cached_prompt(call_control_id: str) -> tuple[str, str, Optional[str]] | None:
+def get_cached_prompt(call_control_id: str) -> tuple[str, str, Optional[str], Optional[str], str] | None:
     return _prompt_cache.get(call_control_id)
 
 
-async def fetch_prompt(receptionist_id: str, supabase) -> tuple[str, str, Optional[str]]:
-    """Fetch prompt for receptionist from Supabase. Returns (prompt, greeting, voice_id)."""
+async def fetch_prompt(receptionist_id: str, supabase) -> tuple[str, str, Optional[str], Optional[str], str]:
+    """Fetch prompt for receptionist from Supabase. Returns (prompt, greeting, voice_id, voice_preset_key, greeting_source)."""
     if not receptionist_id or not receptionist_id.strip():
         return DEFAULT
     return await asyncio.to_thread(_build_from_supabase_sync, receptionist_id, supabase)
 
 
-def _build_from_supabase_sync(receptionist_id: str, supabase) -> tuple[str, str, Optional[str]]:
+def _build_from_supabase_sync(receptionist_id: str, supabase) -> tuple[str, str, Optional[str], Optional[str], str]:
     default = DEFAULT
     if not receptionist_id or not receptionist_id.strip():
         return default
 
     rec_res = supabase.table("receptionists").select(
         "id, name, user_id, phone_number, calendar_id, payment_settings, website_content, "
-        "extra_instructions, system_prompt, greeting, voice_id, assistant_identity"
+        "extra_instructions, system_prompt, greeting, voice_id, voice_preset_key, assistant_identity"
     ).eq("id", receptionist_id).execute()
 
     if not rec_res.data or len(rec_res.data) == 0:
@@ -90,30 +100,20 @@ def _build_from_supabase_sync(receptionist_id: str, supabase) -> tuple[str, str,
     custom_greeting = (rec.get("greeting") or "").strip()
     if custom_greeting:
         greeting = custom_greeting
+        greeting_source = "custom"
     else:
-        user_id = rec.get("user_id")
-        business_name = ""
-        if user_id:
-            try:
-                user_res = supabase.table("users").select("business_name").eq("id", user_id).limit(1).execute()
-                if user_res.data and user_res.data[0]:
-                    business_name = (user_res.data[0].get("business_name") or "").strip()
-            except Exception:
-                pass
-        if business_name:
-            greeting = f"Hello! Thanks for calling {business_name}. I'm {identity}. How can I help you today?"
-        else:
-            greeting = f"Hello! Thanks for calling. I'm {identity}. How can I help you today?"
+        greeting = DEFAULT_GREETING
+        greeting_source = "fallback"
 
     # Precedence: voice_id if set, else None (caller uses env default)
     voice_id = (rec.get("voice_id") or "").strip() or None
+    voice_preset_key = (rec.get("voice_preset_key") or "").strip() or None
 
     logger.info(
-        "[receptionist config] receptionist_id=%s prompt_source=%s greeting_source=%s voice_id=%s assistant_identity=%s",
+        "[receptionist config] receptionist_id=%s prompt_source=%s greeting_source=%s voice_id=%s",
         receptionist_id,
         "custom" if custom_prompt else "generated",
-        "custom" if custom_greeting else "default",
+        greeting_source,
         "custom" if voice_id else "env_default",
-        identity or "(name fallback)",
     )
-    return prompt, greeting, voice_id
+    return prompt, greeting, voice_id, voice_preset_key, greeting_source

@@ -123,9 +123,16 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
             if call_sid and active_by_call_sid.get(call_sid) != ws:
                 return
 
-            prompt, greeting, cached_voice_id = prompt_data
+            prompt, greeting, cached_voice_id, voice_preset_key, greeting_source = prompt_data
             # Precedence: receptionist.voice_id if set, else env default
             voice_id = cached_voice_id if cached_voice_id else (settings.elevenlabs_voice_id or "")
+            logger.info(
+                "call_voice_setup receptionist_id=%s voice_preset_key=%s voice_id=%s greeting_source=%s",
+                receptionist_id,
+                voice_preset_key,
+                voice_id,
+                greeting_source,
+            )
             config = {
                 "deepgram_api_key": settings.deepgram_api_key,
                 "grok_api_key": settings.grok_api_key,

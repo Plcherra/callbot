@@ -12,6 +12,9 @@ from config import settings
 # NOTE: Preset keys are stable identifiers (API + DB). Labels/descriptions may evolve over time.
 DEFAULT_PRESET_KEY = "friendly_warm"
 
+# Single shared neutral preview sentence. Voice presets must affect audio only, not content.
+PREVIEW_SAMPLE_TEXT = "Hello, thanks for calling. How can I help you today?"
+
 # ElevenLabs model used for both preview and runtime TTS unless overridden.
 DEFAULT_MODEL_ID = "eleven_flash_v2_5"
 
@@ -27,7 +30,7 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "gender_or_style_label": "Warm, approachable",
         "voice_id": "S9NKLs1GeSTKzXd9D0Lf",  # Haley Maven – Social Media Bestie
         "model_id": DEFAULT_MODEL_ID,
-        "sample_text": "Hi, I'm Eve, Pedro's assistant. How can I help you today?",
+        "sample_text": PREVIEW_SAMPLE_TEXT,
     },
     {
         "key": "professional_calm",
@@ -36,7 +39,7 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "gender_or_style_label": "Professional, calm",
         "voice_id": "vZzlAds9NzvLsFSWp0qk",  # Maria Mysh
         "model_id": DEFAULT_MODEL_ID,
-        "sample_text": "Good day. Thank you for calling. How may I assist you?",
+        "sample_text": PREVIEW_SAMPLE_TEXT,
     },
     {
         "key": "premium_concierge",
@@ -45,7 +48,7 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "gender_or_style_label": "Polished, attentive",
         "voice_id": "g6xIsTj2HwM6VR4iXFCw",  # Jessica Anne Bogart – Chatty and Friendly
         "model_id": DEFAULT_MODEL_ID,
-        "sample_text": "Welcome. I'd be happy to help you. What can I do for you today?",
+        "sample_text": PREVIEW_SAMPLE_TEXT,
     },
     {
         "key": "energetic_upbeat",
@@ -54,7 +57,7 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "gender_or_style_label": "Energetic, upbeat",
         "voice_id": "UgBBYS2sOqTuMpoF3BR0",  # Mark – Natural Conversations
         "model_id": DEFAULT_MODEL_ID,
-        "sample_text": "Hey! Thanks for calling — what can I do for you?",
+        "sample_text": PREVIEW_SAMPLE_TEXT,
     },
     {
         "key": "confident_clear",
@@ -63,7 +66,7 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "gender_or_style_label": "Confident, clear",
         "voice_id": "jD4PjnscE4XmlzgsuqY0",  # Logan – Genuine, Steady, and Deep
         "model_id": DEFAULT_MODEL_ID,
-        "sample_text": "Thank you for calling. How may I help you today?",
+        "sample_text": PREVIEW_SAMPLE_TEXT,
     },
 ]
 

@@ -19,6 +19,7 @@ from api.auth import get_user_from_request
 from voice_presets import (
     DEFAULT_PRESET_KEY,
     PRESET_KEYS,
+    PREVIEW_SAMPLE_TEXT,
     get_preset,
     infer_preset_key_from_voice_id,
     list_presets_for_api,
@@ -96,7 +97,7 @@ async def voice_preset_preview(request: Request, key: str):
         return JSONResponse({"error": "Voice preview not configured"}, status_code=503)
     try:
         audio_bytes = await text_to_speech_preview(
-            text=preset.get("sample_text") or "Hello. How can I help you today?",
+            text=PREVIEW_SAMPLE_TEXT,
             voice_id=preset["voice_id"],
             api_key=api_key,
             model_id=preset.get("model_id") or "eleven_flash_v2_5",

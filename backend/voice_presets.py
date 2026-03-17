@@ -9,28 +9,33 @@ from typing import Any
 
 from config import settings
 
-# Default ElevenLabs voice ID (env ELEVENLABS_VOICE_ID). Use distinct IDs per preset when available.
-_DEFAULT_VOICE_ID = (settings.elevenlabs_voice_id or "CwhRBWXzGAHq8TQ4Fs17").strip() or "CwhRBWXzGAHq8TQ4Fs17"
-_DEFAULT_MODEL = "eleven_flash_v2_5"
+# NOTE: Preset keys are stable identifiers (API + DB). Labels/descriptions may evolve over time.
+DEFAULT_PRESET_KEY = "friendly_warm"
 
-# Curated presets for AI receptionist use. voice_id can be customized per preset for variety.
+# ElevenLabs model used for both preview and runtime TTS unless overridden.
+DEFAULT_MODEL_ID = "eleven_flash_v2_5"
+
+# Fallback env voice id (used only when no preset key + no stored voice_id exists).
+ENV_DEFAULT_VOICE_ID = (settings.elevenlabs_voice_id or "").strip() or None
+
+# Curated presets for AI receptionist use. These are the source of truth for preset->voice mapping.
 VOICE_PRESETS: list[dict[str, Any]] = [
     {
         "key": "friendly_warm",
         "label": "Friendly & Warm",
         "description": "Warm and approachable — great for salons, wellness, and small businesses.",
         "gender_or_style_label": "Warm, approachable",
-        "voice_id": _DEFAULT_VOICE_ID,
-        "model_id": _DEFAULT_MODEL,
-        "sample_text": "Hello! Thanks for calling. How can I help you today?",
+        "voice_id": "S9NKLs1GeSTKzXd9D0Lf",  # Haley Maven – Social Media Bestie
+        "model_id": DEFAULT_MODEL_ID,
+        "sample_text": "Hi, I'm Eve, Pedro's assistant. How can I help you today?",
     },
     {
         "key": "professional_calm",
         "label": "Professional & Calm",
         "description": "Clear and composed — ideal for offices, consulting, and professional services.",
         "gender_or_style_label": "Professional, calm",
-        "voice_id": _DEFAULT_VOICE_ID,
-        "model_id": _DEFAULT_MODEL,
+        "voice_id": "vZzlAds9NzvLsFSWp0qk",  # Maria Mysh
+        "model_id": DEFAULT_MODEL_ID,
         "sample_text": "Good day. Thank you for calling. How may I assist you?",
     },
     {
@@ -38,8 +43,8 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Premium Concierge",
         "description": "Polished and attentive — suits hospitality, high-end services, and concierge.",
         "gender_or_style_label": "Polished, attentive",
-        "voice_id": _DEFAULT_VOICE_ID,
-        "model_id": _DEFAULT_MODEL,
+        "voice_id": "g6xIsTj2HwM6VR4iXFCw",  # Jessica Anne Bogart – Chatty and Friendly
+        "model_id": DEFAULT_MODEL_ID,
         "sample_text": "Welcome. I'd be happy to help you. What can I do for you today?",
     },
     {
@@ -47,8 +52,8 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Energetic & Upbeat",
         "description": "Lively and positive — good for fitness, events, and youth-oriented brands.",
         "gender_or_style_label": "Energetic, upbeat",
-        "voice_id": _DEFAULT_VOICE_ID,
-        "model_id": _DEFAULT_MODEL,
+        "voice_id": "UgBBYS2sOqTuMpoF3BR0",  # Mark – Natural Conversations
+        "model_id": DEFAULT_MODEL_ID,
         "sample_text": "Hey! Thanks for calling — what can I do for you?",
     },
     {
@@ -56,14 +61,24 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Confident & Clear",
         "description": "Assured and easy to understand — works for legal, medical, or any clarity-focused use.",
         "gender_or_style_label": "Confident, clear",
-        "voice_id": _DEFAULT_VOICE_ID,
-        "model_id": _DEFAULT_MODEL,
+        "voice_id": "jD4PjnscE4XmlzgsuqY0",  # Logan – Genuine, Steady, and Deep
+        "model_id": DEFAULT_MODEL_ID,
         "sample_text": "Thank you for calling. How may I help you today?",
     },
 ]
 
 PRESET_KEYS = {p["key"] for p in VOICE_PRESETS}
-DEFAULT_PRESET_KEY = "friendly_warm"
+
+
+def infer_preset_key_from_voice_id(voice_id: str | None) -> str | None:
+    """Best-effort inference for legacy records: map known preset voice_id back to preset key."""
+    vid = (voice_id or "").strip()
+    if not vid:
+        return None
+    for p in VOICE_PRESETS:
+        if (p.get("voice_id") or "").strip() == vid:
+            return p["key"]
+    return None
 
 
 def get_preset(key: str) -> dict[str, Any] | None:
@@ -75,12 +90,26 @@ def get_preset(key: str) -> dict[str, Any] | None:
 
 
 def resolve_voice_id(voice_preset_key: str | None, fallback_voice_id: str | None) -> str | None:
-    """Resolve voice_preset_key to ElevenLabs voice_id. If key is missing/invalid, use fallback_voice_id (e.g. from DB)."""
-    if voice_preset_key:
-        preset = get_preset(voice_preset_key)
+    """Resolve preset key to ElevenLabs voice_id with explicit fallback rules.
+
+    Rules:
+    - valid preset key -> preset voice_id
+    - missing preset key + existing voice_id -> keep existing voice_id (backward compatibility)
+    - invalid preset key -> default preset voice_id (avoid unexpected silent failures)
+    - if nothing else exists -> env default voice id (if configured)
+    """
+    key = (voice_preset_key or "").strip() or None
+    fb = (fallback_voice_id or "").strip() or None
+
+    if key:
+        preset = get_preset(key)
         if preset:
             return (preset.get("voice_id") or "").strip() or None
-    return (fallback_voice_id or "").strip() or None
+        default_preset = get_preset(DEFAULT_PRESET_KEY)
+        return (default_preset.get("voice_id") if default_preset else None) or ENV_DEFAULT_VOICE_ID
+
+    # No preset key supplied: keep stored voice_id if present
+    return fb or ENV_DEFAULT_VOICE_ID
 
 
 def list_presets_for_api() -> list[dict[str, Any]]:

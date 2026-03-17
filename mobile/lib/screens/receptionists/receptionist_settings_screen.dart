@@ -1033,8 +1033,28 @@ class _InstructionsTabState extends State<_InstructionsTab> {
       _coreInstructionsController.text = res['system_prompt'] as String? ?? '';
       _greetingController.text = res['greeting'] as String? ?? '';
       _voicePresetKey = res['voice_preset_key'] as String?;
+      final voiceId = res['voice_id'] as String?;
       _assistantIdentityController.text = res['assistant_identity'] as String? ?? '';
       _extraNotesController.text = res['extra_instructions'] as String? ?? '';
+
+      // Legacy compatibility: some older records may not have voice_preset_key populated.
+      // Ask backend (source of truth) to infer key from stored voice_id when possible.
+      if ((_voicePresetKey == null || _voicePresetKey!.trim().isEmpty) &&
+          voiceId != null &&
+          voiceId.trim().isNotEmpty) {
+        try {
+          final r = await ApiClient.get('/api/mobile/receptionists/${widget.receptionistId}');
+          if (r.statusCode >= 200 && r.statusCode < 300) {
+            final data = jsonDecode(r.body) as Map<String, dynamic>?;
+            final inferred = data?['voice_preset_key'] as String?;
+            if (inferred != null && inferred.trim().isNotEmpty) {
+              _voicePresetKey = inferred.trim();
+            }
+          }
+        } catch (_) {
+          // Best-effort only; keep null and let UI default gracefully.
+        }
+      }
     }
     if (!mounted) return;
     setState(() => _loading = false);

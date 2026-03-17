@@ -16,7 +16,14 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 from api.auth import get_user_from_request
-from voice_presets import DEFAULT_PRESET_KEY, get_preset, list_presets_for_api, resolve_voice_id
+from voice_presets import (
+    DEFAULT_PRESET_KEY,
+    PRESET_KEYS,
+    get_preset,
+    infer_preset_key_from_voice_id,
+    list_presets_for_api,
+    resolve_voice_id,
+)
 from voice.elevenlabs_client import text_to_speech_preview
 from config import settings
 from google_oauth_scopes import SCOPES
@@ -375,12 +382,22 @@ async def create_receptionist(request: Request):
     greeting = (body.get("greeting") or "").strip() or None
     raw_voice_id = (body.get("voice_id") or "").strip() or None  # legacy/admin only
     voice_preset_key = (body.get("voice_preset_key") or "").strip() or None
+
+    # Validate/coerce preset key:
+    # - valid key -> use it
+    # - invalid key -> default preset (avoid silent/surprising behavior)
+    # - missing key -> legacy path (keep raw voice_id if provided)
+    if voice_preset_key and voice_preset_key not in PRESET_KEYS:
+        voice_preset_key = DEFAULT_PRESET_KEY
+
     voice_id = resolve_voice_id(voice_preset_key, raw_voice_id)
     if not voice_id:
-        default_preset = get_preset(DEFAULT_PRESET_KEY)
-        voice_id = default_preset["voice_id"] if default_preset else (settings.elevenlabs_voice_id or None)
-    if not voice_preset_key and voice_id:
-        voice_preset_key = DEFAULT_PRESET_KEY  # store default for UI label
+        return JSONResponse({"error": "Voice configuration missing"}, status_code=400)
+
+    # Ensure mobile-created records always store a preset key.
+    # But if caller supplied a raw voice_id (admin/legacy), don't stamp a potentially-wrong preset label.
+    if not voice_preset_key and not raw_voice_id:
+        voice_preset_key = DEFAULT_PRESET_KEY
     assistant_identity = (body.get("assistant_identity") or "").strip() or None
     promotions = (body.get("promotions") or body.get("promos") or "").strip()
     mode = (body.get("mode") or "personal").strip().lower()
@@ -440,6 +457,13 @@ async def create_receptionist(request: Request):
                     pass
             logger.warning("[receptionists/create] failed to resolve rec_id after insert")
             return JSONResponse({"error": "Failed to create receptionist"}, status_code=500)
+
+        logger.info(
+            "[receptionists/create] voice resolved rec_id=%s preset_key=%s voice_id=%s",
+            rec_id,
+            voice_preset_key,
+            voice_id,
+        )
 
         staff_done = False
         for s in staff_list:
@@ -524,7 +548,12 @@ async def get_receptionist(request: Request, receptionist_id: str):
     ).eq("id", receptionist_id).single().execute()
     if not r.data:
         return JSONResponse({"error": "Receptionist not found"}, status_code=404)
-    return r.data
+    data = r.data
+    if not (data.get("voice_preset_key") or "").strip():
+        inferred = infer_preset_key_from_voice_id((data.get("voice_id") or "").strip() or None)
+        if inferred:
+            data["voice_preset_key"] = inferred
+    return data
 
 
 @router.get("/receptionists/{receptionist_id}/calendar-status")
@@ -603,10 +632,16 @@ async def update_receptionist(request: Request, receptionist_id: str):
         updates["greeting"] = (body["greeting"] or "").strip() or None
     if "voice_preset_key" in body:
         preset_key = (body.get("voice_preset_key") or "").strip() or None
-        resolved = resolve_voice_id(preset_key, None)
-        updates["voice_preset_key"] = preset_key
-        if resolved is not None:
-            updates["voice_id"] = resolved
+        if preset_key:
+            if preset_key not in PRESET_KEYS:
+                preset_key = DEFAULT_PRESET_KEY
+            resolved = resolve_voice_id(preset_key, None)
+            updates["voice_preset_key"] = preset_key
+            if resolved is not None:
+                updates["voice_id"] = resolved
+        else:
+            # Explicitly clearing preset label should not swap voices.
+            updates["voice_preset_key"] = None
     elif "voice_id" in body:
         updates["voice_id"] = (body["voice_id"] or "").strip() or None
     if "assistant_identity" in body:
@@ -615,6 +650,13 @@ async def update_receptionist(request: Request, receptionist_id: str):
     if len(updates) <= 1:
         return {"ok": True}
     supabase.table("receptionists").update(updates).eq("id", receptionist_id).execute()
+    if "voice_preset_key" in updates or "voice_id" in updates:
+        logger.info(
+            "[receptionists/update] voice resolved rec_id=%s preset_key=%s voice_id=%s",
+            receptionist_id,
+            updates.get("voice_preset_key"),
+            updates.get("voice_id"),
+        )
     return {"ok": True}
 
 

@@ -140,7 +140,14 @@ def build_receptionist_prompt(
     # 6b. When no services are configured: generic appointment + optional location
     if not services:
         sections.append(
-            "No services are configured: For generic appointments, ask for an appointment title (summary), duration (in minutes), and whether the appointment needs a location. If they need a location, ask if it's a customer address, phone call, video meeting, or something else; then collect the address or details. Pass summary, duration_minutes, and when relevant location_type and customer_address or location_text to create_appointment. Do not ask for location if they say they don't need one."
+            "No services are configured (generic booking): Follow this exact order and be deterministic. "
+            "(1) Collect the date. (2) Collect the exact start time. (3) Collect the duration in minutes. "
+            "(4) Collect the caller's name. Once you have all 4, call create_appointment exactly once. "
+            "Set summary to include their name, e.g. \"Appointment — {caller_name}\". "
+            "Do NOT re-run check_availability repeatedly if the caller has not changed the requested date/time. "
+            "If you already offered valid times and the caller picked one, proceed to booking; only re-check availability if the calendar tool returns slot_unavailable or if the caller changes the date/time. "
+            "After the booking attempt: if success=true, confirm the appointment details. If success=false, explain the real failure message; if suggested_slots are provided, offer 2–4 specific alternatives. "
+            "For location: only ask if they say they need a location. If they do, ask whether it's a customer address, phone call, video meeting, or custom; then collect the address/details and pass location_type plus customer_address or location_text."
         )
 
     if extra_instructions and extra_instructions.strip():

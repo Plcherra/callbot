@@ -160,21 +160,6 @@ def verify_webhook_request(
     webhook_id, call_id = _parse_ids_from_body(raw_body)
     ed25519_headers_present = bool(ed25519_sig and timestamp)
 
-    # 0. Early accept when TELNYX_SKIP_VERIFY and no IP restrict (e.g. no TELNYX_PUBLIC_KEY)
-    if settings.telnyx_skip_verify:
-        allowed_ips = _get_allowed_ips()
-        if not allowed_ips or client_ip in allowed_ips:
-            _log_verification(
-                "skip_verification",
-                "skip_verification",
-                client_ip,
-                user_agent,
-                webhook_id,
-                call_id,
-                missing_headers=["TELNYX_SKIP_VERIFY=true accepted"],
-            )
-            return VerificationResult(verified=True, strategy="skip_verification")
-
     # 1. Ed25519 verification
     if ed25519_headers_present and settings.telnyx_public_key:
         if verify_ed25519(
@@ -189,7 +174,23 @@ def verify_webhook_request(
         # Ed25519 failed (e.g. body modified by Cloudflare/proxy)
         if settings.telnyx_skip_verify:
             allowed_ips = _get_allowed_ips()
-            if allowed_ips and client_ip not in allowed_ips:
+            if not allowed_ips:
+                _log_verification(
+                    "rejected_skip_verify_requires_allowlist",
+                    "skip_verification",
+                    client_ip,
+                    user_agent,
+                    webhook_id,
+                    call_id,
+                    missing_headers=["TELNYX_SKIP_VERIFY=true but TELNYX_ALLOWED_IPS is empty"],
+                )
+                return VerificationResult(
+                    verified=False,
+                    strategy="skip_verify_requires_allowlist",
+                    detail="Webhook signature verification failed",
+                    code="webhook_verification_failed",
+                )
+            if client_ip not in allowed_ips:
                 _log_verification(
                     "rejected_ip_not_allowed",
                     "skip_verification",
@@ -235,7 +236,23 @@ def verify_webhook_request(
     skip, reason = should_skip_verification(ed25519_headers_present, settings.telnyx_skip_verify)
     if skip:
         allowed_ips = _get_allowed_ips()
-        if allowed_ips and client_ip not in allowed_ips:
+        if not allowed_ips:
+            _log_verification(
+                "rejected_skip_verify_requires_allowlist",
+                "skip_verification",
+                client_ip,
+                user_agent,
+                webhook_id,
+                call_id,
+                missing_headers=["TELNYX_SKIP_VERIFY=true but TELNYX_ALLOWED_IPS is empty"],
+            )
+            return VerificationResult(
+                verified=False,
+                strategy="skip_verify_requires_allowlist",
+                detail="Webhook signature verification failed",
+                code="webhook_verification_failed",
+            )
+        if client_ip not in allowed_ips:
             missing = ["telnyx-signature-ed25519", "telnyx-timestamp"]
             _log_verification(
                 "rejected_ip_not_allowed",

@@ -20,7 +20,7 @@ class ReceptionistSettingsScreen extends StatefulWidget {
 }
 
 class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late TabController _tabController;
   String? _receptionistName;
   String _mode = 'personal';
@@ -28,6 +28,8 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
   bool _loadingCalendarStatus = false;
   bool _loading = true;
   List<Tab> _tabs = const [];
+  int _loadSeq = 0;
+  int _calendarStatusLoadSeq = 0;
 
   @override
   void initState() {
@@ -43,6 +45,7 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
   }
 
   Future<void> _load() async {
+    final int seq = ++_loadSeq;
     final res = await Supabase.instance.client
         .from('receptionists')
         .select('name, mode')
@@ -74,12 +77,31 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
       ];
     }
 
-    if (!mounted) return;
+    if (!mounted || seq != _loadSeq) return;
+
+    TabController? nextController;
+    TabController? oldController;
+    if (_tabController.length != tabs.length) {
+      final nextIndex = _tabController.index.clamp(0, (tabs.length - 1).clamp(0, 1 << 20));
+      nextController = TabController(length: tabs.length, vsync: this, initialIndex: nextIndex);
+      oldController = _tabController;
+    }
+
+    if (nextController != null) {
+      oldController?.dispose();
+    }
+
+    if (!mounted || seq != _loadSeq) {
+      nextController?.dispose();
+      return;
+    }
+
     setState(() {
       _tabs = tabs;
       _loading = false;
-      _tabController.dispose();
-      _tabController = TabController(length: _tabs.length, vsync: this);
+      if (nextController != null) {
+        _tabController = nextController;
+      }
     });
 
     await _loadCalendarStatus();
@@ -117,6 +139,7 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
 
   Future<void> _loadCalendarStatus() async {
     if (!mounted) return;
+    final int seq = ++_calendarStatusLoadSeq;
     setState(() => _loadingCalendarStatus = true);
     try {
       final res = await ApiClient.get(
@@ -133,13 +156,13 @@ class _ReceptionistSettingsScreenState extends State<ReceptionistSettingsScreen>
           // Invalid JSON or wrong shape; leave _calendarStatus as-is or null.
         }
       }
-      if (!mounted) return;
+      if (!mounted || seq != _calendarStatusLoadSeq) return;
       setState(() {
         _calendarStatus = decoded;
         _loadingCalendarStatus = false;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || seq != _calendarStatusLoadSeq) return;
       setState(() => _loadingCalendarStatus = false);
     }
   }

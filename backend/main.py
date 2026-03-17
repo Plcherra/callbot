@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
             logger.warning(
                 "SECURITY: TELNYX_SKIP_VERIFY is enabled. Webhook signature verification is DISABLED. "
                 "Use only when headers are stripped by proxy (e.g. Cloudflare Tunnel). "
-                "Ensure TELNYX_ALLOWED_IPS is set for defense-in-depth."
+                "TELNYX_ALLOWED_IPS must be set (non-empty) or requests will be rejected."
             )
     except ValueError as e:
         logger.error("Startup validation failed: %s", e)

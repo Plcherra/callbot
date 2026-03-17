@@ -921,7 +921,7 @@ class _InstructionsTabState extends State<_InstructionsTab> {
   Future<void> _showVoicePicker() async {
     await _loadVoicePresets();
     if (!mounted) return;
-    showModalBottomSheet<void>(
+    showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {

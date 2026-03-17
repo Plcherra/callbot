@@ -315,5 +315,11 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
             _pending_streams[call_control_id] = stream_url
         else:
             logger.error("Answer failed: %s", answer_resp.text)
+            _update_call_log(supabase, call_control_id, {"status": "failed"})
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=503,
+                detail=f"answer_failed: {answer_resp.text[:300]}",
+            )
 
     return {"success": True}

@@ -12,12 +12,18 @@ from urllib.parse import parse_qs, urlparse
 from starlette.websockets import WebSocket
 
 from config import settings
-from voice.constants import SILENCE_PACKET, SILENCE_INTERVAL_MS, PING_INTERVAL_MS, get_voice_api_key
-from voice.constants import get_prompt_base
+from voice.constants import (
+    SILENCE_PACKET,
+    SILENCE_INTERVAL_MS,
+    PING_INTERVAL_MS,
+    RECORDING_CONSENT_PHRASE,
+    get_voice_api_key,
+    get_prompt_base,
+)
+from supabase_client import create_service_role_client
 from voice.send_media import send_media
 from voice.pipeline import run_voice_pipeline
 from prompts.fetch import get_cached_prompt, fetch_prompt
-from supabase_client import create_service_role_client
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +140,30 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
                 config["receptionist_id"] = receptionist_id
                 config["voice_server_api_key"] = voice_api_key
                 config["voice_server_base_url"] = prompt_base.rstrip("/")
+            if call_sid:
+                config["consent_phrase"] = RECORDING_CONSENT_PHRASE
+
+                async def on_consent_played() -> None:
+                    try:
+                        sb = create_service_role_client()
+                        await asyncio.to_thread(
+                            lambda: sb.table("call_logs")
+                            .update({"recording_consent_played": True})
+                            .eq("call_control_id", call_sid)
+                            .execute()
+                        )
+                        logger.info(
+                            "[voice/stream] call_logs.recording_consent_played set true for call_control_id=%s",
+                            call_sid,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "[voice/stream] failed to set recording_consent_played for call_control_id=%s: %s",
+                            call_sid,
+                            e,
+                        )
+
+                config["on_consent_played"] = on_consent_played
 
             async def on_audio(buf: bytes) -> None:
                 if ws.client_state.name == "CONNECTED":

@@ -315,6 +315,12 @@ async def receptionist_prompt(
         }
 
     supabase = create_service_role_client()
+    rec_res = supabase.table("receptionists").select("id, status, active").eq("id", receptionist_id.strip()).execute()
+    if not rec_res.data or len(rec_res.data) == 0:
+        raise HTTPException(status_code=404, detail="Receptionist not found")
+    rec = rec_res.data[0]
+    if rec.get("status") != "active" or rec.get("active") is False:
+        raise HTTPException(status_code=404, detail="Receptionist not found or inactive")
     prompt, greeting, _ = _build_from_supabase_sync(receptionist_id, supabase)
     return {"prompt": prompt, "greeting": greeting}
 
@@ -403,7 +409,9 @@ async def cron_usage(
 async def cron_reset_usage(
     authorization: str = Header(None, alias="Authorization"),
 ):
-    """Reset used_inbound_minutes and used_outbound_minutes for new period. Run on 1st of month."""
+    """Reset used_inbound_minutes and used_outbound_minutes for new period. Run on 1st of month.
+    Only updates rows that have not yet been reset this month (period_reset_at < first day of current month, or null)
+    to avoid accidentally resetting all users on a mistaken or repeated call."""
     secret = (settings.cron_secret or "").strip()
     if not secret:
         raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
@@ -412,15 +420,31 @@ async def cron_reset_usage(
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     from datetime import datetime
-    ts = datetime.utcnow().isoformat() + "Z"
+    now = datetime.utcnow()
+    first_day_current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Date-only boundary to avoid colon parsing risk in PostgREST query strings (e.g. 2026-03-01)
+    first_day_boundary = first_day_current_month.strftime("%Y-%m-%d")
+    ts = now.isoformat() + "Z"
     supabase = create_service_role_client()
-    supabase.table("user_plans").update({
-        "used_inbound_minutes": 0,
-        "used_outbound_minutes": 0,
-        "period_reset_at": ts,
-        "updated_at": ts,
-    }).execute()
-    return {"ok": True}
+    logger.info(
+        "[cron/reset-usage] monthly filter: boundary=%s (period_reset_at IS NULL OR period_reset_at < first day of current month)",
+        first_day_boundary,
+    )
+    # Only reset rows not yet reset this month (safety: prevents one mistaken call from resetting everyone)
+    update_resp = (
+        supabase.table("user_plans")
+        .update({
+            "used_inbound_minutes": 0,
+            "used_outbound_minutes": 0,
+            "period_reset_at": ts,
+            "updated_at": ts,
+        })
+        .or_(f"period_reset_at.is.null,period_reset_at.lt.{first_day_boundary}")
+        .execute()
+    )
+    count = len(update_resp.data) if update_resp.data else 0
+    logger.info("[cron/reset-usage] reset count=%s (period_reset_at < %s or null)", count, first_day_boundary)
+    return {"ok": True, "reset_count": count}
 
 
 # Wrap with debug middleware after all routes registered (uvicorn loads this)

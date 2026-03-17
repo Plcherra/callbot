@@ -51,9 +51,23 @@ android {
         versionName flutterVersionName
     }
 
+    // Release signing: set key.store, key.alias, key.password, key.storePassword in local.properties
+    // for Play Store builds. See mobile/README.md or docs. If unset, release uses debug for dev builds.
+    def releaseKeystorePath = localProperties.getProperty('key.store')
+    def hasReleaseKeystore = releaseKeystorePath != null && !releaseKeystorePath.isEmpty()
+    signingConfigs {
+        release {
+            if (hasReleaseKeystore) {
+                storeFile file(releaseKeystorePath)
+                storePassword localProperties.getProperty('key.storePassword', '')
+                keyAlias localProperties.getProperty('key.alias', '')
+                keyPassword localProperties.getProperty('key.password', '')
+            }
+        }
+    }
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
         }
     }
 }

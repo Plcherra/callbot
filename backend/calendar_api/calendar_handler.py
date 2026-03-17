@@ -169,11 +169,12 @@ async def handle_calendar_request(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="action must be check_availability, create_appointment, or reschedule_appointment")
 
     supabase = create_service_role_client()
-    rec_res = supabase.table("receptionists").select("id, user_id, calendar_id").eq("id", receptionist_id).execute()
+    rec_res = supabase.table("receptionists").select("id, user_id, calendar_id, status, active").eq("id", receptionist_id).execute()
     if not rec_res.data or len(rec_res.data) == 0:
         raise HTTPException(status_code=404, detail="Receptionist not found")
-
     rec = rec_res.data[0]
+    if rec.get("status") != "active" or rec.get("active") is False:
+        raise HTTPException(status_code=404, detail="Receptionist not found or inactive")
     user_res = supabase.table("users").select("calendar_refresh_token").eq("id", rec["user_id"]).execute()
     if not user_res.data or len(user_res.data) == 0 or not user_res.data[0].get("calendar_refresh_token"):
         return {
@@ -452,8 +453,8 @@ def _handle_create_appointment(service, calendar_id: str, params: dict, receptio
 
     event_body = {
         "summary": summary,
-        "start": {"dateTime": start_iso, "timeZone": DEFAULT_TIMEZONE},
-        "end": {"dateTime": end_iso, "timeZone": DEFAULT_TIMEZONE},
+        "start": {"dateTime": start_iso, "timeZone": timezone},
+        "end": {"dateTime": end_iso, "timeZone": timezone},
     }
     if event_description:
         event_body["description"] = event_description
@@ -573,8 +574,8 @@ def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
             calendarId=calendar_id,
             eventId=event_id,
             body={
-                "start": {"dateTime": start_d.isoformat(), "timeZone": DEFAULT_TIMEZONE},
-                "end": {"dateTime": end_d.isoformat(), "timeZone": DEFAULT_TIMEZONE},
+                "start": {"dateTime": start_d.isoformat(), "timeZone": timezone},
+                "end": {"dateTime": end_d.isoformat(), "timeZone": timezone},
             },
             sendUpdates="none",
         ).execute()

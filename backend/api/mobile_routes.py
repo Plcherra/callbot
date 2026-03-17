@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hmac
+import hashlib
 import logging
 import re
+import time
 from datetime import datetime
 from typing import Any
 
@@ -181,7 +184,15 @@ async def google_auth_url(request: Request):
             # PKCE requires persisting the code_verifier across request/callback, which we do not do.
             autogenerate_code_verifier=False,
         )
-        state = f"{user['id']}:{return_to}" if return_to else user["id"]
+        # Sign state so callback cannot be tricked into associating tokens with wrong user (CSRF).
+        timestamp = int(time.time())
+        payload = f"{user['id']}:{return_to}:{timestamp}"
+        secret = (settings.google_oauth_state_secret or settings.supabase_service_role_key or "").encode("utf-8")
+        if not secret:
+            logger.error("[google-auth-url] Google OAuth state secret not configured (set GOOGLE_OAUTH_STATE_SECRET or SUPABASE_SERVICE_ROLE_KEY)")
+            return JSONResponse({"error": "Server configuration error"}, status_code=500)
+        signature = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        state = f"{payload}.{signature}"
         url, _ = flow.authorization_url(
             access_type="offline",
             prompt="consent",

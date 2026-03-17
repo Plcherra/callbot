@@ -105,7 +105,7 @@ class WizardFormData {
     if (voicePresetKey != null && voicePresetKey!.trim().isNotEmpty) body['voice_preset_key'] = voicePresetKey!.trim();
     if (assistantIdentity != null && assistantIdentity!.trim().isNotEmpty) body['assistant_identity'] = assistantIdentity!.trim();
     if (phoneStrategy == 'new') {
-      body['area_code'] = areaCode == 'other' ? '212' : (areaCode ?? '212');
+      body['area_code'] = areaCode ?? '212';
     } else {
       if (ownPhone != null && ownPhone!.trim().isNotEmpty) {
         body['own_phone'] = ownPhone!.trim();
@@ -182,7 +182,10 @@ const areaCodes = [
   SelectOption('202', '202 (DC)'),
   SelectOption('305', '305 (Miami)'),
   SelectOption('702', '702 (Las Vegas)'),
-  SelectOption('other', 'Other'),
+  SelectOption('312', '312 (Chicago)'),
+  SelectOption('404', '404 (Atlanta)'),
+  SelectOption('512', '512 (Austin)'),
+  SelectOption('206', '206 (Seattle)'),
 ];
 
 const countryOptions = [

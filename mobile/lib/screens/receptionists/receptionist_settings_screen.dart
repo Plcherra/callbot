@@ -307,12 +307,36 @@ class _StaffTabState extends State<_StaffTab> {
               trailing: IconButton(
                 icon: const Icon(Icons.delete),
                 onPressed: () async {
-                  await Supabase.instance.client
-                      .from('staff')
-                      .delete()
-                      .eq('id', s['id'])
-                      .eq('receptionist_id', widget.receptionistId);
-                  _load();
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete staff member?'),
+                      content: Text(
+                        'Remove "${s['name'] ?? 'this person'}"? This cannot be undone.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(ctx).colorScheme.error,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true && mounted) {
+                    await Supabase.instance.client
+                        .from('staff')
+                        .delete()
+                        .eq('id', s['id'])
+                        .eq('receptionist_id', widget.receptionistId);
+                    _load();
+                  }
                 },
               ),
             )),
@@ -478,12 +502,36 @@ class _ServicesTabState extends State<_ServicesTab> {
                       IconButton(
                         icon: const Icon(Icons.delete),
                         onPressed: () async {
-                          await Supabase.instance.client
-                              .from('services')
-                              .delete()
-                              .eq('id', s['id'])
-                              .eq('receptionist_id', widget.receptionistId);
-                          _load();
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Delete service?'),
+                              content: Text(
+                                'Remove "${s['name'] ?? 'this service'}"? This cannot be undone.',
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: const Text('Cancel'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.of(ctx).pop(true),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Theme.of(ctx).colorScheme.error,
+                                  ),
+                                  child: const Text('Delete'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true && mounted) {
+                            await Supabase.instance.client
+                                .from('services')
+                                .delete()
+                                .eq('id', s['id'])
+                                .eq('receptionist_id', widget.receptionistId);
+                            _load();
+                          }
                         },
                       ),
                     ],
@@ -574,12 +622,36 @@ class _LocationsTabState extends State<_LocationsTab> {
               trailing: IconButton(
                 icon: const Icon(Icons.delete),
                 onPressed: () async {
-                  await Supabase.instance.client
-                      .from('locations')
-                      .delete()
-                      .eq('id', l['id'])
-                      .eq('receptionist_id', widget.receptionistId);
-                  _load();
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete location?'),
+                      content: Text(
+                        'Remove "${l['name'] ?? 'this location'}"? This cannot be undone.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(ctx).colorScheme.error,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true && mounted) {
+                    await Supabase.instance.client
+                        .from('locations')
+                        .delete()
+                        .eq('id', l['id'])
+                        .eq('receptionist_id', widget.receptionistId);
+                    _load();
+                  }
                 },
               ),
             )),
@@ -633,12 +705,36 @@ class _PromosTabState extends State<_PromosTab> {
               trailing: IconButton(
                 icon: const Icon(Icons.delete),
                 onPressed: () async {
-                  await Supabase.instance.client
-                      .from('promos')
-                      .delete()
-                      .eq('id', p['id'])
-                      .eq('receptionist_id', widget.receptionistId);
-                  _load();
+                  final confirm = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text('Delete promotion?'),
+                      content: Text(
+                        'Remove "${p['code'] ?? 'this promo'}"? This cannot be undone.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(ctx).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(ctx).pop(true),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(ctx).colorScheme.error,
+                          ),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (confirm == true && mounted) {
+                    await Supabase.instance.client
+                        .from('promos')
+                        .delete()
+                        .eq('id', p['id'])
+                        .eq('receptionist_id', widget.receptionistId);
+                    _load();
+                  }
                 },
               ),
             )),

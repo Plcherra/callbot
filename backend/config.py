@@ -65,6 +65,7 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = ""
     next_public_google_redirect_uri: str = ""  # Alias for NEXT_PUBLIC_GOOGLE_REDIRECT_URI
+    google_oauth_state_secret: str = ""  # For HMAC signing of OAuth state (fallback: supabase_service_role_key)
 
     # Stripe
     stripe_secret_key: str = ""
@@ -129,9 +130,14 @@ class Settings(BaseSettings):
         """Fail fast if Supabase config missing."""
         url = self.get_supabase_url()
         key = (self.supabase_service_role_key or "").strip()
+        anon_key = (self.next_public_supabase_anon_key or "").strip()
         if not url or not key:
             raise ValueError(
                 "SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY must be set"
+            )
+        if not anon_key:
+            raise ValueError(
+                "NEXT_PUBLIC_SUPABASE_ANON_KEY must be set for /api/mobile JWT auth"
             )
 
     def validate_telnyx(self) -> None:

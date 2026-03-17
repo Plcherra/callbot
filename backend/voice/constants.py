@@ -2,6 +2,12 @@
 
 from config import settings
 
+# Phrase played at start of call to obtain recording consent (must match compliance wording)
+RECORDING_CONSENT_PHRASE = (
+    "This call may be recorded for quality and training purposes. "
+    "By continuing, the caller consents to recording. "
+)
+
 # 160 bytes of 0xff - mulaw silence for telephony
 SILENCE_PACKET = bytes([0xFF] * 160)
 SILENCE_INTERVAL_MS = 3000

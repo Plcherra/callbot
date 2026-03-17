@@ -41,6 +41,35 @@ GoRouter createAppRouter() {
       if (isLoggedIn && state.matchedLocation == '/') {
         return '/dashboard';
       }
+      // Redirect to onboarding if not yet complete (allowlist: onboarding, settings, checkout, help, call)
+      if (isLoggedIn) {
+        final loc = state.matchedLocation;
+        final allowlist = loc == '/onboarding' ||
+            loc.startsWith('/settings') ||
+            loc.startsWith('/checkout') ||
+            loc == '/help' ||
+            loc.startsWith('/call/');
+        if (!allowlist) {
+          try {
+            final user = Supabase.instance.client.auth.currentUser;
+            if (user != null) {
+              final res = await Supabase.instance.client
+                  .from('users')
+                  .select('onboarding_completed_at')
+                  .eq('id', user.id)
+                  .maybeSingle();
+              final completedAt = res?['onboarding_completed_at'] as String?;
+              final onboardingComplete =
+                  (completedAt ?? '').trim().isNotEmpty;
+              if (!onboardingComplete) {
+                return '/onboarding';
+              }
+            }
+          } catch (_) {
+            // On error (e.g. network), don't block navigation
+          }
+        }
+      }
       return null;
     },
     routes: [

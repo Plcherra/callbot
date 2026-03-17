@@ -295,6 +295,22 @@ async def run_voice_pipeline(
         on_error=on_dg_error,
     )
 
+    # Play recording consent phrase first when configured; then mark consent as played for CDR
+    on_consent_played = config.get("on_consent_played")
+    consent_phrase = config.get("consent_phrase")
+    if consent_phrase and callable(on_consent_played):
+        await generate_and_send_tts(
+            consent_phrase, config, on_audio, on_error,
+            _tts_failure_logged=tts_failure_logged,
+        )
+        try:
+            if asyncio.iscoroutinefunction(on_consent_played):
+                await on_consent_played()
+            else:
+                on_consent_played()
+        except Exception as e:
+            logger.warning("[voice/stream] on_consent_played callback failed: %s", e)
+        logger.info("[voice/stream] recording consent phrase sent; consent marked as played for this call")
     if config.get("greeting"):
         asyncio.create_task(
             generate_and_send_tts(

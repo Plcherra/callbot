@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
+import hashlib
 import logging
+import time
 from datetime import datetime
 
 from fastapi import Request
@@ -126,9 +129,33 @@ async def google_callback_get(request: Request):
     if not raw_state:
         return _redirect_error("Missing state parameter")
 
-    parts = raw_state.split(":")
-    user_id = parts[0] if parts else raw_state
-    return_to = parts[1] if len(parts) > 1 else "dashboard"
+    # Verify signed state (CSRF protection: state is payload.signature)
+    state_parts = raw_state.split(".", 1)
+    if len(state_parts) != 2:
+        logger.warning("[Google callback] Invalid state format (expected payload.signature)")
+        return _redirect_error("Invalid state parameter")
+    payload, signature = state_parts
+    secret = (settings.google_oauth_state_secret or settings.supabase_service_role_key or "").encode("utf-8")
+    if not secret:
+        logger.error("[Google callback] OAuth state secret not configured")
+        return _redirect_error("Server configuration error")
+    expected_sig = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected_sig, signature):
+        logger.warning("[Google callback] State signature mismatch")
+        return _redirect_error("Invalid state parameter")
+    payload_parts = payload.split(":")
+    if len(payload_parts) < 3:
+        logger.warning("[Google callback] State payload missing user_id:return_to:timestamp")
+        return _redirect_error("Invalid state parameter")
+    user_id = payload_parts[0]
+    return_to = payload_parts[1] if len(payload_parts) > 2 else "dashboard"
+    try:
+        state_ts = int(payload_parts[2])
+        if abs(time.time() - state_ts) > 600:
+            logger.warning("[Google callback] State expired (timestamp %s)", state_ts)
+            return _redirect_error("Link expired. Please try connecting again.")
+    except (ValueError, IndexError):
+        return _redirect_error("Invalid state parameter")
 
     logger.info(
         "[Google callback] received code=%s state_return_to=%s redirect_uri=%r",

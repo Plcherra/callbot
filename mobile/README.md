@@ -44,6 +44,17 @@ flutter build apk --dart-define=API_BASE_URL=https://api.example.com \
 
 If `SUPABASE_URL` or `SUPABASE_ANON_KEY` is empty, the app will fail at startup with a clear error.
 
+### Android release signing (Play Store)
+
+Release builds must be signed with a release keystore. Add to `android/app/local.properties` (do not commit secrets):
+
+- `key.store` — path to your `.jks` or `.keystore` file (e.g. `../upload-keystore.jks`)
+- `key.storePassword` — keystore password
+- `key.alias` — key alias
+- `key.password` — key password
+
+If these are not set, `flutter build appbundle` uses debug signing (fine for local testing; Play Store will reject uploads signed with debug).
+
 ## Deep Links
 
 - `echodesk://checkout?session_id=...` - Stripe Checkout return

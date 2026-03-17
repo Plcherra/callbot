@@ -64,7 +64,7 @@ def _parse_event(raw_body: bytes) -> dict | None:
 def _get_call_log_row(supabase, call_control_id: str) -> dict | None:
     """Fetch call_logs row by call_control_id. Returns row dict or None."""
     try:
-        sel = supabase.table("call_logs").select("id, started_at, answered_at").eq("call_control_id", call_control_id).limit(1).execute()
+        sel = supabase.table("call_logs").select("id, started_at, answered_at, recording_consent_played").eq("call_control_id", call_control_id).limit(1).execute()
         if sel and sel.data and len(sel.data) > 0 and isinstance(sel.data[0], dict):
             return sel.data[0]
         return None
@@ -247,6 +247,10 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
     billed_minutes = _round_to_six_second_increments(duration_seconds)
     logger.info("[CALL_DIAG] CDR duration aggregation call_control_id=%s duration_seconds=%s billed_minutes=%s", call_control_id, duration_seconds, billed_minutes)
 
+    call_log_row = _get_call_log_row(supabase, call_control_id)
+    recording_consent_played = bool(call_log_row.get("recording_consent_played") if call_log_row else False)
+    logger.info("[CALL_DIAG] CDR call_usage recording_consent_played=%s (from call_logs) for call_control_id=%s", recording_consent_played, call_control_id)
+
     started_at_str = started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at)
     ended_at_str = ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at)
     insert_row = {
@@ -259,7 +263,7 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         "status": "completed",
         "billed_minutes": billed_minutes,
         "telnyx_call_control_id": call_control_id,
-        "recording_consent_played": True,
+        "recording_consent_played": recording_consent_played,
     }
     if receptionist.get("user_id"):
         insert_row["user_id"] = receptionist["user_id"]

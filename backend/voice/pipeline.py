@@ -19,6 +19,121 @@ SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh", "yeah", "yes"})
 FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "so"})
 DEBOUNCE_MS = 400
 MIN_CONFIDENCE = 0.35
+CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
+PRE_TOOL_FILLER_PHRASE = "One moment…"
+
+
+def normalize_tool_args(args: dict) -> dict:
+    """Normalize tool args for stable caching/logging keys."""
+    normalized: dict = {}
+    for k, v in (args or {}).items():
+        if v is None:
+            continue
+        if k == "duration_minutes" and isinstance(v, str):
+            try:
+                normalized[k] = int(v) or 30
+            except (ValueError, TypeError):
+                normalized[k] = 30
+        elif k == "price_cents" and v is not None:
+            try:
+                normalized[k] = int(v)
+            except (TypeError, ValueError):
+                continue
+        elif k == "attendees" and isinstance(v, list):
+            normalized[k] = [x for x in v if isinstance(x, str)]
+        else:
+            normalized[k] = v
+    return normalized
+
+
+def make_calendar_tool_exec(
+    *,
+    config: dict[str, Any],
+    on_audio: Callable[[bytes], Awaitable[None]],
+    on_error: Optional[Callable[[Exception], None]],
+    tts_failure_logged: list[bool],
+) -> Callable[[str, dict], Awaitable[str]]:
+    """
+    Create a per-turn tool_exec coroutine that:
+    - speaks a short filler phrase once per turn before first calendar tool call
+    - dedupes identical calendar tool calls within the turn (tool name + normalized args)
+    - calls the voice calendar API with normalized args
+    """
+    pre_tool_spoken_this_turn = False
+    tool_cache: dict[tuple[str, str], str] = {}
+
+    base_url = config.get("voice_server_base_url")
+    api_key = config.get("voice_server_api_key")
+    rec_id = config.get("receptionist_id")
+
+    async def _maybe_pre_tool_speech(tool_name: str) -> None:
+        nonlocal pre_tool_spoken_this_turn
+        if pre_tool_spoken_this_turn:
+            return
+        if tool_name not in CALENDAR_TOOL_NAMES:
+            return
+        pre_tool_spoken_this_turn = True
+        phrase = PRE_TOOL_FILLER_PHRASE
+        logger.info("[CALL_DIAG] pre_tool_speech_sent tool=%s text=%r", tool_name, phrase)
+        await generate_and_send_tts(
+            phrase,
+            config,
+            on_audio,
+            on_error,
+            _tts_failure_logged=tts_failure_logged,
+        )
+
+    async def tool_exec(name: str, args: dict) -> str:
+        if name in CALENDAR_TOOL_NAMES:
+            normalized = normalize_tool_args(args)
+            key = (name, json.dumps(normalized, sort_keys=True, separators=(",", ":")))
+            if key in tool_cache:
+                logger.info(
+                    "[CALL_DIAG] tool_exec_dedupe_hit tool=%s key=%s",
+                    name,
+                    key[1][:200],
+                )
+                return tool_cache[key]
+
+            await _maybe_pre_tool_speech(name)
+
+            if name == "create_appointment":
+                has_start = bool(normalized.get("start_time") or normalized.get("date_text"))
+                has_duration = bool(normalized.get("duration_minutes"))
+                has_summary = bool((normalized.get("summary") or "").strip())
+                missing = []
+                if not has_start:
+                    missing.append("start_time/date_text")
+                if not has_duration:
+                    missing.append("duration_minutes")
+                if not has_summary:
+                    missing.append("summary")
+                logger.info(
+                    "[CALL_DIAG] tool_exec_call tool=create_appointment has_start=%s has_duration=%s has_summary=%s missing=%s",
+                    has_start,
+                    has_duration,
+                    has_summary,
+                    ",".join(missing) if missing else "",
+                )
+            else:
+                logger.info(
+                    "[CALL_DIAG] tool_exec_call tool=%s args=%s",
+                    name,
+                    key[1][:250],
+                )
+
+            if not (base_url and api_key and rec_id):
+                result = '{"success": false, "error": "calendar_not_configured"}'
+                tool_cache[key] = result
+                return result
+
+            result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
+            tool_cache[key] = result
+            return result
+
+        return '{"success": false, "error": "Unknown tool: ' + name + '"}'
+
+    return tool_exec
 
 
 def _passes_transcript_guard(text: str) -> bool:
@@ -129,8 +244,6 @@ async def run_voice_pipeline(
         confidence = turn_complete_confidence
         turn_complete_transcript = ""
         turn_complete_confidence = None
-        pre_tool_spoken_this_turn = False
-        tool_cache: dict[tuple[str, str], str] = {}
 
         if not user_text or not _passes_transcript_guard(user_text):
             logger.debug(
@@ -142,45 +255,6 @@ async def run_voice_pipeline(
         if confidence is not None and confidence < MIN_CONFIDENCE:
             logger.debug("[turn] Trigger rejected: low confidence=%.2f", confidence)
             return
-
-        def _normalize_tool_args(args: dict) -> dict:
-            """Normalize tool args for stable caching/logging keys."""
-            normalized: dict = {}
-            for k, v in (args or {}).items():
-                if v is None:
-                    continue
-                if k == "duration_minutes" and isinstance(v, str):
-                    try:
-                        normalized[k] = int(v) or 30
-                    except (ValueError, TypeError):
-                        normalized[k] = 30
-                elif k == "price_cents" and v is not None:
-                    try:
-                        normalized[k] = int(v)
-                    except (TypeError, ValueError):
-                        continue
-                elif k == "attendees" and isinstance(v, list):
-                    normalized[k] = [x for x in v if isinstance(x, str)]
-                else:
-                    normalized[k] = v
-            return normalized
-
-        async def _maybe_pre_tool_speech(tool_name: str) -> None:
-            nonlocal pre_tool_spoken_this_turn
-            if pre_tool_spoken_this_turn:
-                return
-            if tool_name not in ("check_availability", "create_appointment", "reschedule_appointment"):
-                return
-            pre_tool_spoken_this_turn = True
-            phrase = "One moment…"
-            logger.info("[CALL_DIAG] pre_tool_speech_sent tool=%s text=%r", tool_name, phrase)
-            await generate_and_send_tts(
-                phrase,
-                config,
-                on_audio,
-                on_error,
-                _tts_failure_logged=tts_failure_logged,
-            )
 
         logger.info("[turn] Grok task started transcript=%r", user_text[:80])
         is_processing = True
@@ -196,53 +270,12 @@ async def run_voice_pipeline(
                 and config.get("voice_server_base_url")
             )
             if use_calendar:
-                base_url = config["voice_server_base_url"]
-                api_key = config["voice_server_api_key"]
-                rec_id = config["receptionist_id"]
-
-                async def tool_exec(name: str, args: dict) -> str:
-                    if name in ("check_availability", "create_appointment", "reschedule_appointment"):
-                        normalized = _normalize_tool_args(args)
-                        key = (name, json.dumps(normalized, sort_keys=True, separators=(",", ":")))
-                        if key in tool_cache:
-                            logger.info(
-                                "[CALL_DIAG] tool_exec_dedupe_hit tool=%s key=%s",
-                                name,
-                                key[1][:200],
-                            )
-                            return tool_cache[key]
-
-                        await _maybe_pre_tool_speech(name)
-
-                        if name == "create_appointment":
-                            has_start = bool(normalized.get("start_time") or normalized.get("date_text"))
-                            has_duration = bool(normalized.get("duration_minutes"))
-                            has_summary = bool((normalized.get("summary") or "").strip())
-                            missing = []
-                            if not has_start:
-                                missing.append("start_time/date_text")
-                            if not has_duration:
-                                missing.append("duration_minutes")
-                            if not has_summary:
-                                missing.append("summary")
-                            logger.info(
-                                "[CALL_DIAG] tool_exec_call tool=create_appointment has_start=%s has_duration=%s has_summary=%s missing=%s",
-                                has_start,
-                                has_duration,
-                                has_summary,
-                                ",".join(missing) if missing else "",
-                            )
-                        else:
-                            logger.info(
-                                "[CALL_DIAG] tool_exec_call tool=%s args=%s",
-                                name,
-                                key[1][:250],
-                            )
-
-                        result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
-                        tool_cache[key] = result
-                        return result
-                    return '{"success": false, "error": "Unknown tool: ' + name + '"}'
+                tool_exec = make_calendar_tool_exec(
+                    config=config,
+                    on_audio=on_audio,
+                    on_error=on_error,
+                    tts_failure_logged=tts_failure_logged,
+                )
 
                 response = await chat_with_tools(
                     history,

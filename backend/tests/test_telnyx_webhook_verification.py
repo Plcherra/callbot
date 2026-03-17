@@ -105,16 +105,16 @@ def test_correct_ed25519_signature(client, mock_settings):
 
 
 def test_missing_headers_skip_verify_enabled(client, mock_settings):
-    """Missing Ed25519 headers + TELNYX_SKIP_VERIFY=true yields 200 with warning in logs."""
-    mock_settings(skip_verify=True)
+    """Missing Ed25519 headers + TELNYX_SKIP_VERIFY=true yields 403 when allowlist is empty."""
+    mock_settings(skip_verify=True, allowed_ips="")
 
     r = client.post(
         "/api/telnyx/voice",
         content=SAMPLE_JSON,
         headers={"Content-Type": "application/json"},
     )
-    assert r.status_code == 200
-    assert r.json() == {"success": True}
+    assert r.status_code == 403
+    assert "verification failed" in r.json().get("detail", "").lower()
 
 
 def test_missing_headers_skip_verify_disabled(client, mock_settings):
@@ -196,13 +196,26 @@ def test_ip_allowlist_skip_verify_rejects_unknown_ip(client, mock_settings):
     assert r.status_code == 403
 
 
+def test_ip_allowlist_skip_verify_allows_allowlisted_ip(client, mock_settings):
+    """When TELNYX_SKIP_VERIFY=true and client IP is allowlisted, request yields 200."""
+    mock_settings(skip_verify=True, allowed_ips="127.0.0.1")
+
+    r = client.post(
+        "/api/telnyx/voice",
+        content=SAMPLE_JSON,
+        headers={"Content-Type": "application/json", "x-forwarded-for": "127.0.0.1"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"success": True}
+
+
 def test_invalid_json_returns_400(client, mock_settings):
     """Invalid JSON body returns 400 (after verification passes)."""
-    mock_settings(skip_verify=True)
+    mock_settings(skip_verify=True, allowed_ips="1.2.3.4")
 
     r = client.post(
         "/api/telnyx/voice",
         content=b"not valid json",
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "x-forwarded-for": "1.2.3.4"},
     )
     assert r.status_code == 400

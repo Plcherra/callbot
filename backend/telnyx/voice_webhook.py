@@ -23,6 +23,33 @@ TELNYX_API = "https://api.telnyx.com/v2"
 # Pending stream URLs: call_control_id -> stream_url (for call.answered)
 # Streaming is deferred until call.answered to avoid 90034 "Call not answered yet"
 _pending_streams: dict[str, str] = {}
+_MAX_PENDING_STREAMS = 1000
+
+
+def _set_pending_stream(call_control_id: str, stream_url: str) -> None:
+    """Best-effort in-memory store for deferred streaming_start."""
+    if not call_control_id:
+        return
+    if len(_pending_streams) >= _MAX_PENDING_STREAMS:
+        # Avoid unbounded growth in multi-call scenarios. This is best-effort only.
+        try:
+            oldest_key = next(iter(_pending_streams.keys()))
+            _pending_streams.pop(oldest_key, None)
+            logger.warning(
+                "[CALL_DIAG] pending_streams_evicted oldest_call_control_id=%s size=%s",
+                oldest_key,
+                len(_pending_streams),
+            )
+        except Exception:
+            _pending_streams.clear()
+            logger.warning("[CALL_DIAG] pending_streams_cleared size_limit=%s", _MAX_PENDING_STREAMS)
+    _pending_streams[call_control_id] = stream_url
+
+
+def _pop_pending_stream(call_control_id: str) -> str | None:
+    if not call_control_id:
+        return None
+    return _pending_streams.pop(call_control_id, None)
 
 
 async def _send_incoming_call_push(
@@ -169,7 +196,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
     # call.answered: send streaming_start (deferred from call.initiated), update call_logs
     if event_type == "call.answered" and call_control_id:
         _update_call_log(supabase, call_control_id, {"status": "answered", "answered_at": datetime.now(timezone.utc).isoformat()})
-        stream_url = _pending_streams.pop(call_control_id, None)
+        stream_url = _pop_pending_stream(call_control_id)
         if stream_url:
             await _send_streaming_start(call_control_id, stream_url)
         return {"success": True}
@@ -312,7 +339,7 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
         )
         if answer_resp.is_success:
             logger.info("Answered call %s", call_control_id)
-            _pending_streams[call_control_id] = stream_url
+            _set_pending_stream(call_control_id, stream_url)
         else:
             logger.error("Answer failed: %s", answer_resp.text)
             _update_call_log(supabase, call_control_id, {"status": "failed"})

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # In-memory prompt cache: call_control_id -> (prompt, greeting, voice_id | None, voice_preset_key | None, greeting_source)
 _prompt_cache: dict[str, tuple[str, str, Optional[str], Optional[str], str]] = {}
+_MAX_PROMPT_CACHE = 1000
 
 DEFAULT = (
     "You are an AI receptionist. Be helpful and concise.",
@@ -31,11 +32,30 @@ def set_prompt(
     voice_preset_key: Optional[str] = None,
     greeting_source: str = "custom",
 ) -> None:
+    if call_control_id and len(_prompt_cache) >= _MAX_PROMPT_CACHE:
+        try:
+            oldest_key = next(iter(_prompt_cache.keys()))
+            _prompt_cache.pop(oldest_key, None)
+            logger.warning(
+                "[CALL_DIAG] prompt_cache_evicted oldest_call_control_id=%s size=%s",
+                oldest_key,
+                len(_prompt_cache),
+            )
+        except Exception:
+            _prompt_cache.clear()
+            logger.warning("[CALL_DIAG] prompt_cache_cleared size_limit=%s", _MAX_PROMPT_CACHE)
     _prompt_cache[call_control_id] = (prompt, greeting, voice_id, voice_preset_key, greeting_source)
 
 
 def get_cached_prompt(call_control_id: str) -> tuple[str, str, Optional[str], Optional[str], str] | None:
     return _prompt_cache.get(call_control_id)
+
+
+def clear_cached_prompt(call_control_id: str) -> None:
+    """Best-effort cleanup hook (call lifetime)."""
+    if not call_control_id:
+        return
+    _prompt_cache.pop(call_control_id, None)
 
 
 async def fetch_prompt(receptionist_id: str, supabase) -> tuple[str, str, Optional[str], Optional[str], str]:

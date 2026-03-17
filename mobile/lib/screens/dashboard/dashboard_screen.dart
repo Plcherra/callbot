@@ -1,13 +1,10 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
-import '../../models/user_profile.dart';
-import '../../services/api_client.dart';
+import '../../services/dashboard_service.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -18,6 +15,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  final DashboardService _dashboardService = const DashboardService();
   Map<String, dynamic>? _profile;
   List<Receptionist> _receptionists = [];
   int _totalReceptionists = 0;
@@ -47,110 +45,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
-
-      final supabase = Supabase.instance.client;
-
-      final profileRes = await supabase
-          .from('users')
-          .select(
-              'subscription_status, billing_plan, billing_plan_metadata, phone, '
-              'calendar_id, onboarding_completed_at')
-          .eq('id', user.id)
-          .maybeSingle();
-
-      final isActive = (profileRes?['subscription_status'] ?? '') == 'active';
-
-      List<Receptionist> recs = [];
-      int total = 0, active = 0;
-      if (isActive) {
-        final recsRes = await supabase
-            .from('receptionists')
-            .select('id, name, phone_number, inbound_phone_number, status')
-            .eq('user_id', user.id)
-            .order('created_at', ascending: false);
-
-        recs = (recsRes as List)
-            .map((e) => Receptionist.fromJson(e as Map<String, dynamic>))
-            .toList();
-
-        final countRes = await supabase
-            .from('receptionists')
-            .select('id')
-            .eq('user_id', user.id);
-        total = (countRes as List).length;
-        active = recs.where((r) => r.status == 'active').length;
-      }
-
-      // Usage: query usage_snapshots for current period (same logic as web dashboard)
-      int usageMin = 0, overage = 0;
-      int? included;
-      int? remaining;
-      final meta = profileRes?['billing_plan_metadata'] as Map<String, dynamic>?;
-      final billingPlan = profileRes?['billing_plan'] as String?;
-      final isPayg = billingPlan == 'subscription_payg';
-      if (meta != null && meta['included_minutes'] != null) {
-        included = meta['included_minutes'] as int;
-      }
-
-      if (isActive) {
-        final now = DateTime.now().toUtc();
-        final periodStart =
-            '${now.year}-${(now.month).toString().padLeft(2, '0')}-01';
-        final usageRes = await supabase
-            .from('usage_snapshots')
-            .select('total_seconds, overage_minutes')
-            .eq('user_id', user.id)
-            .eq('period_start', periodStart);
-
-        final rows = usageRes is List ? usageRes : ((usageRes as dynamic).data as List?) ?? [];
-        int totalSeconds = 0;
-        for (final r in rows) {
-          final row = r as Map<String, dynamic>;
-          totalSeconds += (row['total_seconds'] as int?) ?? 0;
-          overage += (row['overage_minutes'] as int?) ?? 0;
-        }
-        usageMin = (totalSeconds / 60).ceil();
-        if (included != null && !isPayg) {
-          remaining = (included - usageMin).clamp(0, included);
-        }
-      }
-
-      int totalCalls = 0;
-      double totalCallMinutes = 0.0;
-      List<Map<String, dynamic>> recentCalls = [];
-      int usageMinutesRealtime = 0;
-      try {
-        final summaryRes = await ApiClient.get('/api/mobile/dashboard-summary');
-        if (summaryRes.statusCode >= 200 && summaryRes.statusCode < 300 && summaryRes.body.isNotEmpty) {
-          final decoded = jsonDecode(summaryRes.body) as Map<String, dynamic>?;
-          totalCalls = decoded?['total_calls'] as int? ?? 0;
-          totalCallMinutes = (decoded?['total_minutes'] as num?)?.toDouble() ?? 0.0;
-          recentCalls = List<Map<String, dynamic>>.from((decoded?['recent_calls'] as List?) ?? []);
-          usageMinutesRealtime = (decoded?['usage_minutes_realtime'] as num?)?.toInt() ?? 0;
-        }
-      } catch (_) {}
-
-      // Use real-time minutes from user_plans when usage_snapshots is 0 (before daily cron runs)
-      if (usageMin == 0 && usageMinutesRealtime > 0) {
-        usageMin = usageMinutesRealtime;
-        if (included != null && !isPayg) {
-          remaining = (included - usageMin).clamp(0, included);
-        }
-      }
+      final data = await _dashboardService.loadForUser(user.id);
 
       setState(() {
-        _profile = Map<String, dynamic>.from(profileRes ?? {});
-        _receptionists = recs.take(6).toList();
-        _totalReceptionists = total;
-        _activeReceptionists = active;
-        _totalUsageMinutes = usageMin;
-        _includedMinutes = included;
-        _overageMinutes = overage;
-        _remainingMinutes = remaining;
-        _isPayg = isPayg;
-        _totalCalls = totalCalls;
-        _totalCallMinutes = totalCallMinutes;
-        _recentCalls = recentCalls;
+        _profile = data.profile;
+        _receptionists = data.receptionists.take(6).toList();
+        _totalReceptionists = data.totalReceptionists;
+        _activeReceptionists = data.activeReceptionists;
+        _totalUsageMinutes = data.totalUsageMinutes;
+        _includedMinutes = data.includedMinutes;
+        _overageMinutes = data.overageMinutes;
+        _remainingMinutes = data.remainingMinutes;
+        _isPayg = data.isPayg;
+        _totalCalls = data.totalCalls;
+        _totalCallMinutes = data.totalCallMinutes;
+        _recentCalls = data.recentCalls;
         _loading = false;
       });
       if (!_loading && _error == null) {

@@ -67,6 +67,33 @@ Phone call → Telnyx → Python backend (webhook + WebSocket) → Deepgram/Grok
 - Stripe webhook: `POST /api/stripe/webhook` (checkout.session.completed, subscription events)
 - Google OAuth: `GET /api/google/callback` → redirect to `echodesk://google-callback`
 
+## Sources of truth & boundary rules (short-term mixed)
+
+The current app is intentionally **mixed** (mobile reads some data directly from Supabase and also calls backend APIs). To avoid inconsistencies, treat these as the short-term boundary rules.
+
+### Usage minutes (plan usage)
+
+- **Canonical (realtime)**: backend `/api/mobile/dashboard-summary` field `usage_minutes_realtime` (derived from `user_plans`, updated by Telnyx CDR).
+- **Secondary (snapshot / may lag)**: Supabase `usage_snapshots` for the current period (updated by cron).
+- **Rule**: UI should **prefer realtime minutes** when present; fall back to `usage_snapshots` only when the backend summary is unavailable.
+
+### Call history
+
+- **Canonical**: backend `/api/mobile/receptionists/{id}/call-history` (uses `call_logs` / server-side joins and formatting).
+- **Fallback**: Supabase `call_usage` (used by mobile only if the backend endpoint fails).
+- **Rule**: only the backend API is expected to be complete/consistent; Supabase fallback is best-effort.
+
+### Calendar connection & booking
+
+- **Canonical connection state**: backend calendar request responses (`calendar_not_connected`, `calendar_token_expired`, etc.) via `/api/voice/calendar` and mobile calendar-related endpoints.
+- **Backing storage**: Supabase `users.calendar_refresh_token` and `receptionists.calendar_id`/`users.calendar_id` depending on feature.
+- **Rule**: show UI state based on backend responses; don’t infer connection solely from the presence of IDs in Supabase.
+
+### Subscription / feature gating
+
+- **Canonical**: Supabase `users.subscription_status`, `users.billing_plan`, `users.billing_plan_metadata` (synced by Stripe webhook + backend).
+- **Rule**: treat backend as the policy enforcer for server-side actions (outbound calls, voice webhook decisions); mobile uses Supabase fields for UI gating only.
+
 ### Critical path
 
 - `/api/*` (all API routes) → **Python** (port 8000)

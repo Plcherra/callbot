@@ -83,12 +83,14 @@ def build_receptionist_prompt(
             dur = f", {s.get('duration_minutes', 0)} min" if s.get("duration_minutes") else ""
             desc = f" ({s.get('description')})" if s.get('description') and not compact else ""
             loc_req = " [requires location]" if s.get("requires_location") else ""
-            parts.append(f"{s.get('name', '')}: {price}{dur}{desc}{loc_req}")
+            loc_type = (s.get("default_location_type") or "").strip()
+            loc_cfg = f" [location_type={loc_type}]" if loc_type else ""
+            parts.append(f"{s.get('name', '')}: {price}{dur}{desc}{loc_req}{loc_cfg}")
         sections.append(f"Services and pricing: {'; '.join(parts)}. Quote prices and duration when asked.")
         any_requires_location = any(s.get("requires_location") for s in svc_list)
         if any_requires_location:
             sections.append(
-                "Location for bookings: Some services require a location. For those, you MUST collect the location before calling create_appointment. Ask whether the appointment is at a customer address, by phone call, by video meeting, or other. Pass location_type (customer_address, phone_call, video_meeting, or custom) and either customer_address (for street addresses) or location_text (e.g. Zoom link, 'Phone call', or custom instructions). Do not create the appointment until you have the location when the service requires it."
+                "Location for bookings (service-aware): Some services require a location. For configured services, the service configuration is the source of truth: if the service has a default_location_type, you MUST follow it and MUST NOT ask the caller to choose a platform (Zoom/Meet/FaceTime/WhatsApp/etc). Only collect the missing details required by that configured location type: if location_type is customer_address, ask for the street address; if location_type is custom, ask for the exact instructions/details to include. For phone_call or video_meeting, do not ask the caller to pick a platform; any platform/link belongs to the business owner workflow."
             )
 
     if locations:
@@ -134,7 +136,12 @@ def build_receptionist_prompt(
 
     # 6. Booking flow
     sections.append(
-        "Booking flow: (1) Confirm what they want (e.g. which service). (2) Get date and time (or offer to check availability). (3) If the selected service requires a location, ask for it (customer address, phone call, video meeting, or custom) and collect the address or details before booking. (4) Get their name and optionally phone for the appointment. (5) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (6) Use the create_appointment tool, passing service_name, duration_minutes, and when relevant location_type and customer_address or location_text and notes. (7) Confirm success and say what happens next. For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, always speak 2–4 concrete times. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
+        "Booking flow: (1) Confirm what they want (e.g. which service). (2) If they selected a configured service, you MUST speak a confirmation of service name + duration + price (if present) before you book or check availability. Example: \"Business consulting is 60 minutes and costs $100. Let me check tomorrow for you.\" (3) Get date and time (or offer to check availability). (4) Location: if the configured service has default_location_type, follow it and do NOT ask the caller to choose Zoom/Meet/etc. Only collect required details (address for customer_address; instructions for custom). (5) Get their name and optionally phone for the appointment. (6) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (7) Use the create_appointment tool (backend enforces service duration/price/location when service_id/service_name maps to a stored service). (8) Confirm success and say what happens next. For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, always speak 2–4 concrete times. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
+    )
+
+    # 6c. Post-booking follow-up message (owner-controlled)
+    sections.append(
+        "After booking: When create_appointment returns success=true, if it includes followup_message_resolved, you MUST speak that follow-up message briefly to the caller. Do not ask the caller to choose a meeting platform; any platform or meeting instructions are owner-configured and may be included in the follow-up."
     )
 
     # 6b. When no services are configured: generic appointment + optional location

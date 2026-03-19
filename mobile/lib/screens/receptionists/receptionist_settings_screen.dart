@@ -232,7 +232,7 @@ class _ServicesTabState extends State<_ServicesTab> {
   Future<void> _load() async {
     final res = await Supabase.instance.client
         .from('services')
-        .select('id, name, description, price_cents, duration_minutes, requires_location, default_location_type')
+        .select('id, name, description, price_cents, duration_minutes, requires_location, default_location_type, followup_mode, followup_message_template, payment_link, meeting_instructions, owner_selected_platform, internal_followup_notes')
         .eq('receptionist_id', widget.receptionistId)
         .order('name');
     setState(() {
@@ -252,6 +252,26 @@ class _ServicesTabState extends State<_ServicesTab> {
       text: ((service?['price_cents'] as int?) != null)
           ? (((service?['price_cents'] as int) / 100).toStringAsFixed(2))
           : '',
+    );
+    String followupMode = ((service?['followup_mode'] as String?) ?? 'under_review');
+    if (!['none', 'under_review', 'send_payment_link', 'send_custom_message']
+        .contains(followupMode)) {
+      followupMode = 'under_review';
+    }
+    final followupTemplateController = TextEditingController(
+      text: (service?['followup_message_template'] as String?) ?? '',
+    );
+    final paymentLinkController = TextEditingController(
+      text: (service?['payment_link'] as String?) ?? '',
+    );
+    final meetingInstructionsController = TextEditingController(
+      text: (service?['meeting_instructions'] as String?) ?? '',
+    );
+    final ownerSelectedPlatformController = TextEditingController(
+      text: (service?['owner_selected_platform'] as String?) ?? '',
+    );
+    final internalFollowupNotesController = TextEditingController(
+      text: (service?['internal_followup_notes'] as String?) ?? '',
     );
     bool requiresLocation = (service?['requires_location'] as bool?) ?? false;
     String locationType = ((service?['default_location_type'] as String?) ?? 'customer_address');
@@ -343,6 +363,76 @@ class _ServicesTabState extends State<_ServicesTab> {
                     ),
                   ),
                 ],
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Follow-up (owner-controlled)',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: followupMode,
+                  decoration: const InputDecoration(
+                    labelText: 'Follow-up mode',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  isExpanded: true,
+                  items: const [
+                    DropdownMenuItem(value: 'none', child: Text('None')),
+                    DropdownMenuItem(value: 'under_review', child: Text('Under review')),
+                    DropdownMenuItem(value: 'send_payment_link', child: Text('Send payment link')),
+                    DropdownMenuItem(value: 'send_custom_message', child: Text('Send custom message')),
+                  ],
+                  onChanged: (v) => setModalState(() => followupMode = v ?? 'under_review'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: followupTemplateController,
+                  decoration: const InputDecoration(
+                    labelText: 'Follow-up message template (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: paymentLinkController,
+                  decoration: const InputDecoration(
+                    labelText: 'Payment link (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ownerSelectedPlatformController,
+                  decoration: const InputDecoration(
+                    labelText: 'Owner-selected platform (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: meetingInstructionsController,
+                  decoration: const InputDecoration(
+                    labelText: 'Meeting instructions (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: internalFollowupNotesController,
+                  decoration: const InputDecoration(
+                    labelText: 'Internal follow-up notes (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
               ],
             ),
           ),
@@ -365,6 +455,22 @@ class _ServicesTabState extends State<_ServicesTab> {
                   'description': descriptionController.text.trim(),
                   'requires_location': requiresLocation,
                   'default_location_type': requiresLocation ? locationType : null,
+                  'followup_mode': followupMode,
+                  'followup_message_template': followupTemplateController.text.trim().isEmpty
+                      ? null
+                      : followupTemplateController.text.trim(),
+                  'payment_link': paymentLinkController.text.trim().isEmpty
+                      ? null
+                      : paymentLinkController.text.trim(),
+                  'meeting_instructions': meetingInstructionsController.text.trim().isEmpty
+                      ? null
+                      : meetingInstructionsController.text.trim(),
+                  'owner_selected_platform': ownerSelectedPlatformController.text.trim().isEmpty
+                      ? null
+                      : ownerSelectedPlatformController.text.trim(),
+                  'internal_followup_notes': internalFollowupNotesController.text.trim().isEmpty
+                      ? null
+                      : internalFollowupNotesController.text.trim(),
                 };
                 if (duration != null) payload['duration_minutes'] = duration;
                 if (priceCents != null) payload['price_cents'] = priceCents;
@@ -401,6 +507,11 @@ class _ServicesTabState extends State<_ServicesTab> {
     descriptionController.dispose();
     durationController.dispose();
     priceController.dispose();
+    followupTemplateController.dispose();
+    paymentLinkController.dispose();
+    meetingInstructionsController.dispose();
+    ownerSelectedPlatformController.dispose();
+    internalFollowupNotesController.dispose();
 
     if (createdOrUpdated == true) _load();
   }

@@ -24,31 +24,110 @@ class _Freebusy:
 
 
 class _EventsInsert:
-    def __init__(self, event: dict):
+    def __init__(self, event: dict, capture: dict | None = None, body: dict | None = None):
         self._event = event
+        if isinstance(capture, dict) and isinstance(body, dict):
+            capture["last_insert_body"] = body
 
     def execute(self) -> dict:
         return self._event
 
 
 class _Events:
-    def __init__(self, event: dict):
+    def __init__(self, event: dict, capture: dict | None = None):
         self._event = event
+        self._capture = capture
 
     def insert(self, calendarId: str, body: dict, sendUpdates: str = "none") -> _EventsInsert:
-        return _EventsInsert(self._event)
+        # Capture body so tests can assert computed end time.
+        return _EventsInsert(self._event, capture=self._capture, body=body)
 
 
 class _Service:
-    def __init__(self, freebusy_result: dict, event: dict | None = None):
+    def __init__(self, freebusy_result: dict, event: dict | None = None, capture: dict | None = None):
         self._freebusy_result = freebusy_result
         self._event = event or {}
+        self._capture = capture
 
     def freebusy(self) -> _Freebusy:
         return _Freebusy(self._freebusy_result)
 
     def events(self) -> _Events:
-        return _Events(self._event)
+        return _Events(self._event, capture=self._capture)
+
+
+class _SBServicesQuery:
+    def __init__(self, services: list[dict]):
+        self._services = services
+        self._filters: dict[str, tuple[str, str]] = {}
+        self._limit = None
+
+    def select(self, _fields: str):
+        return self
+
+    def eq(self, key: str, value: str):
+        self._filters[key] = ("eq", value)
+        return self
+
+    def ilike(self, key: str, value: str):
+        self._filters[key] = ("ilike", value)
+        return self
+
+    def limit(self, n: int):
+        self._limit = n
+        return self
+
+    def execute(self):
+        def _match(row: dict) -> bool:
+            for k, (op, v) in self._filters.items():
+                rv = row.get(k)
+                if op == "eq":
+                    if rv != v:
+                        return False
+                elif op == "ilike":
+                    if str(rv or "").lower() != str(v or "").lower():
+                        return False
+            return True
+
+        out = [r for r in self._services if _match(r)]
+        if self._limit is not None:
+            out = out[: self._limit]
+        return type("R", (), {"data": out})()
+
+
+class _SBAppointmentsTable:
+    def __init__(self, capture: dict):
+        self._capture = capture
+
+    def insert(self, row: dict):
+        self._capture["last_appt_row"] = row
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": []})()
+
+
+class _SB:
+    def __init__(self, *, services: list[dict], capture: dict):
+        self._services = services
+        self._capture = capture
+
+    def table(self, name: str):
+        if name == "services":
+            return _SBServicesQuery(self._services)
+        if name == "receptionists":
+            # Best-effort: allow tests to supply receptionist-level config via capture.
+            tmpl = self._capture.get("generic_followup_message_template")
+            row = {
+                "id": "rec-1",
+                "generic_followup_message_template": tmpl,
+                "telnyx_phone_number": self._capture.get("telnyx_phone_number"),
+                "inbound_phone_number": self._capture.get("inbound_phone_number"),
+            }
+            return _SBServicesQuery([row])
+        if name == "appointments":
+            return _SBAppointmentsTable(self._capture)
+        raise AssertionError(f"unexpected table: {name}")
 
 
 def test_check_availability_requires_date():
@@ -159,3 +238,224 @@ def test_create_appointment_success_returns_event_fields(monkeypatch):
     assert out["success"] is True
     assert out["event_id"] == "evt-123"
     assert out["summary"] == "Test"
+
+
+def test_create_appointment_service_duration_overrides_tool_duration_and_persists(monkeypatch):
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    capture: dict = {}
+    service = _Service(freebusy_result=freebusy, event={"id": "evt-1", "summary": "Svc"}, capture=capture)
+    sb = _SB(
+        services=[
+            {
+                "id": "svc-1",
+                "receptionist_id": "rec-1",
+                "name": "Business consulting",
+                "duration_minutes": 60,
+                "price_cents": 10000,
+                "requires_location": False,
+                "default_location_type": "video_meeting",
+                "followup_mode": "send_payment_link",
+                "followup_message_template": "We’ll text you the payment link shortly.",
+                "payment_link": "https://pay.example/link",
+                "meeting_instructions": "Use the link in your confirmation text.",
+                "owner_selected_platform": "Google Meet",
+                "internal_followup_notes": "VIP client",
+            }
+        ],
+        capture=capture,
+    )
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-03-17T10:00:00+00:00",
+            "duration_minutes": 30,  # should be ignored for service-based booking
+            "service_id": "svc-1",
+            "service_name": "Business consulting",
+            "location_type": "custom",  # should be overridden by default_location_type
+            "price_cents": 1,  # should be overridden by stored price when set
+        },
+        receptionist_id="rec-1",
+        supabase=sb,
+    )
+
+    assert out["success"] is True
+    assert capture["last_appt_row"]["duration_minutes"] == 60
+    assert capture["last_appt_row"]["price_cents"] == 10000
+    assert capture["last_appt_row"]["location_type"] == "video_meeting"
+    assert capture["last_appt_row"]["service_id"] == "svc-1"
+    assert capture["last_appt_row"]["service_name"] == "Business consulting"
+    assert capture["last_appt_row"]["booking_mode"] == "service_based"
+    assert capture["last_appt_row"]["followup_mode"] == "send_payment_link"
+    assert capture["last_appt_row"]["followup_message_resolved"] == "We’ll text you the payment link shortly."
+    assert capture["last_appt_row"]["payment_link"] == "https://pay.example/link"
+    assert capture["last_appt_row"]["owner_selected_platform"] == "Google Meet"
+    assert capture["last_appt_row"]["meeting_instructions"] == "Use the link in your confirmation text."
+    assert capture["last_appt_row"]["internal_followup_notes"] == "VIP client"
+    # Verify Google Calendar event end time reflects 60 minutes, not 30.
+    assert capture["last_insert_body"]["end"]["dateTime"].startswith("2026-03-17T11:00:00")
+
+
+def test_create_appointment_service_location_type_overrides_to_phone_call(monkeypatch):
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    capture: dict = {}
+    service = _Service(freebusy_result=freebusy, event={"id": "evt-2", "summary": "Svc2"}, capture=capture)
+    sb = _SB(
+        services=[
+            {
+                "id": "svc-2",
+                "receptionist_id": "rec-1",
+                "name": "Phone intake",
+                "duration_minutes": 45,
+                "price_cents": None,
+                "requires_location": True,
+                "default_location_type": "phone_call",
+                # No followup fields -> backend defaults to under_review
+            }
+        ],
+        capture=capture,
+    )
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-03-17T10:00:00+00:00",
+            "duration_minutes": 30,
+            "service_name": "Phone intake",
+            "location_type": "video_meeting",  # should be overridden
+            # location_text not required for phone_call
+        },
+        receptionist_id="rec-1",
+        supabase=sb,
+    )
+    assert out["success"] is True
+    assert capture["last_appt_row"]["duration_minutes"] == 45
+    assert capture["last_appt_row"]["location_type"] == "phone_call"
+    assert capture["last_appt_row"]["booking_mode"] == "service_based"
+    assert capture["last_appt_row"]["followup_mode"] == "under_review"
+    assert capture["last_appt_row"]["followup_message_resolved"]
+
+
+def test_create_appointment_generic_booking_sets_under_review_followup(monkeypatch):
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    capture: dict = {"generic_followup_message_template": "Custom generic under review message."}
+    service = _Service(freebusy_result=freebusy, event={"id": "evt-g", "summary": "Gen"}, capture=capture)
+    sb = _SB(services=[], capture=capture)
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-03-17T10:00:00+00:00",
+            "duration_minutes": 30,
+            # No service_id/service_name -> generic
+        },
+        receptionist_id="rec-1",
+        supabase=sb,
+    )
+    assert out["success"] is True
+    assert capture["last_appt_row"]["booking_mode"] == "generic"
+    assert capture["last_appt_row"]["followup_mode"] == "under_review"
+    assert capture["last_appt_row"]["followup_message_resolved"] == "Custom generic under review message."
+
+
+def test_create_appointment_success_sends_sms_when_caller_phone_present(monkeypatch):
+    from telnyx import sms as sms_mod
+
+    calls: list[dict] = []
+
+    def _fake_send_sms(*, to_number: str, from_number: str, text: str) -> dict:
+        calls.append({"to": to_number, "from": from_number, "text": text})
+        return {"success": True, "telnyx_message_id": "msg-1"}
+
+    monkeypatch.setattr(sms_mod, "send_sms", _fake_send_sms)
+
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    capture: dict = {
+        "telnyx_phone_number": "+15550001111",
+        "generic_followup_message_template": "Under review.",
+    }
+    service = _Service(freebusy_result=freebusy, event={"id": "evt-sms", "summary": "Gen"}, capture=capture)
+    sb = _SB(services=[], capture=capture)
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-03-17T10:00:00+00:00",
+            "duration_minutes": 30,
+            "caller_phone": "+15551234567",
+        },
+        receptionist_id="rec-1",
+        supabase=sb,
+    )
+    assert out["success"] is True
+    assert len(calls) == 1
+    assert calls[0]["to"] == "+15551234567"
+    assert calls[0]["from"] == "+15550001111"
+    assert "Under review." in calls[0]["text"]
+    assert "Reply STOP to opt out." in calls[0]["text"]
+
+
+def test_create_appointment_failure_does_not_send_sms(monkeypatch):
+    from telnyx import sms as sms_mod
+
+    calls: list[dict] = []
+
+    def _fake_send_sms(*, to_number: str, from_number: str, text: str) -> dict:
+        calls.append({"to": to_number, "from": from_number, "text": text})
+        return {"success": True}
+
+    monkeypatch.setattr(sms_mod, "send_sms", _fake_send_sms)
+
+    service = _Service(freebusy_result={})
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={"summary": "Test", "caller_phone": "+15551234567"},
+        receptionist_id="rec-1",
+        supabase=None,
+    )
+    assert out["success"] is False
+    assert calls == []
+
+
+def test_create_appointment_invalid_caller_phone_skips_sms(monkeypatch):
+    from telnyx import sms as sms_mod
+
+    calls: list[dict] = []
+
+    def _fake_send_sms(*, to_number: str, from_number: str, text: str) -> dict:
+        calls.append({"to": to_number, "from": from_number, "text": text})
+        return {"success": True}
+
+    monkeypatch.setattr(sms_mod, "send_sms", _fake_send_sms)
+
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    capture: dict = {
+        "telnyx_phone_number": "+15550001111",
+        "generic_followup_message_template": "Under review.",
+    }
+    service = _Service(freebusy_result=freebusy, event={"id": "evt-sms2", "summary": "Gen"}, capture=capture)
+    sb = _SB(services=[], capture=capture)
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-03-17T10:00:00+00:00",
+            "duration_minutes": 30,
+            "caller_phone": "private",  # invalid E.164
+        },
+        receptionist_id="rec-1",
+        supabase=sb,
+    )
+    assert out["success"] is True
+    assert calls == []

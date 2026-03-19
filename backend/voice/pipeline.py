@@ -65,6 +65,7 @@ def make_calendar_tool_exec(
     base_url = config.get("voice_server_base_url")
     api_key = config.get("voice_server_api_key")
     rec_id = config.get("receptionist_id")
+    caller_phone = (config.get("caller_phone") or "").strip() or None
 
     async def _maybe_pre_tool_speech(tool_name: str) -> None:
         nonlocal pre_tool_spoken_this_turn
@@ -86,6 +87,8 @@ def make_calendar_tool_exec(
     async def tool_exec(name: str, args: dict) -> str:
         if name in CALENDAR_TOOL_NAMES:
             normalized = normalize_tool_args(args)
+            if name == "create_appointment" and caller_phone and not normalized.get("caller_phone"):
+                normalized["caller_phone"] = caller_phone
             key = (name, json.dumps(normalized, sort_keys=True, separators=(",", ":")))
             if key in tool_cache:
                 logger.info(

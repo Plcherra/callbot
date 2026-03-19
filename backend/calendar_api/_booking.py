@@ -1,11 +1,195 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 
 from ._parsing import get_free_slots, parse_iso_datetime_or_natural
+from telnyx import sms as telnyx_sms
 
 logger = logging.getLogger(__name__)
+
+_SERVICE_SELECT_FIELDS = (
+    "id, name, duration_minutes, price_cents, requires_location, default_location_type, "
+    "followup_mode, followup_message_template, payment_link, meeting_instructions, "
+    "owner_selected_platform, internal_followup_notes"
+)
+
+_RECEPTIONIST_SELECT_FIELDS = "id, generic_followup_message_template"
+
+_DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE = (
+    "Your appointment is under review and additional information will be provided soon."
+)
+
+_SMS_OPTOUT_SUFFIX = "Reply STOP to opt out."
+_E164_RE = re.compile(r"^\+\d{10,15}$")
+
+
+def _mask_phone(p: str | None) -> str:
+    s = (p or "").strip()
+    if not s:
+        return "(empty)"
+    # Keep country code + last 2 digits when possible
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) <= 4:
+        return "***"
+    return f"{digits[:2]}***{digits[-2:]}"
+
+
+def _resolve_sms_from_number(*, supabase, receptionist_id: str) -> str | None:
+    if not supabase or not receptionist_id:
+        return None
+    try:
+        res = (
+            supabase.table("receptionists")
+            .select("id, telnyx_phone_number, inbound_phone_number")
+            .eq("id", receptionist_id)
+            .limit(1)
+            .execute()
+        )
+        if res and getattr(res, "data", None):
+            row = res.data[0] or {}
+            from_num = (row.get("telnyx_phone_number") or "").strip() or None
+            if from_num:
+                return from_num
+            from_num = (row.get("inbound_phone_number") or "").strip() or None
+            return from_num
+        return None
+    except Exception:
+        logger.exception("[CAL_BOOK] sms_from_number_resolve_failed receptionist_id=%s", receptionist_id)
+        return None
+
+
+def _is_e164(phone: str | None) -> bool:
+    s = (phone or "").strip()
+    return bool(s and _E164_RE.match(s))
+
+
+def _resolve_generic_followup_template(*, supabase, receptionist_id: str) -> str | None:
+    if not supabase or not receptionist_id:
+        return None
+    try:
+        res = (
+            supabase.table("receptionists")
+            .select(_RECEPTIONIST_SELECT_FIELDS)
+            .eq("id", receptionist_id)
+            .limit(1)
+            .execute()
+        )
+        if res and getattr(res, "data", None):
+            tmpl = (res.data[0].get("generic_followup_message_template") or "").strip()
+            return tmpl or None
+        return None
+    except Exception:
+        logger.exception(
+            "[CAL_BOOK] generic_followup_template_resolve_failed receptionist_id=%s",
+            receptionist_id,
+        )
+        return None
+
+
+def _resolve_followup_for_booking(
+    *,
+    service_based: bool,
+    resolved_service: dict | None,
+    supabase,
+    receptionist_id: str,
+) -> dict:
+    """
+    Returns resolved follow-up fields to persist and return to caller:
+    - booking_mode, followup_mode, followup_message_resolved, payment_link,
+      meeting_instructions, owner_selected_platform, internal_followup_notes
+    """
+    if service_based and isinstance(resolved_service, dict):
+        booking_mode = "service_based"
+        followup_mode = (resolved_service.get("followup_mode") or "").strip() or "under_review"
+        template = (resolved_service.get("followup_message_template") or "").strip() or None
+        payment_link = (resolved_service.get("payment_link") or "").strip() or None
+        meeting_instructions = (resolved_service.get("meeting_instructions") or "").strip() or None
+        owner_selected_platform = (resolved_service.get("owner_selected_platform") or "").strip() or None
+        internal_followup_notes = (resolved_service.get("internal_followup_notes") or "").strip() or None
+
+        if followup_mode == "send_custom_message":
+            msg = template
+        elif followup_mode == "send_payment_link":
+            msg = template or "We’ll text you a payment link shortly to confirm your appointment."
+        elif followup_mode == "under_review":
+            msg = template or _DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE
+        else:
+            # none or unknown -> treat as none
+            followup_mode = "none"
+            msg = None
+
+        return {
+            "booking_mode": booking_mode,
+            "followup_mode": followup_mode,
+            "followup_message_resolved": msg,
+            "payment_link": payment_link,
+            "meeting_instructions": meeting_instructions,
+            "owner_selected_platform": owner_selected_platform,
+            "internal_followup_notes": internal_followup_notes,
+            "template_source": "service_template" if template else "service_default",
+        }
+
+    # Generic/no-service booking: always under review
+    booking_mode = "generic"
+    tmpl = _resolve_generic_followup_template(supabase=supabase, receptionist_id=receptionist_id)
+    msg = tmpl or _DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE
+    return {
+        "booking_mode": booking_mode,
+        "followup_mode": "under_review",
+        "followup_message_resolved": msg,
+        "payment_link": None,
+        "meeting_instructions": None,
+        "owner_selected_platform": None,
+        "internal_followup_notes": None,
+        "template_source": "receptionist_generic" if tmpl else "backend_fallback",
+    }
+
+
+def _resolve_service_for_booking(
+    *,
+    supabase,
+    receptionist_id: str,
+    service_id,
+    service_name: str | None,
+) -> dict | None:
+    if not supabase or not receptionist_id:
+        return None
+    if service_id is not None and not isinstance(service_id, str):
+        service_id = str(service_id)
+    service_id = (service_id or "").strip() or None
+    service_name = (service_name or "").strip() or None
+    if not service_id and not service_name:
+        return None
+
+    try:
+        base = (
+            supabase.table("services")
+            .select(_SERVICE_SELECT_FIELDS)
+            .eq("receptionist_id", receptionist_id)
+        )
+        if service_id:
+            res = base.eq("id", service_id).limit(1).execute()
+            if res and getattr(res, "data", None):
+                return res.data[0]
+            return None
+        # Best-effort: case-insensitive name match when available; fallback to exact.
+        try:
+            res = base.ilike("name", service_name).limit(1).execute()
+        except Exception:
+            res = base.eq("name", service_name).limit(1).execute()
+        if res and getattr(res, "data", None):
+            return res.data[0]
+        return None
+    except Exception:
+        logger.exception(
+            "[CAL_BOOK] service_resolve_failed receptionist_id=%s service_id=%s service_name=%r",
+            receptionist_id,
+            service_id,
+            service_name,
+        )
+        return None
 
 
 def handle_create_appointment(
@@ -46,6 +230,63 @@ def handle_create_appointment(
         except (TypeError, ValueError):
             price_cents = None
 
+    resolved_service = _resolve_service_for_booking(
+        supabase=supabase,
+        receptionist_id=receptionist_id,
+        service_id=service_id,
+        service_name=service_name,
+    )
+
+    # Service-based booking: if the selected service maps to a stored service with duration > 0,
+    # the stored service configuration is authoritative.
+    service_based = False
+    if isinstance(resolved_service, dict):
+        try:
+            svc_dur = int(resolved_service.get("duration_minutes") or 0)
+        except (TypeError, ValueError):
+            svc_dur = 0
+        if svc_dur > 0:
+            service_based = True
+
+    if service_based:
+        # Authoritative duration.
+        duration_minutes = int(resolved_service.get("duration_minutes") or duration_minutes)
+
+        # Prefer stored service name/id when present (for persistence consistency).
+        service_id = resolved_service.get("id") or service_id
+        service_name = (resolved_service.get("name") or service_name or "").strip() or service_name
+
+        # Prefer stored price when set (do not invent).
+        svc_price = resolved_service.get("price_cents")
+        if svc_price is not None:
+            try:
+                svc_price_i = int(svc_price)
+            except (TypeError, ValueError):
+                svc_price_i = None
+            if svc_price_i is not None and svc_price_i > 0:
+                price_cents = svc_price_i
+
+        # Authoritative location_type when configured.
+        svc_loc_type = (resolved_service.get("default_location_type") or "").strip() or None
+        if svc_loc_type:
+            location_type = svc_loc_type
+
+        # Enforce required details only when service requires a location.
+        requires_location = bool(resolved_service.get("requires_location"))
+        if requires_location:
+            if location_type == "customer_address" and not customer_address:
+                return {
+                    "success": False,
+                    "error": "location_missing",
+                    "message": "What address should I use for the appointment?",
+                }
+            if location_type == "custom" and not location_text:
+                return {
+                    "success": False,
+                    "error": "location_missing",
+                    "message": "What details should I include for the appointment location?",
+                }
+
     if not start_time:
         return {"success": False, "error": "date_missing", "message": "What day and time should I book it for?"}
 
@@ -59,6 +300,30 @@ def handle_create_appointment(
 
     start_iso = start_d.isoformat()
     end_iso = end_d.isoformat()
+    followup = _resolve_followup_for_booking(
+        service_based=service_based,
+        resolved_service=resolved_service if isinstance(resolved_service, dict) else None,
+        supabase=supabase,
+        receptionist_id=receptionist_id,
+    )
+    logger.info(
+        "[CAL_BOOK] followup_resolution booking_mode=%s followup_mode=%s has_template=%s has_payment_link=%s has_message=%s",
+        followup.get("booking_mode"),
+        followup.get("followup_mode"),
+        bool((resolved_service or {}).get("followup_message_template")) if service_based else False,
+        bool(followup.get("payment_link")),
+        bool(followup.get("followup_message_resolved")),
+    )
+    logger.info(
+        "[CAL_BOOK] service_resolution mode=%s selected_service_id=%s selected_service_name=%r resolved=%s resolved_duration_minutes=%s resolved_price_cents=%s resolved_location_type=%s",
+        "service_based" if service_based else "generic",
+        params.get("service_id"),
+        (params.get("service_name") or "").strip() or None,
+        bool(resolved_service),
+        duration_minutes,
+        price_cents,
+        location_type,
+    )
     logger.info(
         "[CAL_BOOK] create_appointment calendar_id=%s start=%s end=%s duration_minutes=%s",
         calendar_id,
@@ -192,10 +457,54 @@ def handle_create_appointment(
             "customer_address": customer_address,
             "price_cents": price_cents,
             "notes": notes,
+            "booking_mode": followup.get("booking_mode"),
+            "followup_mode": followup.get("followup_mode"),
+            "followup_message_resolved": followup.get("followup_message_resolved"),
+            "payment_link": followup.get("payment_link"),
+            "meeting_instructions": followup.get("meeting_instructions"),
+            "owner_selected_platform": followup.get("owner_selected_platform"),
+            "internal_followup_notes": followup.get("internal_followup_notes"),
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }).execute()
     except Exception as ex:
         logger.warning("[CAL_BOOK] appointments insert failed (event already created): %s", ex)
+
+    # Immediate post-booking SMS follow-up (best-effort; never breaks booking).
+    try:
+        to_number = (params.get("caller_phone") or "").strip() or None
+        from_number = _resolve_sms_from_number(supabase=supabase, receptionist_id=receptionist_id)
+        resolved_msg = (followup.get("followup_message_resolved") or "").strip() or None
+        if to_number and not _is_e164(to_number):
+            logger.info(
+                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s reason=invalid_e164 to=%s",
+                followup.get("booking_mode"),
+                followup.get("template_source"),
+                _mask_phone(to_number),
+            )
+        elif to_number and from_number and resolved_msg:
+            sms_text = f"{resolved_msg}\n\n{_SMS_OPTOUT_SUFFIX}"
+            sms_res = telnyx_sms.send_sms(to_number=to_number, from_number=from_number, text=sms_text)
+            logger.info(
+                "[CAL_BOOK] sms_followup mode=%s template_source=%s to=%s from=%s success=%s telnyx_message_id=%s error=%s",
+                followup.get("booking_mode"),
+                followup.get("template_source"),
+                _mask_phone(to_number),
+                _mask_phone(from_number),
+                bool(sms_res.get("success")),
+                (sms_res.get("telnyx_message_id") or "")[:40],
+                (sms_res.get("error") or "")[:120],
+            )
+        else:
+            logger.info(
+                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s to_present=%s from_present=%s msg_present=%s",
+                followup.get("booking_mode"),
+                followup.get("template_source"),
+                bool(to_number),
+                bool(from_number),
+                bool(resolved_msg),
+            )
+    except Exception as ex:
+        logger.warning("[CAL_BOOK] sms_followup_failed (booking kept): %s", ex)
 
     return {
         "success": True,
@@ -204,6 +513,11 @@ def handle_create_appointment(
         "start": event.get("start", {}).get("dateTime") or event.get("start", {}).get("date"),
         "end": event.get("end", {}).get("dateTime") or event.get("end", {}).get("date"),
         "summary": event.get("summary"),
+        "followup_mode": followup.get("followup_mode"),
+        "followup_message_resolved": followup.get("followup_message_resolved"),
+        "payment_link": followup.get("payment_link"),
+        "meeting_instructions": followup.get("meeting_instructions"),
+        "owner_selected_platform": followup.get("owner_selected_platform"),
     }
 
 

@@ -22,6 +22,7 @@ class _ReceptionistInstructionsTabState
   final _coreInstructionsController = TextEditingController();
   final _greetingController = TextEditingController();
   final _extraNotesController = TextEditingController();
+  final _genericFollowupController = TextEditingController();
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _loading = true;
   bool _saving = false;
@@ -35,6 +36,7 @@ class _ReceptionistInstructionsTabState
     _coreInstructionsController.dispose();
     _greetingController.dispose();
     _extraNotesController.dispose();
+    _genericFollowupController.dispose();
     _previewPlayer.dispose();
     super.dispose();
   }
@@ -207,7 +209,7 @@ class _ReceptionistInstructionsTabState
     final res = await Supabase.instance.client
         .from('receptionists')
         .select(
-            'system_prompt, greeting, voice_id, voice_preset_key, extra_instructions')
+            'system_prompt, greeting, voice_id, voice_preset_key, extra_instructions, generic_followup_message_template')
         .eq('id', widget.receptionistId)
         .maybeSingle();
     if (res != null) {
@@ -217,6 +219,8 @@ class _ReceptionistInstructionsTabState
       final voiceId = res['voice_id'] as String?;
       _extraNotesController.text =
           res['extra_instructions'] as String? ?? '';
+      _genericFollowupController.text =
+          res['generic_followup_message_template'] as String? ?? '';
 
       // Legacy compatibility: some older records may not have voice_preset_key populated.
       // Ask backend (source of truth) to infer key from stored voice_id when possible.
@@ -257,6 +261,11 @@ class _ReceptionistInstructionsTabState
         'extra_instructions': _extraNotesController.text.trim().isEmpty
             ? null
             : _extraNotesController.text.trim(),
+        'generic_followup_message_template': _genericFollowupController.text
+                .trim()
+                .isEmpty
+            ? null
+            : _genericFollowupController.text.trim(),
       };
       if (_voicePresetKey != null) body['voice_preset_key'] = _voicePresetKey;
       final res = await ApiClient.patch(
@@ -352,6 +361,21 @@ class _ReceptionistInstructionsTabState
             alignLabelWithHint: true,
           ),
           maxLines: 4,
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Generic booking follow-up message (no services) — spoken after booking when no service is selected.',
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _genericFollowupController,
+          decoration: const InputDecoration(
+            hintText:
+                'e.g. Your appointment is under review and we will text you the details shortly.',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+          maxLines: 3,
         ),
         const SizedBox(height: 24),
         FilledButton(

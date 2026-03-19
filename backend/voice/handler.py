@@ -63,6 +63,7 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
     params = get_stream_params(query)
     receptionist_id = params.get("receptionist_id", "")
     call_sid = params.get("call_sid", "")
+    caller_phone = (params.get("caller_phone") or "").strip() or None
 
     # Duplicate check disabled temporarily - was potentially causing 403.
     # If duplicate, both run; first to send media wins. Re-enable if needed.
@@ -141,6 +142,8 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
                 "system_prompt": prompt,
                 "greeting": greeting,
             }
+            if caller_phone:
+                config["caller_phone"] = caller_phone
             voice_api_key = get_voice_api_key()
             prompt_base = get_prompt_base()
             if receptionist_id and voice_api_key:

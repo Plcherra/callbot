@@ -21,7 +21,6 @@ class _ReceptionistInstructionsTabState
     extends State<ReceptionistInstructionsTab> {
   final _coreInstructionsController = TextEditingController();
   final _greetingController = TextEditingController();
-  final _assistantIdentityController = TextEditingController();
   final _extraNotesController = TextEditingController();
   final AudioPlayer _previewPlayer = AudioPlayer();
   bool _loading = true;
@@ -35,7 +34,6 @@ class _ReceptionistInstructionsTabState
   void dispose() {
     _coreInstructionsController.dispose();
     _greetingController.dispose();
-    _assistantIdentityController.dispose();
     _extraNotesController.dispose();
     _previewPlayer.dispose();
     super.dispose();
@@ -209,7 +207,7 @@ class _ReceptionistInstructionsTabState
     final res = await Supabase.instance.client
         .from('receptionists')
         .select(
-            'system_prompt, greeting, voice_id, voice_preset_key, assistant_identity, extra_instructions')
+            'system_prompt, greeting, voice_id, voice_preset_key, extra_instructions')
         .eq('id', widget.receptionistId)
         .maybeSingle();
     if (res != null) {
@@ -217,8 +215,6 @@ class _ReceptionistInstructionsTabState
       _greetingController.text = res['greeting'] as String? ?? '';
       _voicePresetKey = res['voice_preset_key'] as String?;
       final voiceId = res['voice_id'] as String?;
-      _assistantIdentityController.text =
-          res['assistant_identity'] as String? ?? '';
       _extraNotesController.text =
           res['extra_instructions'] as String? ?? '';
 
@@ -258,9 +254,6 @@ class _ReceptionistInstructionsTabState
         'greeting': _greetingController.text.trim().isEmpty
             ? null
             : _greetingController.text.trim(),
-        'assistant_identity': _assistantIdentityController.text.trim().isEmpty
-            ? null
-            : _assistantIdentityController.text.trim(),
         'extra_instructions': _extraNotesController.text.trim().isEmpty
             ? null
             : _extraNotesController.text.trim(),
@@ -303,17 +296,6 @@ class _ReceptionistInstructionsTabState
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text('Assistant identity — what the AI calls itself in the greeting.'),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _assistantIdentityController,
-          decoration: const InputDecoration(
-            labelText: 'Assistant name/identity',
-            hintText: "e.g. Eve, Alex — leave blank to use receptionist name",
-            border: OutlineInputBorder(),
-          ),
-        ),
-        const SizedBox(height: 16),
         const Text('Core instructions — main system prompt for the AI.'),
         const SizedBox(height: 8),
         TextField(

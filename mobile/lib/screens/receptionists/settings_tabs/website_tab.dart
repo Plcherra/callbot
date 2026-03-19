@@ -17,6 +17,7 @@ class ReceptionistWebsiteTab extends StatefulWidget {
 class _ReceptionistWebsiteTabState extends State<ReceptionistWebsiteTab> {
   final _urlController = TextEditingController();
   bool _loading = false;
+  bool _showForm = false;
 
   @override
   void dispose() {
@@ -26,6 +27,22 @@ class _ReceptionistWebsiteTabState extends State<ReceptionistWebsiteTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_showForm) {
+      return ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text(
+            'Add your website or business links so the assistant can reference them.',
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () => setState(() => _showForm = true),
+            child: const Text('Add website info'),
+          ),
+        ],
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(

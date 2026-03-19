@@ -380,16 +380,6 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
           onChanged: (v) => _formData.name = v,
         ),
         const SizedBox(height: 16),
-        TextFormField(
-          initialValue: _formData.assistantIdentity,
-          decoration: const InputDecoration(
-            labelText: 'Assistant identity (optional)',
-            hintText: "e.g. Eve — what the AI calls itself in the greeting",
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (v) => _formData.assistantIdentity = v,
-        ),
-        const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _formData.country,
           decoration: const InputDecoration(

@@ -103,7 +103,6 @@ class WizardFormData {
     };
     if (greeting != null && greeting!.trim().isNotEmpty) body['greeting'] = greeting!.trim();
     if (voicePresetKey != null && voicePresetKey!.trim().isNotEmpty) body['voice_preset_key'] = voicePresetKey!.trim();
-    if (assistantIdentity != null && assistantIdentity!.trim().isNotEmpty) body['assistant_identity'] = assistantIdentity!.trim();
     if (phoneStrategy == 'new') {
       body['area_code'] = areaCode ?? '212';
     } else {

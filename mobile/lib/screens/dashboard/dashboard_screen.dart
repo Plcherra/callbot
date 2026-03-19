@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
+import '../../models/user_profile.dart';
 import '../../services/dashboard_service.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 

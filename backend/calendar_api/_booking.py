@@ -99,17 +99,28 @@ def _stemmed_service_name(s: str) -> str:
 
 
 def _normalize_phone(phone: str | None) -> str | None:
-    """Normalize for E.164: trim, keep leading +, remove spaces/parens/dashes/dots."""
+    """Normalize for E.164: trim whitespace; if already valid E.164, pass through.
+    Otherwise remove spaces/parens/dashes/dots and ensure + prefix for 10-15 digit numbers.
+    Handles URL-decoded numbers where + became space (e.g. 16176537747 -> +16176537747).
+    For 10-digit numbers starting with 2-9, assume US and prepend +1."""
     if not phone or not isinstance(phone, str):
         return None
     s = phone.strip()
     if not s:
         return None
-    keep_plus = s.startswith("+")
+    # Already valid E.164? Pass through unchanged (only trim)
+    if _E164_RE.match(s):
+        return s
     digits = "".join(c for c in s if c.isdigit())
-    if not digits:
+    if not digits or len(digits) < 10:
         return None
-    return ("+" if keep_plus else "") + digits
+    if len(digits) > 15:
+        return None
+    # 10 digits starting with 2-9: assume US, prepend +1
+    if len(digits) == 10 and digits[0] in "23456789":
+        return "+1" + digits
+    # 11-15 digits: prepend + (handles 16176537747 -> +16176537747)
+    return "+" + digits
 
 
 def _is_e164(phone: str | None) -> bool:
@@ -631,49 +642,56 @@ def handle_create_appointment(
     try:
         to_number_raw = (params.get("caller_phone") or "").strip() or None
         to_number = _normalize_phone(to_number_raw) if to_number_raw else None
-        if to_number_raw and to_number != to_number_raw:
-            logger.info(
-                "[CAL_BOOK] sms_phone_normalization raw=%s normalized=%s",
-                _mask_phone(to_number_raw),
-                _mask_phone(to_number),
-            )
         from_number = _resolve_sms_from_number(supabase=supabase, receptionist_id=receptionist_id)
         resolved_msg = (followup.get("followup_message_resolved") or "").strip() or None
+        validation_ok = to_number is not None and _is_e164(to_number)
+
+        logger.info(
+            "[CAL_BOOK] sms_followup_diag raw_caller_phone=%r normalized=%r validation_e164=%s from_number=%s",
+            to_number_raw,
+            to_number,
+            validation_ok,
+            _mask_phone(from_number) if from_number else "(empty)",
+        )
+
         if to_number_raw and not to_number:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s reason=normalize_failed to=%s",
+                "[CAL_BOOK] sms_followup_skipped reason=normalize_failed raw=%r mode=%s",
+                to_number_raw,
                 followup.get("booking_mode"),
-                followup.get("template_source"),
-                _mask_phone(to_number_raw),
             )
         elif to_number and not _is_e164(to_number):
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s reason=invalid_e164 to=%s",
+                "[CAL_BOOK] sms_followup_skipped reason=invalid_e164 normalized=%r mode=%s",
+                to_number,
                 followup.get("booking_mode"),
-                followup.get("template_source"),
-                _mask_phone(to_number),
+            )
+        elif not from_number:
+            logger.info(
+                "[CAL_BOOK] sms_followup_skipped reason=from_number_empty receptionist_id=%s",
+                receptionist_id,
+            )
+        elif not resolved_msg:
+            logger.info(
+                "[CAL_BOOK] sms_followup_skipped reason=no_followup_message mode=%s",
+                followup.get("booking_mode"),
             )
         elif to_number and from_number and resolved_msg:
             sms_text = f"{resolved_msg}\n\n{_SMS_OPTOUT_SUFFIX}"
             sms_res = telnyx_sms.send_sms(to_number=to_number, from_number=from_number, text=sms_text)
             logger.info(
-                "[CAL_BOOK] sms_followup mode=%s template_source=%s to=%s from=%s success=%s telnyx_message_id=%s error=%s",
-                followup.get("booking_mode"),
-                followup.get("template_source"),
+                "[CAL_BOOK] sms_followup_sent to=%s from=%s success=%s telnyx_status=%s telnyx_msg_id=%s telnyx_error=%s",
                 _mask_phone(to_number),
                 _mask_phone(from_number),
-                bool(sms_res.get("success")),
+                sms_res.get("success"),
+                sms_res.get("status_code"),
                 (sms_res.get("telnyx_message_id") or "")[:40],
-                (sms_res.get("error") or "")[:120],
+                (sms_res.get("error") or "")[:100],
             )
         else:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s to_present=%s from_present=%s msg_present=%s",
-                followup.get("booking_mode"),
-                followup.get("template_source"),
-                bool(to_number),
-                bool(from_number),
-                bool(resolved_msg),
+                "[CAL_BOOK] sms_followup_skipped reason=no_to_number caller_phone_present=%s",
+                bool(to_number_raw),
             )
     except Exception as ex:
         logger.warning("[CAL_BOOK] sms_followup_failed (booking kept): %s", ex)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
+from urllib.parse import quote
 from typing import Any
 
 import httpx
@@ -322,7 +323,8 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
         raise HTTPException(status_code=503, detail="Server misconfiguration")
 
     ws_base = settings.get_telnyx_ws_base()
-    params = f"call_sid={call_control_id}&direction={direction}&caller_phone={caller_number}"
+    caller_phone_encoded = quote(caller_number or "", safe="")  # encode + as %2B so it survives query parsing
+    params = f"call_sid={call_control_id}&direction={direction}&caller_phone={caller_phone_encoded}"
     if receptionist_id:
         params += f"&receptionist_id={receptionist_id}"
     stream_url = f"{ws_base}/api/voice/stream?{params}"

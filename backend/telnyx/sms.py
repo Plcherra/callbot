@@ -42,6 +42,11 @@ def send_sms(*, to_number: str, from_number: str, text: str) -> dict:
             )
         if not r.is_success:
             err = (r.text or "").strip()
+            logger.warning(
+                "[TELNYX_SMS] send_failed status=%s body=%s",
+                r.status_code,
+                (err[:500] if err else "(empty)"),
+            )
             return {
                 "success": False,
                 "status_code": r.status_code,

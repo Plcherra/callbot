@@ -7,7 +7,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check available time slots in the calendar for a given date. Use only when the caller has specified which service they want (if services are configured), or when doing a generic booking with no services. Do NOT call check_availability when the caller has only given a date (e.g. 'tomorrow') but has not chosen a service—ask for service selection first.",
+            "description": "Check available time slots in the calendar for a given date. When services are configured: (a) if the caller names a service (e.g. 'business consulting'), pass service_name—do NOT ask for more specificity like 'what type of consulting?'; (b) if the caller wants a general appointment with no specific service, pass generic_appointment_requested=true. Only ask for clarification when the service is ambiguous or missing. When the caller provides both date and service, call check_availability immediately with service_name.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -22,6 +22,18 @@ CALENDAR_TOOLS = [
                     "end_date": {"type": "string", "description": "Optional end date if checking a date range"},
                     "duration_minutes": {"type": "string", "description": "Appointment duration in minutes (default 30)"},
                     "timezone": {"type": "string", "description": "Timezone e.g. America/New_York (default America/New_York)"},
+                    "service_name": {
+                        "type": "string",
+                        "description": "Name of the service the caller selected (e.g. Business consulting). If the caller names a configured service, pass it exactly so the backend can proceed. Do not ask for extra specificity if they already named one.",
+                    },
+                    "service_id": {
+                        "type": "string",
+                        "description": "UUID of the service if known. Prefer service_name when the caller spoke the service name.",
+                    },
+                    "generic_appointment_requested": {
+                        "type": "boolean",
+                        "description": "Set to true when the caller explicitly wants a general appointment with no specific service.",
+                    },
                 },
                 "required": [],
             },

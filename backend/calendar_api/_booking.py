@@ -70,6 +70,34 @@ def _normalize_service_name(s: str | None) -> str:
     return s.strip()
 
 
+# ASR-friendly: map common spoken variants to shared stem for matching
+_SERVICE_WORD_STEMS = {
+    "consultation": "consult",
+    "consultations": "consult",
+    "consulting": "consult",
+    "consultant": "consult",
+    "consultants": "consult",
+}
+
+
+def _stem_service_word(w: str) -> str:
+    """Map common ASR variants (consultation, consulting, consultant) to shared stem."""
+    if not w or not isinstance(w, str):
+        return ""
+    w = w.strip().lower()
+    return _SERVICE_WORD_STEMS.get(w, w)
+
+
+def _stemmed_service_name(s: str) -> str:
+    """Apply word-level stemming for ASR-tolerant matching."""
+    if not s or not isinstance(s, str):
+        return ""
+    norm = _normalize_service_name(s)
+    words = norm.split()
+    stemmed = " ".join(_stem_service_word(w) for w in words if w)
+    return stemmed.strip()
+
+
 def _normalize_phone(phone: str | None) -> str | None:
     """Normalize for E.164: trim, keep leading +, remove spaces/parens/dashes/dots."""
     if not phone or not isinstance(phone, str):
@@ -275,6 +303,36 @@ def _resolve_service_for_booking(
                 len(contained_matches),
             )
             return None
+
+        # 4. Stem/variant match for ASR tolerance (consultation/consulting/consultant -> consult)
+        incoming_stemmed = _stemmed_service_name(incoming_raw)
+        if incoming_stemmed:
+            stem_matches = []
+            for svc in all_services:
+                stored_name = (svc.get("name") or "").strip()
+                stored_stemmed = _stemmed_service_name(stored_name)
+                if not stored_stemmed:
+                    continue
+                if incoming_stemmed in stored_stemmed or stored_stemmed in incoming_stemmed:
+                    stem_matches.append(svc)
+            if len(stem_matches) == 1:
+                svc = stem_matches[0]
+                logger.info(
+                    "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=stem_unambiguous resolved_id=%s resolved_name=%r",
+                    incoming_raw,
+                    incoming_norm,
+                    svc.get("id"),
+                    (svc.get("name") or "").strip(),
+                )
+                return svc
+            if len(stem_matches) > 1:
+                logger.info(
+                    "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=stem_ambiguous count=%d resolved_id=None resolved_name=None",
+                    incoming_raw,
+                    incoming_norm,
+                    len(stem_matches),
+                )
+                return None
 
         logger.info(
             "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=no_match resolved_id=None resolved_name=None",

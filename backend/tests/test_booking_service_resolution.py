@@ -148,3 +148,54 @@ def test_resolve_service_by_id():
     )
     assert result is not None
     assert result["id"] == "svc-1"
+
+
+def test_resolve_service_asr_variant_consultant_to_consulting():
+    """ASR may transcribe 'consulting' as 'consultant'; stem match should resolve when unambiguous."""
+    services = [
+        {"id": "svc-1", "receptionist_id": "rec-1", "name": "Business consulting", "duration_minutes": 60},
+    ]
+    sb = _MockSB(services)
+    result = _resolve_service_for_booking(
+        supabase=sb,
+        receptionist_id="rec-1",
+        service_id=None,
+        service_name="business consultant",
+    )
+    assert result is not None
+    assert result["id"] == "svc-1"
+    assert result["name"] == "Business consulting"
+
+
+def test_resolve_service_asr_variant_consulting_contained():
+    """'consulting' is contained in 'Business consulting'; should resolve when only one service."""
+    services = [
+        {"id": "svc-1", "receptionist_id": "rec-1", "name": "Business consulting", "duration_minutes": 60},
+    ]
+    sb = _MockSB(services)
+    result = _resolve_service_for_booking(
+        supabase=sb,
+        receptionist_id="rec-1",
+        service_id=None,
+        service_name="consulting",
+    )
+    assert result is not None
+    assert result["id"] == "svc-1"
+    assert result["name"] == "Business consulting"
+
+
+def test_resolve_service_asr_variant_consultation_stem_match():
+    """'consultation' stems to 'consult'; 'Business consulting' stems to 'business consult'; stem contained match."""
+    services = [
+        {"id": "svc-1", "receptionist_id": "rec-1", "name": "Business consulting", "duration_minutes": 60},
+    ]
+    sb = _MockSB(services)
+    result = _resolve_service_for_booking(
+        supabase=sb,
+        receptionist_id="rec-1",
+        service_id=None,
+        service_name="consultation",
+    )
+    assert result is not None
+    assert result["id"] == "svc-1"
+    assert result["name"] == "Business consulting"

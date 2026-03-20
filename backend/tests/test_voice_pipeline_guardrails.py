@@ -6,6 +6,7 @@ import json
 import pytest
 
 from voice import pipeline
+from voice.calendar_tools import CALENDAR_TOOLS
 
 
 @pytest.mark.asyncio
@@ -137,4 +138,79 @@ async def test_check_availability_blocked_when_services_exist_and_no_service_sel
     assert parsed.get("success") is False
     assert parsed.get("error") == "service_selection_required"
     assert "what would you like to book" in (parsed.get("message") or "").lower()
+
+
+def test_check_availability_tool_schema_has_service_params():
+    """Regression: check_availability must expose service_name, service_id, generic_appointment_requested."""
+    ca_tool = next(t for t in CALENDAR_TOOLS if t["function"]["name"] == "check_availability")
+    props = ca_tool["function"]["parameters"]["properties"]
+    assert "service_name" in props
+    assert props["service_name"]["type"] == "string"
+    assert "service_id" in props
+    assert props["service_id"]["type"] == "string"
+    assert "generic_appointment_requested" in props
+    assert props["generic_appointment_requested"]["type"] == "boolean"
+
+
+@pytest.mark.asyncio
+async def test_check_availability_proceeds_when_service_name_passed(monkeypatch):
+    """When model passes service_name, backend proceeds (no service_selection_required)."""
+    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+        if name == "check_availability" and not args.get("service_id") and not args.get("service_name") and not args.get("generic_appointment_requested"):
+            return json.dumps({
+                "success": False,
+                "error": "service_selection_required",
+                "message": "Sure — what would you like to book?",
+            })
+        return json.dumps({"success": True, "suggested_slots": ["2026-03-21T10:00:00", "2026-03-21T11:00:00"]})
+
+    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+
+    config = {
+        "voice_server_base_url": "https://example.com",
+        "voice_server_api_key": "k",
+        "receptionist_id": "rec-1",
+    }
+    tool_exec = pipeline.make_calendar_tool_exec(
+        config=config,
+        on_audio=lambda _: None,
+        on_error=None,
+        tts_failure_logged=[False],
+    )
+
+    result = await tool_exec("check_availability", {"date_text": "tomorrow", "service_name": "Business consulting"})
+    parsed = json.loads(result)
+    assert parsed.get("success") is True
+    assert "suggested_slots" in parsed
+
+
+@pytest.mark.asyncio
+async def test_check_availability_proceeds_when_generic_appointment_requested(monkeypatch):
+    """When model passes generic_appointment_requested=true, backend proceeds."""
+    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+        if name == "check_availability" and not args.get("service_id") and not args.get("service_name") and args.get("generic_appointment_requested") is not True:
+            return json.dumps({
+                "success": False,
+                "error": "service_selection_required",
+                "message": "Sure — what would you like to book?",
+            })
+        return json.dumps({"success": True, "suggested_slots": []})
+
+    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+
+    config = {
+        "voice_server_base_url": "https://example.com",
+        "voice_server_api_key": "k",
+        "receptionist_id": "rec-1",
+    }
+    tool_exec = pipeline.make_calendar_tool_exec(
+        config=config,
+        on_audio=lambda _: None,
+        on_error=None,
+        tts_failure_logged=[False],
+    )
+
+    result = await tool_exec("check_availability", {"date_text": "tomorrow", "generic_appointment_requested": True})
+    parsed = json.loads(result)
+    assert parsed.get("success") is True
 

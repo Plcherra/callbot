@@ -60,6 +60,30 @@ def _resolve_sms_from_number(*, supabase, receptionist_id: str) -> str | None:
         return None
 
 
+def _normalize_service_name(s: str | None) -> str:
+    """Normalize for matching: lowercase, trim, collapse spaces, remove simple punctuation."""
+    if not s or not isinstance(s, str):
+        return ""
+    s = s.strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[.,;:!?\-'\"()]", "", s)
+    return s.strip()
+
+
+def _normalize_phone(phone: str | None) -> str | None:
+    """Normalize for E.164: trim, keep leading +, remove spaces/parens/dashes/dots."""
+    if not phone or not isinstance(phone, str):
+        return None
+    s = phone.strip()
+    if not s:
+        return None
+    keep_plus = s.startswith("+")
+    digits = "".join(c for c in s if c.isdigit())
+    if not digits:
+        return None
+    return ("+" if keep_plus else "") + digits
+
+
 def _is_e164(phone: str | None) -> bool:
     s = (phone or "").strip()
     return bool(s and _E164_RE.match(s))
@@ -174,13 +198,89 @@ def _resolve_service_for_booking(
             if res and getattr(res, "data", None):
                 return res.data[0]
             return None
-        # Best-effort: case-insensitive name match when available; fallback to exact.
-        try:
-            res = base.ilike("name", service_name).limit(1).execute()
-        except Exception:
-            res = base.eq("name", service_name).limit(1).execute()
-        if res and getattr(res, "data", None):
-            return res.data[0]
+
+        # Name-based resolution with normalization and safe matching order.
+        incoming_raw = service_name
+        incoming_norm = _normalize_service_name(service_name)
+        if not incoming_norm:
+            logger.info(
+                "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=empty resolved_id=None resolved_name=None",
+                incoming_raw,
+                incoming_norm,
+            )
+            return None
+
+        res = base.execute()
+        all_services = (res.data or []) if res and getattr(res, "data", None) else []
+        if not all_services:
+            logger.info(
+                "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=no_services resolved_id=None resolved_name=None",
+                incoming_raw,
+                incoming_norm,
+            )
+            return None
+
+        # 1. Exact normalized match
+        for svc in all_services:
+            stored_name = (svc.get("name") or "").strip()
+            stored_norm = _normalize_service_name(stored_name)
+            if stored_norm == incoming_norm:
+                logger.info(
+                    "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=exact_normalized resolved_id=%s resolved_name=%r",
+                    incoming_raw,
+                    incoming_norm,
+                    svc.get("id"),
+                    stored_name,
+                )
+                return svc
+
+        # 2. Case-insensitive exact (already covered by normalized; try direct ilike as fallback)
+        for svc in all_services:
+            stored_name = (svc.get("name") or "").strip()
+            if stored_name and stored_name.lower() == incoming_norm:
+                logger.info(
+                    "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=exact_ci resolved_id=%s resolved_name=%r",
+                    incoming_raw,
+                    incoming_norm,
+                    svc.get("id"),
+                    stored_name,
+                )
+                return svc
+
+        # 3. Contained-match only if unambiguous
+        contained_matches = []
+        for svc in all_services:
+            stored_name = (svc.get("name") or "").strip()
+            stored_norm = _normalize_service_name(stored_name)
+            if not stored_norm:
+                continue
+            # Incoming contained in stored, or stored contained in incoming
+            if incoming_norm in stored_norm or stored_norm in incoming_norm:
+                contained_matches.append(svc)
+        if len(contained_matches) == 1:
+            svc = contained_matches[0]
+            logger.info(
+                "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=contained_unambiguous resolved_id=%s resolved_name=%r",
+                incoming_raw,
+                incoming_norm,
+                svc.get("id"),
+                (svc.get("name") or "").strip(),
+            )
+            return svc
+        if len(contained_matches) > 1:
+            logger.info(
+                "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=contained_ambiguous count=%d resolved_id=None resolved_name=None",
+                incoming_raw,
+                incoming_norm,
+                len(contained_matches),
+            )
+            return None
+
+        logger.info(
+            "[CAL_BOOK] service_resolution incoming=%r normalized=%r match_mode=no_match resolved_id=None resolved_name=None",
+            incoming_raw,
+            incoming_norm,
+        )
         return None
     except Exception:
         logger.exception(
@@ -471,10 +571,24 @@ def handle_create_appointment(
 
     # Immediate post-booking SMS follow-up (best-effort; never breaks booking).
     try:
-        to_number = (params.get("caller_phone") or "").strip() or None
+        to_number_raw = (params.get("caller_phone") or "").strip() or None
+        to_number = _normalize_phone(to_number_raw) if to_number_raw else None
+        if to_number_raw and to_number != to_number_raw:
+            logger.info(
+                "[CAL_BOOK] sms_phone_normalization raw=%s normalized=%s",
+                _mask_phone(to_number_raw),
+                _mask_phone(to_number),
+            )
         from_number = _resolve_sms_from_number(supabase=supabase, receptionist_id=receptionist_id)
         resolved_msg = (followup.get("followup_message_resolved") or "").strip() or None
-        if to_number and not _is_e164(to_number):
+        if to_number_raw and not to_number:
+            logger.info(
+                "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s reason=normalize_failed to=%s",
+                followup.get("booking_mode"),
+                followup.get("template_source"),
+                _mask_phone(to_number_raw),
+            )
+        elif to_number and not _is_e164(to_number):
             logger.info(
                 "[CAL_BOOK] sms_followup_skipped mode=%s template_source=%s reason=invalid_e164 to=%s",
                 followup.get("booking_mode"),

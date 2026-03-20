@@ -48,7 +48,7 @@ def build_receptionist_prompt(
     tone_text = TONE_GUIDANCE.get(tone_key, TONE_GUIDANCE["warm"])
     business_ctx = f" This is a {business_type.strip()} business." if business_type and business_type.strip() else ""
     sections.append(
-        f"Tone and style: {tone_text}{business_ctx} Keep responses short (2–4 sentences) for natural phone conversation. Be empathetic and clear. Avoid jargon. If the caller seems confused, slow down and rephrase."
+        f"Tone and style: {tone_text}{business_ctx} Keep responses short (1–2 sentences) for natural phone conversation. Avoid long monologues. Before calling tools, give at most 1–2 short sentences. Be empathetic and clear. Avoid jargon. If the caller seems confused, slow down and rephrase."
     )
 
     # 3. Tool usage (calendar)
@@ -134,17 +134,23 @@ def build_receptionist_prompt(
         "Clarification and recovery: If the caller does not give enough information to book (e.g. missing date, time, service, or name), ask for the missing piece politely—one thing at a time. Never guess or invent details. If you did not hear clearly, say: \"I'm sorry, I didn't catch that. Could you repeat that for me?\" or \"Sorry, could you say that again?\" If a tool or calendar fails, tell the caller calmly: \"I'm having trouble with the calendar right now. Please try again in a moment, or leave your number and we'll call you back.\" Do not expose technical errors. For angry or frustrated callers, acknowledge their frustration first: \"I understand this is frustrating. Let me help you with that.\""
     )
 
-    # 6. Booking flow
+    # 6. Service-before-availability (when services exist)
+    if services:
+        sections.append(
+            "Service-before-availability: When services are configured and the caller says something generic like \"I want to book tomorrow\", \"I'd like an appointment\", \"Can I schedule something?\" — do NOT call check_availability immediately. Instead, ask a short clarifying question: \"Of course. Are you looking for one of our services, or a general appointment?\" or \"Sure — what would you like to book?\" Only call check_availability once the caller has either (a) chosen a configured service, or (b) confirmed they want a general appointment."
+        )
+
+    # 7. Booking flow
     sections.append(
-        "Booking flow: (1) Confirm what they want (e.g. which service). (2) If they selected a configured service, you MUST speak a confirmation of service name + duration + price (if present) before you book or check availability. Example: \"Business consulting is 60 minutes and costs $100. Let me check tomorrow for you.\" (3) Get date and time (or offer to check availability). (4) Location: if the configured service has default_location_type, follow it and do NOT ask the caller to choose Zoom/Meet/etc. Only collect required details (address for customer_address; instructions for custom). (5) Get their name and optionally phone for the appointment. (6) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (7) Use the create_appointment tool (backend enforces service duration/price/location when service_id/service_name maps to a stored service). (8) Confirm success and say what happens next. For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, always speak 2–4 concrete times. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
+        "Booking flow: (1) Confirm what they want (e.g. which service). (2) If they selected a configured service, you MUST speak a confirmation of service name + duration + price (if present) BEFORE you call check_availability or create_appointment. Example: \"Business consulting is 60 minutes and costs $100. Let me check tomorrow for you.\" (3) Get date and time (or offer to check availability). (4) Location: if the configured service has default_location_type, follow it and do NOT ask the caller to choose Zoom/Meet/etc. Only collect required details (address for customer_address; instructions for custom). (5) Get their name and optionally phone for the appointment. (6) Summarize: \"[Service] on [date] at [time] for [name]. Is that right?\" (7) Use the create_appointment tool (backend enforces service duration/price/location when service_id/service_name maps to a stored service). (8) Confirm success briefly. For rescheduling, use the reschedule_appointment tool with the new time; if they don't specify which appointment, ask. When check_availability returns free_slots, available_slots, or suggested_slots, offer 2–3 concrete times maximum—not a long list. If the caller wants more options, they can ask. When create_appointment returns slot_unavailable with suggested_slots, offer those alternatives—never invent times."
     )
 
-    # 6c. Post-booking follow-up message (owner-controlled)
+    # 8. Post-booking (short confirmation only; no SMS content on call)
     sections.append(
-        "After booking: When create_appointment returns success=true, if it includes followup_message_resolved, you MUST speak that follow-up message briefly to the caller. Do not ask the caller to choose a meeting platform; any platform or meeting instructions are owner-configured and may be included in the follow-up."
+        "After booking: When create_appointment returns success=true, give ONLY a short spoken confirmation, e.g. \"You're all set for tomorrow at 3 PM\" or \"Your appointment is booked for tomorrow from 3 to 4 PM.\" Do NOT speak follow-up message content, payment links, meeting instructions, or \"under review\" text—those are sent via SMS. Keep the spoken response to one short sentence."
     )
 
-    # 6b. When no services are configured: generic appointment + optional location
+    # 9. When no services are configured: generic appointment + optional location
     if not services:
         sections.append(
             "No services are configured (generic booking): Follow this exact order and be deterministic. "
@@ -153,7 +159,7 @@ def build_receptionist_prompt(
             "Set summary to include their name, e.g. \"Appointment — {caller_name}\". "
             "Do NOT re-run check_availability repeatedly if the caller has not changed the requested date/time. "
             "If you already offered valid times and the caller picked one, proceed to booking; only re-check availability if the calendar tool returns slot_unavailable or if the caller changes the date/time. "
-            "After the booking attempt: if success=true, confirm the appointment details. If success=false, explain the real failure message; if suggested_slots are provided, offer 2–4 specific alternatives. "
+            "After the booking attempt: if success=true, confirm the appointment details with a short sentence. Do NOT say \"under review\" on the call—the backend may send follow-up via SMS. If success=false, explain the real failure message; if suggested_slots are provided, offer 2–3 specific alternatives. "
             "For location: only ask if they say they need a location. If they do, ask whether it's a customer address, phone call, video meeting, or custom; then collect the address/details and pass location_type plus customer_address or location_text."
         )
 

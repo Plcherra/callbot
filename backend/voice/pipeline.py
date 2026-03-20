@@ -131,6 +131,15 @@ def make_calendar_tool_exec(
                 return result
 
             result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
+            if name == "create_appointment" and result:
+                try:
+                    parsed = json.loads(result)
+                    if parsed.get("success") is True:
+                        for f in ("followup_message_resolved", "payment_link", "meeting_instructions", "owner_selected_platform"):
+                            parsed.pop(f, None)
+                        result = json.dumps(parsed)
+                except (json.JSONDecodeError, TypeError):
+                    pass
             tool_cache[key] = result
             return result
 

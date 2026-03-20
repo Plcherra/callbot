@@ -27,7 +27,7 @@ DEFAULT_TIMEZONE = "America/New_York"
 # Business-day and period windows for range queries
 BUSINESS_DAY_START_HOUR = 9
 BUSINESS_DAY_END_HOUR = 17
-SUGGESTED_SLOTS_MAX = 4
+SUGGESTED_SLOTS_MAX = 3
 
 
 def _parse_datetime_range(date_str: str, timezone: str = DEFAULT_TIMEZONE) -> tuple[dict[str, str] | None, str]:
@@ -102,6 +102,9 @@ async def handle_calendar_request(body: dict) -> dict:
 
     try:
         if action == "check_availability":
+            guard_err = _check_service_first_guard(supabase, receptionist_id, params)
+            if guard_err:
+                return guard_err
             return _handle_check_availability(service, calendar_id, params)
         if action == "create_appointment":
             return _handle_create_appointment(service, calendar_id, params, receptionist_id, supabase)
@@ -116,6 +119,35 @@ async def handle_calendar_request(body: dict) -> dict:
             }
         logger.exception("Calendar error: %s", action)
         return {"success": False, "error": "calendar_error", "message": "Calendar request failed."}
+
+
+def _check_service_first_guard(supabase, receptionist_id: str, params: dict) -> dict | None:
+    """If services exist and caller has not selected service or confirmed generic, return error dict; else None."""
+    svc_res = supabase.table("services").select("id").eq("receptionist_id", receptionist_id).execute()
+    services_count = len(svc_res.data or [])
+    has_service = bool(
+        (params.get("service_id") or "").strip() or (params.get("service_name") or "").strip()
+    )
+    generic_confirmed = params.get("generic_appointment_requested") is True
+    if services_count > 0 and not has_service and not generic_confirmed:
+        logger.info(
+            "[CAL_BOOK] service_first_guard services_count=%d has_service=%s generic_confirmed=%s action=blocked",
+            services_count,
+            has_service,
+            generic_confirmed,
+        )
+        return {
+            "success": False,
+            "error": "service_selection_required",
+            "message": "Sure — what would you like to book? Are you looking for one of our services, or a general appointment?",
+        }
+    logger.info(
+        "[CAL_BOOK] service_first_guard services_count=%d has_service=%s generic_confirmed=%s action=proceed",
+        services_count,
+        has_service,
+        generic_confirmed,
+    )
+    return None
 
 
 def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:

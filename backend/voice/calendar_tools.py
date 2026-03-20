@@ -7,7 +7,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check available time slots in the calendar for a given date. Use when the caller wants to book an appointment and needs to know what times are free.",
+            "description": "Check available time slots in the calendar for a given date. Use only when the caller has specified which service they want (if services are configured), or when doing a generic booking with no services. Do NOT call check_availability when the caller has only given a date (e.g. 'tomorrow') but has not chosen a service—ask for service selection first.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -31,7 +31,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_appointment",
-            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot. If the service requires a location, you must collect and pass location_type and location_text or customer_address before calling.",
+            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot. If the service requires a location, you must collect and pass location_type and location_text or customer_address before calling. After success, give only a short spoken confirmation (e.g. date and time). Do not read follow-up message content aloud.",
             "parameters": {
                 "type": "object",
                 "properties": {

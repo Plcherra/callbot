@@ -12,6 +12,9 @@ dateparser>=1.2.0
 cryptography>=42.0.0
 firebase-admin>=6.0.0
 stripe>=8.0.0
+google-cloud-texttospeech>=2.16.0
+redis>=5.0.0
+google-cloud-storage>=2.14.0
 
 # Test dependencies
 pytest>=7.0.0

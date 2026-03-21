@@ -1,0 +1,277 @@
+"""TTS provider facade: ElevenLabs streaming vs Google Cloud TTS + cache + limits."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable, Optional
+
+import httpx
+
+from config import settings
+from voice import tts_chars
+from voice.elevenlabs_client import text_to_speech_stream
+from voice.google_tts import (
+    GoogleTtsSynthesizeOptions,
+    assert_voice_allowed,
+    synthesize_text_with_retry,
+)
+from voice.tts_cache import build_cache_key, create_tts_cache
+from voice_presets import ResolvedTtsVoice, google_voice_allowlist
+
+logger = logging.getLogger(__name__)
+
+_cache = None
+
+
+def _get_cache():
+    global _cache
+    if _cache is None:
+        _cache = create_tts_cache(
+            backend=settings.tts_cache_backend,
+            ttl_seconds=settings.tts_cache_ttl_seconds,
+            memory_max_entries=settings.tts_cache_memory_max_entries,
+            filesystem_dir=settings.tts_cache_filesystem_dir,
+            redis_url=settings.tts_cache_redis_url,
+            gcs_bucket=settings.tts_cache_gcs_bucket,
+            gcs_prefix=settings.tts_cache_gcs_prefix,
+        )
+    return _cache
+
+
+_daily_lock = asyncio.Lock()
+_daily_utc_date: str | None = None
+_daily_char_total: int = 0
+
+
+async def _reserve_daily_chars(n: int, cap: int) -> bool:
+    """Return True if n chars can be billed today (or cap disabled)."""
+    global _daily_utc_date, _daily_char_total
+    if cap <= 0:
+        return True
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    async with _daily_lock:
+        if _daily_utc_date != today:
+            _daily_utc_date = today
+            _daily_char_total = 0
+        if _daily_char_total + n > cap:
+            logger.error(
+                "[TTS] daily character cap exceeded cap=%s used=%s requested=%s",
+                cap,
+                _daily_char_total,
+                n,
+            )
+            return False
+        _daily_char_total += n
+        return True
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    t = text or ""
+    if len(t) <= max_chars:
+        return t
+    if max_chars <= 3:
+        return t[:max_chars]
+    return t[: max_chars - 3].rstrip() + "..."
+
+
+async def _send_mulaw_chunks(
+    audio: bytes,
+    on_audio: Callable[[bytes], Awaitable[None]],
+    chunk_bytes: int,
+) -> None:
+    if chunk_bytes <= 0:
+        chunk_bytes = 1600
+    for i in range(0, len(audio), chunk_bytes):
+        await on_audio(audio[i : i + chunk_bytes])
+
+
+async def _google_synthesize_to_mulaw(
+    text: str,
+    voice: ResolvedTtsVoice,
+    *,
+    use_backup_voice: bool = False,
+) -> bytes:
+    allowlist = google_voice_allowlist()
+    vname = settings.google_tts_backup_voice_name if use_backup_voice else voice.google_voice_name
+    assert_voice_allowed(
+        vname,
+        allowlist=allowlist,
+        allow_premium_tiers=settings.google_tts_allow_premium_tiers,
+    )
+    lang = voice.google_language_code
+    opts = GoogleTtsSynthesizeOptions(
+        language_code=lang,
+        voice_name=vname,
+        speaking_rate=settings.google_tts_speaking_rate,
+        pitch=settings.google_tts_pitch,
+        audio_encoding="MULAW",
+        sample_rate_hertz=8000,
+    )
+    norm = tts_chars.normalize_text_for_cache_key(text)
+    key = build_cache_key(
+        voice_name=vname,
+        language_code=lang,
+        normalized_text=norm,
+        speaking_rate=settings.google_tts_speaking_rate,
+        pitch=settings.google_tts_pitch,
+        audio_encoding="MULAW",
+        sample_rate_hertz=8000,
+    )
+    cache = _get_cache()
+    hit = await cache.get(key)
+    if hit is not None:
+        logger.info(
+            "[TTS] cache_hit=true provider=google key_prefix=%s chars=%s",
+            key[:16],
+            len(text),
+        )
+        return hit
+    audio = await synthesize_text_with_retry(
+        text,
+        opts,
+        max_retries=settings.tts_google_max_retries,
+        base_seconds=settings.tts_google_retry_base_seconds,
+        max_seconds=settings.tts_google_retry_max_seconds,
+    )
+    await cache.put(key, audio)
+    return audio
+
+
+def _billable_chars_plain(text: str) -> int:
+    return tts_chars.plain_text_billable_chars(text)
+
+
+async def generate_and_send_tts(
+    text: str,
+    config: dict[str, Any],
+    on_audio: Callable[[bytes], Awaitable[None]],
+    on_error: Optional[Callable[[Exception], None]] = None,
+    is_fallback: bool = False,
+    _tts_failure_logged: Optional[list[bool]] = None,
+) -> None:
+    """Generate TTS and send via callback (ElevenLabs stream or Google + chunking)."""
+    if not text or not text.strip():
+        return
+    tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]
+    provider = (config.get("tts_provider") or settings.tts_provider or "elevenlabs").strip().lower()
+    tts_state: dict[str, int] = config.setdefault("tts_state", {"requests": 0, "chars": 0})
+
+    max_req = settings.tts_max_requests_per_call
+    if tts_state["requests"] >= max_req:
+        logger.error("[TTS] max requests per call exceeded max=%s", max_req)
+        return
+
+    max_chars = settings.tts_max_chars_per_utterance
+    use_text = _truncate_text(text.strip(), max_chars)
+    billable = _billable_chars_plain(use_text)
+    cpm = settings.tts_chars_per_minute_estimate
+    est_min = tts_chars.estimated_speech_minutes(billable, cpm)
+
+    daily_cap = settings.tts_daily_char_cap
+    if not await _reserve_daily_chars(billable, daily_cap):
+        logger.error("[TTS] daily character cap reached; skipping utterance")
+        return
+
+    tts_state["requests"] = tts_state.get("requests", 0) + 1
+    tts_state["chars"] = tts_state.get("chars", 0) + billable
+
+    logger.info(
+        "[TTS] utterance provider=%s chars=%s chars_call_total=%s est_minutes=%.3f tts_request_index=%s",
+        provider,
+        billable,
+        tts_state["chars"],
+        est_min,
+        tts_state["requests"],
+    )
+
+    voice: ResolvedTtsVoice | None = config.get("resolved_tts_voice")
+
+    if provider == "google":
+        if voice is None:
+            logger.error("[TTS] resolved_tts_voice missing for Google provider")
+            return
+        try:
+            audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=False)
+            await _send_mulaw_chunks(
+                audio,
+                on_audio,
+                settings.tts_mulaw_chunk_bytes,
+            )
+        except Exception as err:
+            logger.exception("[TTS] Google primary voice failed: %s", err)
+            try:
+                audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=True)
+                await _send_mulaw_chunks(audio, on_audio, settings.tts_mulaw_chunk_bytes)
+            except Exception as err2:
+                logger.exception("[TTS] Google backup voice failed: %s", err2)
+                if on_error:
+                    on_error(err2)
+                if not is_fallback:
+                    await generate_and_send_tts(
+                        "I'm sorry, I'm having trouble. Please try again.",
+                        config,
+                        on_audio,
+                        on_error,
+                        is_fallback=True,
+                        _tts_failure_logged=tts_logged,
+                    )
+        return
+
+    # ElevenLabs
+    try:
+        async for chunk in text_to_speech_stream(
+            text=use_text,
+            voice_id=config["elevenlabs_voice_id"],
+            api_key=config["elevenlabs_api_key"],
+            output_format="ulaw_8000",
+        ):
+            await on_audio(chunk)
+    except Exception as err:
+        is_elevenlabs_http = (
+            isinstance(err, httpx.HTTPStatusError)
+            and "elevenlabs" in (str(err.request.url) if getattr(err, "request", None) else "")
+        )
+        if is_elevenlabs_http and not tts_logged[0]:
+            tts_logged[0] = True
+            logger.error(
+                "[voice/stream] ElevenLabs TTS failed (404/401 etc): %s. Skipping retries.",
+                err,
+            )
+        elif on_error and not is_elevenlabs_http:
+            on_error(err)
+        if not is_fallback and not is_elevenlabs_http:
+            await generate_and_send_tts(
+                "I'm sorry, I'm having trouble. Please try again.",
+                config,
+                on_audio,
+                on_error,
+                is_fallback=True,
+                _tts_failure_logged=tts_logged,
+            )
+
+
+async def google_preview_mp3(text: str, voice: ResolvedTtsVoice) -> bytes:
+    """MP3 preview bytes for mobile voice preset (Google provider)."""
+    allowlist = google_voice_allowlist()
+    assert_voice_allowed(
+        voice.google_voice_name,
+        allowlist=allowlist,
+        allow_premium_tiers=settings.google_tts_allow_premium_tiers,
+    )
+    opts = GoogleTtsSynthesizeOptions(
+        language_code=voice.google_language_code,
+        voice_name=voice.google_voice_name,
+        speaking_rate=settings.google_tts_speaking_rate,
+        pitch=settings.google_tts_pitch,
+        audio_encoding="MP3",
+        sample_rate_hertz=settings.google_tts_preview_sample_rate_hertz,
+    )
+    return await synthesize_text_with_retry(
+        text,
+        opts,
+        max_retries=settings.tts_google_max_retries,
+        base_seconds=settings.tts_google_retry_base_seconds,
+        max_seconds=settings.tts_google_retry_max_seconds,
+    )

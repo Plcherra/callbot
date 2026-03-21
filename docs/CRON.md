@@ -9,6 +9,8 @@ Configure these endpoints to run on a schedule. All require `Authorization: Bear
 | `/api/cron/payg-billing` | 1st of month, early (e.g. 00:05 UTC) | PAYG invoicing + overage for fixed plans. Run before reset-usage. |
 | `/api/cron/reset-usage` | 1st of month, after payg-billing (e.g. 00:15 UTC) | Reset `user_plans.used_inbound_minutes` and `used_outbound_minutes` to 0. |
 | `/api/cron/usage` | Daily (e.g. 02:00 UTC) | Aggregate `call_usage` into `usage_snapshots` for dashboard display. |
+| `/api/cron/billing-reconcile` | Daily (e.g. 03:00 UTC) | Backfill `usage_ledger` from `billing_calls` when webhooks were missed. |
+| `/api/cron/usage-alerts` | Daily | Log usage threshold alerts (50%, 80%, 100%, 130% of included minutes). |
 
 ## Hetzner VPS / system cron
 

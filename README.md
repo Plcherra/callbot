@@ -5,7 +5,7 @@ Mobile-first AI phone receptionist: **Flutter app** (primary), **Python FastAPI 
 ## Features
 
 - **Flutter mobile app**: Primary user interface; subscription, calendar, receptionists, call history
-- **Voice pipeline**: Telnyx webhook → Python → Deepgram STT → Grok LLM → ElevenLabs TTS → Telnyx
+- **Voice pipeline**: Telnyx webhook → Python → Deepgram STT → Grok LLM → TTS (ElevenLabs or Google Cloud) → Telnyx
 - **Mobile API**: Push tokens, sync, Stripe Checkout/Billing Portal, Google OAuth, receptionists CRUD
 - **Static landing**: Hero, pricing, demo video, App Store / Play Store links
 - **Cron**: PAYG billing, usage reset
@@ -16,7 +16,7 @@ Mobile-first AI phone receptionist: **Flutter app** (primary), **Python FastAPI 
 - **Mobile**: Flutter
 - **Landing**: Static HTML (Tailwind CDN)
 - **Data**: Supabase (auth, users, receptionists, Stripe sync)
-- **Voice AI**: Deepgram, Grok, ElevenLabs
+- **Voice AI**: Deepgram, Grok, TTS (ElevenLabs or Google Cloud)
 - **Telnyx**: Phone provisioning, voice webhooks, CDR
 
 ## Quick Start
@@ -61,7 +61,7 @@ See `deploy/env/.env.example`. Key vars:
 
 - **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - **Telnyx**: `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL`, `TELNYX_CONNECTION_ID`
-- **Voice AI**: `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `ELEVENLABS_API_KEY`
+- **Voice AI**: `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `TTS_PROVIDER`, `ELEVENLABS_API_KEY` (if using ElevenLabs) or Google Cloud credentials (if `TTS_PROVIDER=google`)
 - **Stripe**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`
 - **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
 - **App**: `APP_URL` (e.g. `https://echodesk.us`)

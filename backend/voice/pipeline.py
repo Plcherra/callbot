@@ -1,15 +1,14 @@
-"""Voice pipeline: Deepgram STT -> Grok LLM -> ElevenLabs TTS."""
+"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (ElevenLabs or Google Cloud)."""
 
 import asyncio
 import logging
 import json
 from typing import Any, Callable, Awaitable, Optional
 
-import httpx
-
+from config import settings
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
-from voice.elevenlabs_client import text_to_speech_stream
+from voice.tts_facade import generate_and_send_tts
 from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 
 logger = logging.getLogger(__name__)
@@ -163,51 +162,6 @@ def _passes_transcript_guard(text: str) -> bool:
     return True
 
 
-async def generate_and_send_tts(
-    text: str,
-    config: dict[str, Any],
-    on_audio: Callable[[bytes], Awaitable[None]],
-    on_error: Optional[Callable[[Exception], None]] = None,
-    is_fallback: bool = False,
-    _tts_failure_logged: Optional[list[bool]] = None,
-) -> None:
-    """Generate TTS and send via callback. Avoids retry spam on ElevenLabs HTTP errors."""
-    if not text or not text.strip():
-        return
-    tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]
-
-    try:
-        async for chunk in text_to_speech_stream(
-            text=text,
-            voice_id=config["elevenlabs_voice_id"],
-            api_key=config["elevenlabs_api_key"],
-            output_format="ulaw_8000",
-        ):
-            await on_audio(chunk)
-    except Exception as err:
-        is_elevenlabs_http = (
-            isinstance(err, httpx.HTTPStatusError)
-            and "elevenlabs" in (str(err.request.url) if getattr(err, "request", None) else "")
-        )
-        if is_elevenlabs_http and not tts_logged[0]:
-            tts_logged[0] = True
-            logger.error(
-                "[voice/stream] ElevenLabs TTS failed (404/401 etc): %s. Skipping retries.",
-                err,
-            )
-        elif on_error and not is_elevenlabs_http:
-            on_error(err)
-        if not is_fallback and not is_elevenlabs_http:
-            await generate_and_send_tts(
-                "I'm sorry, I'm having trouble. Please try again.",
-                config,
-                on_audio,
-                on_error,
-                is_fallback=True,
-                _tts_failure_logged=tts_logged,
-            )
-
-
 async def run_voice_pipeline(
     config: dict[str, Any],
     on_audio: Callable[[bytes], Awaitable[None]],
@@ -237,6 +191,9 @@ async def run_voice_pipeline(
     dg_ws: Any = None
     dg_task: Optional[asyncio.Task] = None
     tts_failure_logged: list[bool] = [False]
+    tts_state: dict[str, int] = {"requests": 0, "chars": 0}
+    config["tts_state"] = tts_state
+    config.setdefault("tts_provider", (settings.tts_provider or "elevenlabs").strip().lower())
 
     def _cancel_pending_response() -> None:
         """Cancel debounce and in-flight Grok. Call when new caller speech arrives."""

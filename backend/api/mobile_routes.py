@@ -24,8 +24,10 @@ from voice_presets import (
     infer_preset_key_from_voice_id,
     list_presets_for_api,
     resolve_voice_id,
+    resolve_tts_voice,
 )
 from voice.elevenlabs_client import text_to_speech_preview
+from voice.tts_facade import google_preview_mp3
 from config import settings
 from google_oauth_scopes import SCOPES
 from prompts.fetch import _build_from_supabase_sync
@@ -97,16 +99,21 @@ async def voice_preset_preview(request: Request, key: str):
     preset = get_preset(key)
     if not preset:
         return JSONResponse({"error": "Preset not found"}, status_code=404)
-    api_key = (settings.elevenlabs_api_key or "").strip()
-    if not api_key:
-        return JSONResponse({"error": "Voice preview not configured"}, status_code=503)
+    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
     try:
-        audio_bytes = await text_to_speech_preview(
-            text=PREVIEW_SAMPLE_TEXT,
-            voice_id=preset["voice_id"],
-            api_key=api_key,
-            model_id=preset.get("model_id") or "eleven_flash_v2_5",
-        )
+        if tts_provider == "google":
+            rv = resolve_tts_voice(key, None)
+            audio_bytes = await google_preview_mp3(PREVIEW_SAMPLE_TEXT, rv)
+        else:
+            api_key = (settings.elevenlabs_api_key or "").strip()
+            if not api_key:
+                return JSONResponse({"error": "Voice preview not configured"}, status_code=503)
+            audio_bytes = await text_to_speech_preview(
+                text=PREVIEW_SAMPLE_TEXT,
+                voice_id=preset["voice_id"],
+                api_key=api_key,
+                model_id=preset.get("model_id") or "eleven_flash_v2_5",
+            )
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
         logger.warning("[voice-presets/preview] %s: %s", key, e)
@@ -244,7 +251,10 @@ async def checkout(request: Request):
 
     price_id = get_price_id_for_plan_id(plan_id) or get_price_id_for_plan_id("starter")
     if not price_id:
-        return JSONResponse({"error": "Invalid plan. Choose starter, pro, or business."}, status_code=400)
+        return JSONResponse(
+            {"error": "Invalid plan. Choose starter, growth, pro, business, or payg (configure STRIPE_PRICE_* in env)."},
+            status_code=400,
+        )
 
     sk = (settings.stripe_secret_key or "").strip()
     if not sk:

@@ -10,6 +10,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from config import settings
+from billing.stripe_sync import mark_subscription_canceled, upsert_subscription_from_stripe
 from stripe_plans import plan_from_subscription
 from supabase_client import create_service_role_client
 
@@ -71,6 +72,9 @@ async def stripe_webhook_post(request: Request):
                 if plan:
                     updates["billing_plan"] = plan["billing_plan"]
                     updates["billing_plan_metadata"] = plan.get("billing_plan_metadata")
+                    upsert_subscription_from_stripe(
+                        supabase, user_id=user_id, stripe_subscription=sub_obj, plan=plan
+                    )
             supabase.table("users").upsert(updates, on_conflict="id").execute()
             logger.info("[Stripe webhook] checkout.session.completed: user %s set active", user_id)
 
@@ -91,6 +95,7 @@ async def stripe_webhook_post(request: Request):
                 update["billing_plan_metadata"] = plan.get("billing_plan_metadata")
                 meta = plan.get("billing_plan_metadata") or {}
                 included = meta.get("included_minutes", 0)
+                overage_cents = int(meta.get("overage_rate_cents", 8))
                 ep = supabase.table("user_plans").select("inbound_percent, outbound_percent").eq("user_id", user["id"]).limit(1).execute()
                 inbound_pct = 80
                 outbound_pct = 20
@@ -106,10 +111,13 @@ async def stripe_webhook_post(request: Request):
                     "allocated_outbound_minutes": alloc_out,
                     "inbound_percent": inbound_pct,
                     "outbound_percent": outbound_pct,
-                    "overage_rate_cents": 25,
+                    "overage_rate_cents": overage_cents,
                     "payg_rate_cents": 20,
                     "updated_at": ts,
                 }, on_conflict="user_id").execute()
+                upsert_subscription_from_stripe(
+                    supabase, user_id=user["id"], stripe_subscription=subscription, plan=plan
+                )
             supabase.table("users").update(update).eq("id", user["id"]).execute()
             logger.info("[Stripe webhook] customer.subscription.*: user %s status %s", user["id"], subscription.status)
 
@@ -127,6 +135,7 @@ async def stripe_webhook_post(request: Request):
                 "updated_at": ts,
             }).eq("id", user_id).execute()
             supabase.table("user_plans").delete().eq("user_id", user_id).execute()
+            mark_subscription_canceled(supabase, stripe_subscription_id=subscription.id)
             logger.info("[Stripe webhook] customer.subscription.deleted: user %s", user_id)
 
     return {"received": True}

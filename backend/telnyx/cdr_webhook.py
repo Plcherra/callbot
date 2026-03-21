@@ -11,6 +11,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from billing.ledger import append_usage_ledger
+from billing.subscriptions import get_active_subscription
 from config import settings
 from supabase_client import create_service_role_client
 from telnyx.payload_utils import extract_call_control_id, extract_call_party_numbers
@@ -19,10 +21,9 @@ from telnyx.receptionist_lookup import get_receptionist_by_did_or_match
 logger = logging.getLogger(__name__)
 
 
-def _round_to_six_second_increments(seconds: float) -> float:
-    """Round duration to 6-second billing increments."""
-    increments = max(0, int((seconds + 5) // 6))  # ceil(seconds/6)
-    return (increments * 6) / 60.0
+def _billable_minutes_from_seconds(seconds: int) -> float:
+    """Per-second billing: minutes = seconds / 60 (no rounding)."""
+    return max(0.0, float(seconds)) / 60.0
 
 
 async def _send_call_ended_push_task(
@@ -64,7 +65,9 @@ def _parse_event(raw_body: bytes) -> dict | None:
 def _get_call_log_row(supabase, call_control_id: str) -> dict | None:
     """Fetch call_logs row by call_control_id. Returns row dict or None."""
     try:
-        sel = supabase.table("call_logs").select("id, started_at, answered_at, recording_consent_played").eq("call_control_id", call_control_id).limit(1).execute()
+        sel = supabase.table("call_logs").select(
+            "id, started_at, answered_at, recording_consent_played"
+        ).eq("call_control_id", call_control_id).limit(1).execute()
         if sel and sel.data and len(sel.data) > 0 and isinstance(sel.data[0], dict):
             return sel.data[0]
         return None
@@ -244,15 +247,42 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         return {"received": True}
 
     duration_seconds, ended_at, started_at = _extract_duration_and_times(payload, supabase, call_control_id)
-    billed_minutes = _round_to_six_second_increments(duration_seconds)
-    logger.info("[CALL_DIAG] CDR duration aggregation call_control_id=%s duration_seconds=%s billed_minutes=%s", call_control_id, duration_seconds, billed_minutes)
-
-    call_log_row = _get_call_log_row(supabase, call_control_id)
-    recording_consent_played = bool(call_log_row.get("recording_consent_played") if call_log_row else False)
-    logger.info("[CALL_DIAG] CDR call_usage recording_consent_played=%s (from call_logs) for call_control_id=%s", recording_consent_played, call_control_id)
 
     started_at_str = started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at)
     ended_at_str = ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at)
+
+    call_log_row = _get_call_log_row(supabase, call_control_id)
+    answered_raw = call_log_row.get("answered_at") if call_log_row else None
+    connected_at = started_at
+    if answered_raw:
+        if isinstance(answered_raw, str):
+            try:
+                connected_at = datetime.fromisoformat(answered_raw.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                connected_at = started_at
+        else:
+            connected_at = answered_raw
+        if connected_at.tzinfo is None:
+            connected_at = connected_at.replace(tzinfo=timezone.utc)
+
+    if ended_at.tzinfo is None:
+        ended_at = ended_at.replace(tzinfo=timezone.utc)
+    if connected_at.tzinfo is None:
+        connected_at = connected_at.replace(tzinfo=timezone.utc)
+
+    connected_seconds = max(0, int((ended_at - connected_at).total_seconds()))
+    billable_seconds = connected_seconds
+    billed_minutes = _billable_minutes_from_seconds(billable_seconds)
+    logger.info(
+        "[CALL_DIAG] CDR duration aggregation call_control_id=%s duration_seconds=%s connected_seconds=%s billed_minutes=%s",
+        call_control_id,
+        duration_seconds,
+        connected_seconds,
+        billed_minutes,
+    )
+
+    recording_consent_played = bool(call_log_row.get("recording_consent_played") if call_log_row else False)
+    logger.info("[CALL_DIAG] CDR call_usage recording_consent_played=%s (from call_logs) for call_control_id=%s", recording_consent_played, call_control_id)
     insert_row = {
         "receptionist_id": receptionist["id"],
         "call_sid": call_control_id,
@@ -289,6 +319,71 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         else:
             logger.error("[telnyx/cdr] insertCallUsage failed: %s", e)
             return {"received": False, "error": error_msg}
+
+    billing_call_id = None
+    if inserted and receptionist.get("user_id"):
+        connected_at_str = (
+            connected_at.isoformat().replace("+00:00", "Z")
+            if hasattr(connected_at, "isoformat")
+            else str(connected_at)
+        )
+        try:
+            bc_row = {
+                "user_id": receptionist["user_id"],
+                "receptionist_id": receptionist["id"],
+                "telnyx_call_control_id": call_control_id,
+                "started_at": started_at_str,
+                "connected_at": connected_at_str,
+                "ended_at": ended_at_str,
+                "connected_seconds": connected_seconds,
+                "billable_seconds": billable_seconds,
+                "billable_minutes": billed_minutes,
+                "direction": direction,
+                "status": "completed",
+            }
+            bc_ins = supabase.table("billing_calls").insert(bc_row).execute()
+            if bc_ins.data and len(bc_ins.data) > 0:
+                billing_call_id = bc_ins.data[0].get("id")
+            logger.info(
+                "[CALL_DIAG] billing_calls inserted id=%s for call_control_id=%s",
+                billing_call_id,
+                call_control_id,
+            )
+        except Exception as e:
+            err = str(e).lower()
+            if "23505" in str(e) or "duplicate" in err or "unique" in err:
+                logger.info("[CALL_DIAG] billing_calls duplicate skipped for call_control_id=%s", call_control_id)
+                try:
+                    sel = (
+                        supabase.table("billing_calls")
+                        .select("id")
+                        .eq("telnyx_call_control_id", call_control_id)
+                        .limit(1)
+                        .execute()
+                    )
+                    if sel.data and len(sel.data) > 0:
+                        billing_call_id = sel.data[0].get("id")
+                except Exception:
+                    pass
+            else:
+                logger.error("[telnyx/cdr] billing_calls insert failed: %s", e)
+
+    if inserted and receptionist.get("user_id") and billed_minutes > 0:
+        uid = receptionist["user_id"]
+        sub_row = get_active_subscription(supabase, uid)
+        try:
+            append_usage_ledger(
+                supabase,
+                user_id=uid,
+                subscription_id=str(sub_row["id"]) if sub_row and sub_row.get("id") else None,
+                call_id=str(billing_call_id) if billing_call_id else None,
+                quantity_minutes=float(billed_minutes),
+                source="telnyx_webhook",
+                event_ts=ended_at,
+                subscription=sub_row,
+            )
+        except Exception as e:
+            logger.error("[telnyx/cdr] usage_ledger append failed: %s", e)
 
     # Increment user_plans usage
     if (

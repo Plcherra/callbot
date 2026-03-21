@@ -24,6 +24,7 @@ from supabase_client import create_service_role_client
 from voice.send_media import send_media
 from voice.pipeline import run_voice_pipeline
 from prompts.fetch import get_cached_prompt, fetch_prompt
+from voice_presets import resolve_tts_voice
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,16 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
 
     ping_silence_task = asyncio.create_task(ping_silence_loop())
 
-    # Validate keys
-    if not settings.deepgram_api_key or not settings.grok_api_key or not settings.elevenlabs_api_key:
+    # Validate keys (ElevenLabs API key only required when TTS_PROVIDER=elevenlabs)
+    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
+    if not settings.deepgram_api_key or not settings.grok_api_key:
+        if ping_silence_task:
+            ping_silence_task.cancel()
+        if call_sid:
+            active_by_call_sid.pop(call_sid, None)
+        await ws.close(code=1011, reason="Server misconfiguration")
+        return
+    if tts_provider == "elevenlabs" and not (settings.elevenlabs_api_key or "").strip():
         if ping_silence_task:
             ping_silence_task.cancel()
         if call_sid:
@@ -127,20 +136,25 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
             prompt, greeting, cached_voice_id, voice_preset_key, greeting_source = prompt_data
             # Precedence: receptionist.voice_id if set, else env default
             voice_id = cached_voice_id if cached_voice_id else (settings.elevenlabs_voice_id or "")
+            resolved_tts_voice = resolve_tts_voice(voice_preset_key, voice_id)
             logger.info(
-                "call_voice_setup receptionist_id=%s voice_preset_key=%s voice_id=%s greeting_source=%s",
+                "call_voice_setup receptionist_id=%s voice_preset_key=%s voice_id=%s tts_provider=%s google_voice=%s greeting_source=%s",
                 receptionist_id,
                 voice_preset_key,
                 voice_id,
+                tts_provider,
+                resolved_tts_voice.google_voice_name if tts_provider == "google" else "",
                 greeting_source,
             )
             config = {
                 "deepgram_api_key": settings.deepgram_api_key,
                 "grok_api_key": settings.grok_api_key,
                 "elevenlabs_api_key": settings.elevenlabs_api_key,
-                "elevenlabs_voice_id": voice_id,
+                "elevenlabs_voice_id": (resolved_tts_voice.elevenlabs_voice_id or voice_id or ""),
                 "system_prompt": prompt,
                 "greeting": greeting,
+                "tts_provider": tts_provider,
+                "resolved_tts_voice": resolved_tts_voice,
             }
             if caller_phone:
                 config["caller_phone"] = caller_phone

@@ -29,6 +29,7 @@ from fastapi import FastAPI, Request, Header, HTTPException, WebSocket
 from fastapi.responses import JSONResponse
 
 from api.google_routes import google_callback_get
+from api.admin_billing import router as admin_billing_router
 from api.mobile_routes import router as mobile_router
 from api.stripe_routes import stripe_webhook_post
 from config import settings
@@ -86,12 +87,21 @@ async def lifespan(app: FastAPI):
         settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()
+        tts_p = (settings.tts_provider or "elevenlabs").strip().lower()
         logger.info(
-            "[startup] Voice config: ELEVENLABS_API_KEY=%s ELEVENLABS_VOICE_ID=%s GROK_API_KEY=%s",
+            "[startup] Voice config: TTS_PROVIDER=%s ELEVENLABS_API_KEY=%s ELEVENLABS_VOICE_ID=%s GROK_API_KEY=%s",
+            tts_p,
             "set" if (settings.elevenlabs_api_key or "").strip() else "not set",
             _mask_voice_id(settings.elevenlabs_voice_id or ""),
             "set" if (settings.grok_api_key or "").strip() else "not set",
         )
+        if tts_p == "google":
+            logger.info(
+                "[startup] Google TTS: default_voice=%s backup_voice=%s cache_backend=%s",
+                (settings.google_tts_default_voice_name or "")[:32],
+                (settings.google_tts_backup_voice_name or "")[:32],
+                settings.tts_cache_backend,
+            )
         logger.info(
             "[startup] Receptionist config precedence: system_prompt|custom else generated; "
             "greeting|custom else default; voice_id|receptionist else env_default; assistant_identity|receptionist else name"
@@ -111,6 +121,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Echodesk Voice Backend", lifespan=lifespan)
 app.include_router(mobile_router)
+app.include_router(admin_billing_router)
 
 
 @app.get("/health")
@@ -374,11 +385,21 @@ async def cron_payg_billing(
     stripe.api_key = sk
 
     try:
-        from cron.usage_billing import invoice_overage_for_fixed_plans, invoice_payg_for_previous_month
+        from cron.usage_billing import (
+            invoice_overage_for_fixed_plans,
+            invoice_payg_for_previous_month,
+            option_a_invoice_closed_periods,
+        )
         supabase = create_service_role_client()
         payg_result = invoice_payg_for_previous_month(supabase, stripe)
         overage_result = invoice_overage_for_fixed_plans(supabase, stripe)
-        return {"ok": True, "payg": payg_result, "overage": overage_result}
+        option_a_result = option_a_invoice_closed_periods(supabase, stripe)
+        return {
+            "ok": True,
+            "payg": payg_result,
+            "overage": overage_result,
+            "option_a": option_a_result,
+        }
     except Exception as e:
         logger.exception("Cron payg-billing failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -445,6 +466,46 @@ async def cron_reset_usage(
     count = len(update_resp.data) if update_resp.data else 0
     logger.info("[cron/reset-usage] reset count=%s (period_reset_at < %s or null)", count, first_day_boundary)
     return {"ok": True, "reset_count": count}
+
+
+@app.get("/api/cron/billing-reconcile")
+async def cron_billing_reconcile(
+    authorization: str = Header(None, alias="Authorization"),
+):
+    """Backfill usage_ledger from billing_calls when webhooks were missed."""
+    secret = (settings.cron_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
+    if (authorization or "") != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        from cron.reconcile_usage import reconcile_missing_ledger_entries
+        supabase = create_service_role_client()
+        result = reconcile_missing_ledger_entries(supabase)
+        return {"ok": True, **result}
+    except Exception as e:
+        logger.exception("Cron billing-reconcile failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/cron/usage-alerts")
+async def cron_usage_alerts(
+    authorization: str = Header(None, alias="Authorization"),
+):
+    """Usage threshold alerts (50/80/100/130% of included minutes)."""
+    secret = (settings.cron_secret or "").strip()
+    if not secret:
+        raise HTTPException(status_code=503, detail="Cron not configured (CRON_SECRET required)")
+    if (authorization or "") != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        from cron.usage_alerts import run_usage_threshold_alerts
+        supabase = create_service_role_client()
+        result = run_usage_threshold_alerts(supabase)
+        return {"ok": True, **result}
+    except Exception as e:
+        logger.exception("Cron usage-alerts failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Wrap with debug middleware after all routes registered (uvicorn loads this)

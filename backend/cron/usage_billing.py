@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import stripe
 
+from billing.invoicing import compute_overage_minutes
+from billing.subscriptions import get_active_subscription
 from supabase_client import create_service_role_client
 
 logger = logging.getLogger(__name__)
 MIN_INVOICE_CENTS = 500
+MIN_OPTION_A_OVERAGE_CENTS = 50
 
 
 def _get_previous_month_period() -> tuple[str, str]:
@@ -107,7 +110,7 @@ def invoice_overage_for_fixed_plans(supabase, stripe_mod) -> dict[str, int]:
             skipped += 1
             continue
 
-        rate = p.get("overage_rate_cents") or 25
+        rate = p.get("overage_rate_cents") or 8
         subtotal = int(overage * rate) + (1 if (overage * rate) % 1 else 0)
         amount_cents = max(MIN_INVOICE_CENTS, subtotal)
         try:
@@ -134,5 +137,135 @@ def invoice_overage_for_fixed_plans(supabase, stripe_mod) -> dict[str, int]:
             invoiced += 1
         except Exception as e:
             logger.error("[usageBilling] Overage invoice failed: user=%s error=%s", p["user_id"], e)
+            errors += 1
+    return {"invoiced": invoiced, "skipped": skipped, "errors": errors}
+
+
+def option_a_invoice_closed_periods(supabase: Any, stripe_mod: Any) -> dict[str, int]:
+    """
+    Invoice Option A overage for usage_ledger periods that have ended (period_end < today)
+    and have no subscription_invoices row yet. Base subscription fee is handled by Stripe.
+    """
+    today = date.today()
+    r = supabase.table("usage_ledger").select("user_id, period_start, period_end").execute()
+    periods: set[tuple[str, str, str]] = set()
+    for row in r.data or []:
+        pe = row["period_end"]
+        if isinstance(pe, str):
+            pe_d = date.fromisoformat(pe[:10])
+        else:
+            pe_d = pe
+        if pe_d >= today:
+            continue
+        uid = str(row["user_id"])
+        ps = row["period_start"]
+        pe_s = row["period_end"]
+        if isinstance(ps, str):
+            ps = ps[:10]
+        if isinstance(pe_s, str):
+            pe_s = pe_s[:10]
+        periods.add((uid, ps, pe_s))
+
+    invoiced = skipped = errors = 0
+    for user_id, ps, pe in periods:
+        existing = (
+            supabase.table("subscription_invoices")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("period_start", ps)
+            .eq("period_end", pe)
+            .limit(1)
+            .execute()
+        )
+        if existing.data and len(existing.data) > 0:
+            skipped += 1
+            continue
+
+        ur = (
+            supabase.table("users")
+            .select("stripe_customer_id, billing_plan_metadata")
+            .eq("id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if not ur.data:
+            skipped += 1
+            continue
+        customer_id = ur.data[0].get("stripe_customer_id")
+        meta = ur.data[0].get("billing_plan_metadata") or {}
+        if not customer_id:
+            skipped += 1
+            continue
+
+        sr = (
+            supabase.table("usage_ledger")
+            .select("quantity")
+            .eq("user_id", user_id)
+            .eq("period_start", ps)
+            .eq("period_end", pe)
+            .execute()
+        )
+        total_min = sum(float(x.get("quantity") or 0) for x in (sr.data or []))
+        included = int(meta.get("included_minutes") or 0)
+        rate = int(meta.get("overage_rate_cents") or 8)
+        overage_m = compute_overage_minutes(total_min, included)
+        if overage_m <= 0:
+            skipped += 1
+            continue
+
+        amount_cents = int(round(overage_m * float(rate)))
+        if amount_cents <= 0:
+            skipped += 1
+            continue
+        amount_cents = max(MIN_OPTION_A_OVERAGE_CENTS, amount_cents)
+
+        try:
+            inv = stripe_mod.Invoice.create(
+                customer=customer_id,
+                collection_method="charge_automatically",
+                description=f"Voice overage {ps} to {pe}",
+                metadata={
+                    "userId": user_id,
+                    "period_start": ps,
+                    "period_end": pe,
+                    "option_a": "true",
+                },
+            )
+            stripe_mod.InvoiceItem.create(
+                customer=customer_id,
+                amount=amount_cents,
+                currency="usd",
+                description=f"Voice minutes overage ({overage_m:.2f} min @ ${rate/100:.2f}/min)",
+                invoice=inv.id,
+            )
+            stripe_mod.Invoice.finalize_invoice(inv.id)
+            sub_row = get_active_subscription(supabase, user_id)
+            ins = supabase.table("subscription_invoices").insert(
+                {
+                    "user_id": user_id,
+                    "subscription_id": (sub_row.get("id") if sub_row else None),
+                    "period_start": ps,
+                    "period_end": pe,
+                    "subtotal_cents": amount_cents,
+                    "total_cents": amount_cents,
+                    "status": "open",
+                    "provider_invoice_id": inv.id,
+                }
+            ).execute()
+            iid = ins.data[0]["id"] if ins.data and len(ins.data) > 0 else None
+            if iid:
+                supabase.table("subscription_invoice_line_items").insert(
+                    {
+                        "invoice_id": iid,
+                        "line_type": "overage",
+                        "quantity": overage_m,
+                        "unit_price_cents": rate,
+                        "amount_cents": amount_cents,
+                        "description": "Voice overage minutes",
+                    }
+                ).execute()
+            invoiced += 1
+        except Exception as e:
+            logger.error("[usageBilling] Option A invoice failed user=%s: %s", user_id, e)
             errors += 1
     return {"invoiced": invoiced, "skipped": skipped, "errors": errors}

@@ -45,6 +45,37 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "CwhRBWXzGAHq8TQ4Fs17"  # Env: ELEVENLABS_VOICE_ID
 
+    # TTS provider: elevenlabs | google
+    tts_provider: str = "elevenlabs"  # Env: TTS_PROVIDER
+    # Google Cloud TTS (ADC or GOOGLE_APPLICATION_CREDENTIALS)
+    google_tts_voice_allowlist: str = ""  # Comma-separated voice names; empty = derive from presets + default
+    google_tts_default_language_code: str = "en-US"  # Env: GOOGLE_TTS_DEFAULT_LANGUAGE_CODE
+    google_tts_default_voice_name: str = "en-US-Neural2-F"  # Env: GOOGLE_TTS_DEFAULT_VOICE_NAME
+    google_tts_backup_voice_name: str = "en-US-Neural2-C"  # Env: GOOGLE_TTS_BACKUP_VOICE_NAME
+    google_tts_allow_premium_tiers: bool = False  # Env: GOOGLE_TTS_ALLOW_PREMIUM_TIERS (Studio, etc.)
+    google_tts_speaking_rate: float = 1.0  # Env: GOOGLE_TTS_SPEAKING_RATE
+    google_tts_pitch: float = 0.0  # Semitones -20..20; Env: GOOGLE_TTS_PITCH
+    google_tts_preview_sample_rate_hertz: int = 24000  # MP3 preview; Env: GOOGLE_TTS_PREVIEW_SAMPLE_RATE_HERTZ
+    # Cost / limits
+    tts_chars_per_minute_estimate: float = 900.0  # Env: TTS_CHARS_PER_MINUTE_ESTIMATE
+    tts_max_chars_per_utterance: int = 800  # Env: TTS_MAX_CHARS_PER_UTTERANCE
+    tts_max_requests_per_call: int = 30  # Env: TTS_MAX_REQUESTS_PER_CALL
+    tts_daily_char_cap: int = 0  # 0 = disabled; Env: TTS_DAILY_CHAR_CAP
+    # Cache: none | memory | filesystem | redis_gcs
+    tts_cache_backend: str = "none"  # Env: TTS_CACHE_BACKEND
+    tts_cache_ttl_seconds: int = 7776000  # 90 days; Env: TTS_CACHE_TTL_SECONDS
+    tts_cache_memory_max_entries: int = 500  # Env: TTS_CACHE_MEMORY_MAX_ENTRIES
+    tts_cache_filesystem_dir: str = ""  # Env: TTS_CACHE_FILESYSTEM_DIR
+    tts_cache_redis_url: str = ""  # Env: TTS_CACHE_REDIS_URL
+    tts_cache_gcs_bucket: str = ""  # Env: TTS_CACHE_GCS_BUCKET
+    tts_cache_gcs_prefix: str = "tts-cache/"  # Env: TTS_CACHE_GCS_PREFIX
+    # Retries
+    tts_google_max_retries: int = 5  # Env: TTS_GOOGLE_MAX_RETRIES
+    tts_google_retry_base_seconds: float = 0.5  # Env: TTS_GOOGLE_RETRY_BASE_SECONDS
+    tts_google_retry_max_seconds: float = 30.0  # Env: TTS_GOOGLE_RETRY_MAX_SECONDS
+    # Chunking (mulaw bytes per WebSocket frame)
+    tts_mulaw_chunk_bytes: int = 1600  # Env: TTS_MULAW_CHUNK_BYTES (~200ms at 8kHz mu-law)
+
     # Voice server
     voice_server_api_key: str = ""
     voice_prompt_base_url: str = ""  # Maps to VOICE_PROMPT_BASE_URL
@@ -121,7 +152,11 @@ class Settings(BaseSettings):
             missing.append("DEEPGRAM_API_KEY")
         if not self.grok_api_key:
             missing.append("GROK_API_KEY")
-        if not self.elevenlabs_api_key:
+        provider = (self.tts_provider or "elevenlabs").strip().lower()
+        if provider == "google":
+            # Google uses ADC or GOOGLE_APPLICATION_CREDENTIALS; no API key env required here.
+            pass
+        elif not self.elevenlabs_api_key:
             missing.append("ELEVENLABS_API_KEY")
         if missing:
             raise ValueError(f"Missing required env vars: {', '.join(missing)}")

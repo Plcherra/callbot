@@ -1,1 +1,1 @@
-"""Voice pipeline: Deepgram STT -> Grok LLM -> ElevenLabs TTS."""
+"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (ElevenLabs or Google Cloud)."""

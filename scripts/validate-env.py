@@ -24,7 +24,8 @@ def main() -> int:
         errors.append("DEEPGRAM_API_KEY")
     if not (settings.grok_api_key or "").strip():
         errors.append("GROK_API_KEY")
-    if not (settings.elevenlabs_api_key or "").strip():
+    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
+    if tts_provider == "elevenlabs" and not (settings.elevenlabs_api_key or "").strip():
         errors.append("ELEVENLABS_API_KEY")
 
     # Supabase

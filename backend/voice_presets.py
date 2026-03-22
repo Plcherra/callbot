@@ -1,6 +1,5 @@
 """Curated voice presets for receptionist creation and settings.
    Mobile uses preset keys only; voice_id is resolved server-side.
-   Deployers can customize VOICE_PRESETS with real ElevenLabs voice IDs per preset.
 """
 
 from __future__ import annotations
@@ -16,11 +15,7 @@ DEFAULT_PRESET_KEY = "friendly_warm"
 # Single shared neutral preview sentence. Voice presets must affect audio only, not content.
 PREVIEW_SAMPLE_TEXT = "Hello, thanks for calling. How can I help you today?"
 
-# ElevenLabs model used for both preview and runtime TTS unless overridden.
 DEFAULT_MODEL_ID = "eleven_flash_v2_5"
-
-# Fallback env voice id (used only when no preset key + no stored voice_id exists).
-ENV_DEFAULT_VOICE_ID = (settings.elevenlabs_voice_id or "").strip() or None
 
 # Curated presets for AI receptionist use. These are the source of truth for preset->voice mapping.
 # google_* fields are used when TTS_PROVIDER=google (Neural2 / WaveNet class voices).
@@ -104,24 +99,27 @@ def get_preset(key: str) -> dict[str, Any] | None:
     return None
 
 
+# Fallback voice id (from default preset) when no preset key + no stored voice_id exists.
+_dp = get_preset(DEFAULT_PRESET_KEY)
+ENV_DEFAULT_VOICE_ID: str | None = (_dp.get("voice_id") if _dp else None) or None
+
+
 @dataclass(frozen=True)
 class ResolvedTtsVoice:
-    """Resolved voices for ElevenLabs and Google from preset + legacy storage."""
+    """Resolved Google TTS voice from preset + legacy storage."""
 
-    elevenlabs_voice_id: str | None
     google_language_code: str
     google_voice_name: str
     model_id: str | None
 
 
 def resolve_voice_id(voice_preset_key: str | None, fallback_voice_id: str | None) -> str | None:
-    """Resolve preset key to ElevenLabs voice_id with explicit fallback rules.
+    """Resolve preset key to voice_id for DB storage.
 
     Rules:
     - valid preset key -> preset voice_id
     - missing preset key + existing voice_id -> keep existing voice_id (backward compatibility)
-    - invalid preset key -> default preset voice_id (avoid unexpected silent failures)
-    - if nothing else exists -> env default voice id (if configured)
+    - invalid preset key -> default preset voice_id
     """
     key = (voice_preset_key or "").strip() or None
     fb = (fallback_voice_id or "").strip() or None
@@ -138,8 +136,7 @@ def resolve_voice_id(voice_preset_key: str | None, fallback_voice_id: str | None
 
 
 def resolve_tts_voice(voice_preset_key: str | None, fallback_voice_id: str | None) -> ResolvedTtsVoice:
-    """Resolve ElevenLabs voice_id and Google voice name/language for the active provider."""
-    el_id = resolve_voice_id(voice_preset_key, fallback_voice_id)
+    """Resolve Google voice name/language from preset + legacy storage."""
     key = (voice_preset_key or "").strip() or None
     fb = (fallback_voice_id or "").strip() or None
 
@@ -161,7 +158,6 @@ def resolve_tts_voice(voice_preset_key: str | None, fallback_voice_id: str | Non
         model_id = DEFAULT_MODEL_ID
 
     return ResolvedTtsVoice(
-        elevenlabs_voice_id=el_id,
         google_language_code=glang,
         google_voice_name=gname,
         model_id=model_id,

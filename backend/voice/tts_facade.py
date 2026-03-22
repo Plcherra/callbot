@@ -1,4 +1,4 @@
-"""TTS provider facade: ElevenLabs streaming vs Google Cloud TTS + cache + limits."""
+"""TTS provider facade: Google Cloud TTS + cache + limits."""
 
 from __future__ import annotations
 
@@ -7,11 +7,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
-import httpx
-
 from config import settings
 from voice import tts_chars
-from voice.elevenlabs_client import text_to_speech_stream
 from voice.google_tts import (
     GoogleTtsSynthesizeOptions,
     assert_voice_allowed,
@@ -151,11 +148,10 @@ async def generate_and_send_tts(
     is_fallback: bool = False,
     _tts_failure_logged: Optional[list[bool]] = None,
 ) -> None:
-    """Generate TTS and send via callback (ElevenLabs stream or Google + chunking)."""
+    """Generate TTS and send via callback (Google Cloud TTS + chunking)."""
     if not text or not text.strip():
         return
     tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]
-    provider = (config.get("tts_provider") or settings.tts_provider or "elevenlabs").strip().lower()
     tts_state: dict[str, int] = config.setdefault("tts_state", {"requests": 0, "chars": 0})
 
     max_req = settings.tts_max_requests_per_call
@@ -178,8 +174,7 @@ async def generate_and_send_tts(
     tts_state["chars"] = tts_state.get("chars", 0) + billable
 
     logger.info(
-        "[TTS] utterance provider=%s chars=%s chars_call_total=%s est_minutes=%.3f tts_request_index=%s",
-        provider,
+        "[TTS] utterance provider=google chars=%s chars_call_total=%s est_minutes=%.3f tts_request_index=%s",
         billable,
         tts_state["chars"],
         est_min,
@@ -187,69 +182,35 @@ async def generate_and_send_tts(
     )
 
     voice: ResolvedTtsVoice | None = config.get("resolved_tts_voice")
-
-    if provider == "google":
-        if voice is None:
-            logger.error("[TTS] resolved_tts_voice missing for Google provider")
-            return
-        try:
-            audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=False)
-            await _send_mulaw_chunks(
-                audio,
-                on_audio,
-                settings.tts_mulaw_chunk_bytes,
-            )
-        except Exception as err:
-            logger.exception("[TTS] Google primary voice failed: %s", err)
-            try:
-                audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=True)
-                await _send_mulaw_chunks(audio, on_audio, settings.tts_mulaw_chunk_bytes)
-            except Exception as err2:
-                logger.exception("[TTS] Google backup voice failed: %s", err2)
-                if on_error:
-                    on_error(err2)
-                if not is_fallback:
-                    await generate_and_send_tts(
-                        "I'm sorry, I'm having trouble. Please try again.",
-                        config,
-                        on_audio,
-                        on_error,
-                        is_fallback=True,
-                        _tts_failure_logged=tts_logged,
-                    )
+    if voice is None:
+        logger.error("[TTS] resolved_tts_voice missing")
         return
 
-    # ElevenLabs
     try:
-        async for chunk in text_to_speech_stream(
-            text=use_text,
-            voice_id=config["elevenlabs_voice_id"],
-            api_key=config["elevenlabs_api_key"],
-            output_format="ulaw_8000",
-        ):
-            await on_audio(chunk)
-    except Exception as err:
-        is_elevenlabs_http = (
-            isinstance(err, httpx.HTTPStatusError)
-            and "elevenlabs" in (str(err.request.url) if getattr(err, "request", None) else "")
+        audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=False)
+        await _send_mulaw_chunks(
+            audio,
+            on_audio,
+            settings.tts_mulaw_chunk_bytes,
         )
-        if is_elevenlabs_http and not tts_logged[0]:
-            tts_logged[0] = True
-            logger.error(
-                "[voice/stream] ElevenLabs TTS failed (404/401 etc): %s. Skipping retries.",
-                err,
-            )
-        elif on_error and not is_elevenlabs_http:
-            on_error(err)
-        if not is_fallback and not is_elevenlabs_http:
-            await generate_and_send_tts(
-                "I'm sorry, I'm having trouble. Please try again.",
-                config,
-                on_audio,
-                on_error,
-                is_fallback=True,
-                _tts_failure_logged=tts_logged,
-            )
+    except Exception as err:
+        logger.exception("[TTS] Google primary voice failed: %s", err)
+        try:
+            audio = await _google_synthesize_to_mulaw(use_text, voice, use_backup_voice=True)
+            await _send_mulaw_chunks(audio, on_audio, settings.tts_mulaw_chunk_bytes)
+        except Exception as err2:
+            logger.exception("[TTS] Google backup voice failed: %s", err2)
+            if on_error:
+                on_error(err2)
+            if not is_fallback:
+                await generate_and_send_tts(
+                    "I'm sorry, I'm having trouble. Please try again.",
+                    config,
+                    on_audio,
+                    on_error,
+                    is_fallback=True,
+                    _tts_failure_logged=tts_logged,
+                )
 
 
 async def google_preview_mp3(text: str, voice: ResolvedTtsVoice) -> bytes:

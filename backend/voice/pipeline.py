@@ -1,4 +1,4 @@
-"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (ElevenLabs or Google Cloud)."""
+"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (Google Cloud)."""
 
 import asyncio
 import logging
@@ -193,7 +193,7 @@ async def run_voice_pipeline(
     tts_failure_logged: list[bool] = [False]
     tts_state: dict[str, int] = {"requests": 0, "chars": 0}
     config["tts_state"] = tts_state
-    config.setdefault("tts_provider", (settings.tts_provider or "elevenlabs").strip().lower())
+    config.setdefault("tts_provider", (settings.tts_provider or "google").strip().lower())
 
     def _cancel_pending_response() -> None:
         """Cancel debounce and in-flight Grok. Call when new caller speech arrives."""

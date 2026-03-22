@@ -26,7 +26,6 @@ from voice_presets import (
     resolve_voice_id,
     resolve_tts_voice,
 )
-from voice.elevenlabs_client import text_to_speech_preview
 from voice.tts_facade import google_preview_mp3
 from config import settings
 from google_oauth_scopes import SCOPES
@@ -99,21 +98,9 @@ async def voice_preset_preview(request: Request, key: str):
     preset = get_preset(key)
     if not preset:
         return JSONResponse({"error": "Preset not found"}, status_code=404)
-    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
     try:
-        if tts_provider == "google":
-            rv = resolve_tts_voice(key, None)
-            audio_bytes = await google_preview_mp3(PREVIEW_SAMPLE_TEXT, rv)
-        else:
-            api_key = (settings.elevenlabs_api_key or "").strip()
-            if not api_key:
-                return JSONResponse({"error": "Voice preview not configured"}, status_code=503)
-            audio_bytes = await text_to_speech_preview(
-                text=PREVIEW_SAMPLE_TEXT,
-                voice_id=preset["voice_id"],
-                api_key=api_key,
-                model_id=preset.get("model_id") or "eleven_flash_v2_5",
-            )
+        rv = resolve_tts_voice(key, None)
+        audio_bytes = await google_preview_mp3(PREVIEW_SAMPLE_TEXT, rv)
         return Response(content=audio_bytes, media_type="audio/mpeg")
     except Exception as e:
         logger.warning("[voice-presets/preview] %s: %s", key, e)

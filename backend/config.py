@@ -39,14 +39,12 @@ class Settings(BaseSettings):
     telnyx_allowed_ips: str = ""  # Optional comma-separated IPs when TELNYX_SKIP_VERIFY; empty = no allowlist
     telnyx_allow_receptionist_fallback: bool = False  # If True, use first active receptionist when DID unmatched (dangerous; keep False for verification so bad DID matches are not masked)
 
-    # Voice AI (ELEVENLABS_VOICE_ID from env, fallback default)
+    # Voice AI
     deepgram_api_key: str = ""
     grok_api_key: str = ""
-    elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "CwhRBWXzGAHq8TQ4Fs17"  # Env: ELEVENLABS_VOICE_ID
 
-    # TTS provider: elevenlabs | google
-    tts_provider: str = "elevenlabs"  # Env: TTS_PROVIDER
+    # TTS provider: google (Google Cloud Text-to-Speech only)
+    tts_provider: str = "google"  # Env: TTS_PROVIDER
     # Google Cloud TTS (ADC or GOOGLE_APPLICATION_CREDENTIALS)
     google_tts_voice_allowlist: str = ""  # Comma-separated voice names; empty = derive from presets + default
     google_tts_default_language_code: str = "en-US"  # Env: GOOGLE_TTS_DEFAULT_LANGUAGE_CODE
@@ -147,19 +145,16 @@ class Settings(BaseSettings):
 
     def validate_voice_keys(self) -> None:
         """Fail fast if required voice keys missing."""
+        from voice.google_credentials import validate_google_tts_credentials
+
         missing = []
         if not self.deepgram_api_key:
             missing.append("DEEPGRAM_API_KEY")
         if not self.grok_api_key:
             missing.append("GROK_API_KEY")
-        provider = (self.tts_provider or "elevenlabs").strip().lower()
-        if provider == "google":
-            # Google uses ADC or GOOGLE_APPLICATION_CREDENTIALS; no API key env required here.
-            pass
-        elif not self.elevenlabs_api_key:
-            missing.append("ELEVENLABS_API_KEY")
         if missing:
             raise ValueError(f"Missing required env vars: {', '.join(missing)}")
+        validate_google_tts_credentials()
 
     def validate_supabase(self) -> None:
         """Fail fast if Supabase config missing."""

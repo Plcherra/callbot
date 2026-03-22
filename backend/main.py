@@ -34,6 +34,7 @@ from api.mobile_routes import router as mobile_router
 from api.stripe_routes import stripe_webhook_post
 from config import settings
 from quota import check_outbound_quota
+from voice.google_credentials import check_google_tts_credentials
 from voice.handler import handle_voice_stream_connection
 from telnyx.voice_webhook import handle_voice_webhook
 from telnyx.cdr_webhook import handle_cdr_webhook
@@ -73,13 +74,6 @@ class WebSocketDebugMiddleware:
         await self.app(scope, receive, send)
 
 
-def _mask_voice_id(voice_id: str) -> str:
-    """Mask voice ID for logging: first 6 + ... + last 4."""
-    if not voice_id or len(voice_id) <= 14:
-        return voice_id[:4] + "***" if voice_id else "(empty)"
-    return f"{voice_id[:6]}...{voice_id[-4:]}"
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -87,21 +81,13 @@ async def lifespan(app: FastAPI):
         settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()
-        tts_p = (settings.tts_provider or "elevenlabs").strip().lower()
         logger.info(
-            "[startup] Voice config: TTS_PROVIDER=%s ELEVENLABS_API_KEY=%s ELEVENLABS_VOICE_ID=%s GROK_API_KEY=%s",
-            tts_p,
-            "set" if (settings.elevenlabs_api_key or "").strip() else "not set",
-            _mask_voice_id(settings.elevenlabs_voice_id or ""),
+            "[startup] Voice config: TTS_PROVIDER=google default_voice=%s backup_voice=%s cache_backend=%s GROK_API_KEY=%s",
+            (settings.google_tts_default_voice_name or "")[:32],
+            (settings.google_tts_backup_voice_name or "")[:32],
+            settings.tts_cache_backend,
             "set" if (settings.grok_api_key or "").strip() else "not set",
         )
-        if tts_p == "google":
-            logger.info(
-                "[startup] Google TTS: default_voice=%s backup_voice=%s cache_backend=%s",
-                (settings.google_tts_default_voice_name or "")[:32],
-                (settings.google_tts_backup_voice_name or "")[:32],
-                settings.tts_cache_backend,
-            )
         logger.info(
             "[startup] Receptionist config precedence: system_prompt|custom else generated; "
             "greeting|custom else default; voice_id|receptionist else env_default; assistant_identity|receptionist else name"
@@ -134,9 +120,13 @@ async def health() -> dict:
     except Exception as e:
         logger.warning("[health] Supabase check failed: %s", e)
         supabase_status = "error"
-    status = "degraded" if supabase_status == "error" else "ok"
+    payload: dict = {"status": "ok" if supabase_status == "ok" else "degraded", "supabase": supabase_status}
+    payload["tts_provider"] = "google"
+    tts_status, _ = check_google_tts_credentials()
+    payload["tts_google"] = tts_status
+    status = payload["status"]
     code = 503 if status == "degraded" else 200
-    return JSONResponse({"status": status, "supabase": supabase_status}, status_code=code)
+    return JSONResponse(payload, status_code=code)
 
 
 @app.get("/api/quota-check")

@@ -17,6 +17,7 @@
 
 # Misc
 .DS_Store
+artifacts/
 *.pem
 
 # Debug

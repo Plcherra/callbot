@@ -39,7 +39,8 @@ class GoogleTtsSynthesizeOptions:
 def _voice_params(opts: GoogleTtsSynthesizeOptions) -> tts.VoiceSelectionParams:
     gender = opts.ssml_gender
     if gender is None:
-        gender = tts.SsmlVoiceGender.SSML_VOICE_GENDER_NEUTRAL
+        # SSML_VOICE_GENDER_UNSPECIFIED lets the API use the voice's default
+        gender = tts.SsmlVoiceGender.SSML_VOICE_GENDER_UNSPECIFIED
     return tts.VoiceSelectionParams(
         language_code=opts.language_code,
         name=opts.voice_name,

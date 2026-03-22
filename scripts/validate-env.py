@@ -24,9 +24,6 @@ def main() -> int:
         errors.append("DEEPGRAM_API_KEY")
     if not (settings.grok_api_key or "").strip():
         errors.append("GROK_API_KEY")
-    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
-    if tts_provider == "elevenlabs" and not (settings.elevenlabs_api_key or "").strip():
-        errors.append("ELEVENLABS_API_KEY")
 
     # Supabase
     url = settings.get_supabase_url()
@@ -45,13 +42,23 @@ def main() -> int:
         print("\nCopy deploy/env/.env.example to .env.local and fill in values.", file=sys.stderr)
         return 1
 
-    # Run config validators
+    # Run config validators (includes Google TTS credential preflight)
     try:
         settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()
     except ValueError as e:
         print("validate-env.py:", e, file=sys.stderr)
+        if "Google TTS" in str(e):
+            print(
+                "\nRemediation for local Cursor development:",
+                file=sys.stderr,
+            )
+            print("  1. gcloud auth application-default login", file=sys.stderr)
+            print(
+                "  2. Or set GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account.json",
+                file=sys.stderr,
+            )
         return 1
 
     print("validate-env.py: OK – all required backend env vars present")

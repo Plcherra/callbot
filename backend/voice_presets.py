@@ -1,5 +1,6 @@
 """Curated voice presets for receptionist creation and settings.
-   Mobile uses preset keys only; voice_id is resolved server-side.
+   Mobile uses preset keys only; voice_id (google_voice_name) is resolved server-side.
+   Google Cloud TTS only; preset -> google_voice_name mapping.
 """
 
 from __future__ import annotations
@@ -15,18 +16,13 @@ DEFAULT_PRESET_KEY = "friendly_warm"
 # Single shared neutral preview sentence. Voice presets must affect audio only, not content.
 PREVIEW_SAMPLE_TEXT = "Hello, thanks for calling. How can I help you today?"
 
-DEFAULT_MODEL_ID = "eleven_flash_v2_5"
-
-# Curated presets for AI receptionist use. These are the source of truth for preset->voice mapping.
-# google_* fields are used when TTS_PROVIDER=google (Neural2 / WaveNet class voices).
+# Curated presets for AI receptionist use. Google Cloud TTS voice mappings only.
 VOICE_PRESETS: list[dict[str, Any]] = [
     {
         "key": "friendly_warm",
         "label": "Friendly & Warm",
         "description": "Warm and approachable — great for salons, wellness, and small businesses.",
         "gender_or_style_label": "Warm, approachable",
-        "voice_id": "S9NKLs1GeSTKzXd9D0Lf",  # Haley Maven – Social Media Bestie
-        "model_id": DEFAULT_MODEL_ID,
         "google_voice_name": "en-US-Neural2-F",
         "google_language_code": "en-US",
         "sample_text": PREVIEW_SAMPLE_TEXT,
@@ -36,8 +32,6 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Professional & Calm",
         "description": "Clear and composed — ideal for offices, consulting, and professional services.",
         "gender_or_style_label": "Professional, calm",
-        "voice_id": "vZzlAds9NzvLsFSWp0qk",  # Maria Mysh
-        "model_id": DEFAULT_MODEL_ID,
         "google_voice_name": "en-US-Neural2-C",
         "google_language_code": "en-US",
         "sample_text": PREVIEW_SAMPLE_TEXT,
@@ -47,8 +41,6 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Premium Concierge",
         "description": "Polished and attentive — suits hospitality, high-end services, and concierge.",
         "gender_or_style_label": "Polished, attentive",
-        "voice_id": "g6xIsTj2HwM6VR4iXFCw",  # Jessica Anne Bogart – Chatty and Friendly
-        "model_id": DEFAULT_MODEL_ID,
         "google_voice_name": "en-US-Neural2-J",
         "google_language_code": "en-US",
         "sample_text": PREVIEW_SAMPLE_TEXT,
@@ -58,8 +50,6 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Energetic & Upbeat",
         "description": "Lively and positive — good for fitness, events, and youth-oriented brands.",
         "gender_or_style_label": "Energetic, upbeat",
-        "voice_id": "UgBBYS2sOqTuMpoF3BR0",  # Mark – Natural Conversations
-        "model_id": DEFAULT_MODEL_ID,
         "google_voice_name": "en-US-Neural2-D",
         "google_language_code": "en-US",
         "sample_text": PREVIEW_SAMPLE_TEXT,
@@ -69,8 +59,6 @@ VOICE_PRESETS: list[dict[str, Any]] = [
         "label": "Confident & Clear",
         "description": "Assured and easy to understand — works for legal, medical, or any clarity-focused use.",
         "gender_or_style_label": "Confident, clear",
-        "voice_id": "jD4PjnscE4XmlzgsuqY0",  # Logan – Genuine, Steady, and Deep
-        "model_id": DEFAULT_MODEL_ID,
         "google_voice_name": "en-US-Neural2-A",
         "google_language_code": "en-US",
         "sample_text": PREVIEW_SAMPLE_TEXT,
@@ -81,12 +69,12 @@ PRESET_KEYS = {p["key"] for p in VOICE_PRESETS}
 
 
 def infer_preset_key_from_voice_id(voice_id: str | None) -> str | None:
-    """Best-effort inference for legacy records: map known preset voice_id back to preset key."""
+    """Best-effort inference for legacy records: map stored voice_id (google_voice_name) back to preset key."""
     vid = (voice_id or "").strip()
     if not vid:
         return None
     for p in VOICE_PRESETS:
-        if (p.get("voice_id") or "").strip() == vid:
+        if (p.get("google_voice_name") or "").strip() == vid:
             return p["key"]
     return None
 
@@ -99,9 +87,9 @@ def get_preset(key: str) -> dict[str, Any] | None:
     return None
 
 
-# Fallback voice id (from default preset) when no preset key + no stored voice_id exists.
+# Fallback voice id (google_voice_name from default preset) when no preset key + no stored voice_id exists.
 _dp = get_preset(DEFAULT_PRESET_KEY)
-ENV_DEFAULT_VOICE_ID: str | None = (_dp.get("voice_id") if _dp else None) or None
+ENV_DEFAULT_VOICE_ID: str | None = (_dp.get("google_voice_name") if _dp else None) or None
 
 
 @dataclass(frozen=True)
@@ -114,12 +102,12 @@ class ResolvedTtsVoice:
 
 
 def resolve_voice_id(voice_preset_key: str | None, fallback_voice_id: str | None) -> str | None:
-    """Resolve preset key to voice_id for DB storage.
+    """Resolve preset key to voice_id (google_voice_name) for DB storage.
 
     Rules:
-    - valid preset key -> preset voice_id
+    - valid preset key -> preset google_voice_name
     - missing preset key + existing voice_id -> keep existing voice_id (backward compatibility)
-    - invalid preset key -> default preset voice_id
+    - invalid preset key -> default preset google_voice_name
     """
     key = (voice_preset_key or "").strip() or None
     fb = (fallback_voice_id or "").strip() or None
@@ -127,9 +115,9 @@ def resolve_voice_id(voice_preset_key: str | None, fallback_voice_id: str | None
     if key:
         preset = get_preset(key)
         if preset:
-            return (preset.get("voice_id") or "").strip() or None
+            return (preset.get("google_voice_name") or "").strip() or None
         default_preset = get_preset(DEFAULT_PRESET_KEY)
-        return (default_preset.get("voice_id") if default_preset else None) or ENV_DEFAULT_VOICE_ID
+        return (default_preset.get("google_voice_name") if default_preset else None) or ENV_DEFAULT_VOICE_ID
 
     # No preset key supplied: keep stored voice_id if present
     return fb or ENV_DEFAULT_VOICE_ID
@@ -151,16 +139,14 @@ def resolve_tts_voice(voice_preset_key: str | None, fallback_voice_id: str | Non
     if preset:
         gname = (preset.get("google_voice_name") or "").strip() or (settings.google_tts_default_voice_name or "").strip()
         glang = (preset.get("google_language_code") or "").strip() or (settings.google_tts_default_language_code or "en-US").strip()
-        model_id = (preset.get("model_id") or "").strip() or DEFAULT_MODEL_ID
     else:
         gname = (settings.google_tts_default_voice_name or "en-US-Neural2-F").strip()
         glang = (settings.google_tts_default_language_code or "en-US").strip()
-        model_id = DEFAULT_MODEL_ID
 
     return ResolvedTtsVoice(
         google_language_code=glang,
         google_voice_name=gname,
-        model_id=model_id,
+        model_id=None,  # Google TTS only; no model concept
     )
 
 

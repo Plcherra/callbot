@@ -145,8 +145,6 @@ class Settings(BaseSettings):
 
     def validate_voice_keys(self) -> None:
         """Fail fast if required voice keys missing."""
-        from voice.google_credentials import validate_google_tts_credentials
-
         missing = []
         if not self.deepgram_api_key:
             missing.append("DEEPGRAM_API_KEY")
@@ -154,6 +152,9 @@ class Settings(BaseSettings):
             missing.append("GROK_API_KEY")
         if missing:
             raise ValueError(f"Missing required env vars: {', '.join(missing)}")
+        if os.environ.get("SKIP_GOOGLE_TTS_VALIDATION", "").strip() in ("1", "true", "yes"):
+            return
+        from voice.google_credentials import validate_google_tts_credentials
         validate_google_tts_credentials()
 
     def validate_supabase(self) -> None:

@@ -39,6 +39,9 @@ jobs:
             # Then remove the two lines below.
             export SKIP_NGINX_SYNC=1
             export SKIP_VALIDATE_INFRA=1
+            # Skip Google TTS cred check until VPS has GOOGLE_APPLICATION_CREDENTIALS.
+            # Add GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json to VPS .env for voice.
+            export SKIP_GOOGLE_TTS_VALIDATION=1
             ./deploy/scripts/deploy.sh || { echo 'Deploy failed'; exit 1; }
             echo '=== Deployment completed ==='
           "

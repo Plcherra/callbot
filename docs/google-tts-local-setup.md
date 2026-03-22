@@ -28,20 +28,17 @@ For local Cursor development, ADC is the simplest option.
    gcloud config set project YOUR_PROJECT_ID   # if needed
    ```
 
-## 2. Service Account File (alternative)
+## 2. Service Account File (VPS / production)
 
-When ADC is not available (e.g. CI, VPS), use a service account JSON file:
+When ADC is not available (e.g. VPS, CI), use a service account JSON file:
 
 1. In [Google Cloud Console](https://console.cloud.google.com/) → IAM & Admin → Service Accounts, create a service account with **Cloud Text-to-Speech User** (`roles/cloudtts.user`).
 2. Create a JSON key and save it somewhere safe (never commit to git).
-3. Set the environment variable:
-   ```bash
-   export GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/your-service-account.json
+3. **On VPS**: Copy the JSON to the server (e.g. `/opt/callbot/secrets/google-tts-sa.json`), set permissions, and add to `.env`:
    ```
-   Or add to `.env.local`:
+   GOOGLE_APPLICATION_CREDENTIALS=/opt/callbot/secrets/google-tts-sa.json
    ```
-   GOOGLE_APPLICATION_CREDENTIALS=/Users/you/path/to/service-account.json
-   ```
+4. Remove `SKIP_GOOGLE_TTS_VALIDATION=1` from the deploy workflow (`.github/workflows/deploy.yml`) once credentials are configured.
 
 ## 3. Enable Google TTS in Your Env
 

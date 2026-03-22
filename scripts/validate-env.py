@@ -6,6 +6,7 @@ Run from project root: python scripts/validate-env.py
 Uses backend config (loads .env from project root), exits 1 on failure.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -43,8 +44,18 @@ def main() -> int:
         return 1
 
     # Run config validators (includes Google TTS credential preflight)
+    # Set SKIP_GOOGLE_TTS_VALIDATION=1 to deploy before VPS has GOOGLE_APPLICATION_CREDENTIALS
+    skip_google = os.environ.get("SKIP_GOOGLE_TTS_VALIDATION", "").strip() in ("1", "true", "yes")
     try:
-        settings.validate_voice_keys()
+        if skip_google:
+            # Only validate Deepgram + Grok; skip Google TTS creds (VPS needs service account)
+            if not (settings.deepgram_api_key or "").strip():
+                raise ValueError("Missing required env vars: DEEPGRAM_API_KEY")
+            if not (settings.grok_api_key or "").strip():
+                raise ValueError("Missing required env vars: GROK_API_KEY")
+            print("validate-env.py: Skipping Google TTS credential check (SKIP_GOOGLE_TTS_VALIDATION=1)", file=sys.stderr)
+        else:
+            settings.validate_voice_keys()
         settings.validate_supabase()
         settings.validate_telnyx()
     except ValueError as e:

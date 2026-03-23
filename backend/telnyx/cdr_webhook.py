@@ -87,11 +87,15 @@ def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_second
                 call_control_id,
             )
             return None
-        result = supabase.table("call_logs").update({
+        updates = {
             "status": "completed",
             "ended_at": ended_at.isoformat() if hasattr(ended_at, "isoformat") else str(ended_at),
             "duration_seconds": duration_seconds,
-        }).eq("call_control_id", call_control_id).execute()
+        }
+        row = _get_call_log_row(supabase, call_control_id)
+        if row and row.get("recording_consent_played") and not row.get("recording_status"):
+            updates["recording_status"] = "processing"
+        result = supabase.table("call_logs").update(updates).eq("call_control_id", call_control_id).execute()
         rows_affected = len(result.data) if result and result.data else 0
         logger.info(
             "[CALL_DIAG] call_logs finalized call_logs_finalize_id=%s call_control_id=%s duration_seconds=%s rows_affected=%s",
@@ -163,6 +167,33 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
         cost_cents = payload.get("cost_cents") or payload.get("cost") or 0
         if call_control_id:
             _patch_call_log_cost(supabase, call_control_id, int(cost_cents))
+        return {"received": True}
+
+    # call.recording.saved: store recording URL for playback in app
+    if event_type == "call.recording.saved":
+        recording_urls = payload.get("recording_urls") or {}
+        recording_url = (
+            (recording_urls.get("mp3") or recording_urls.get("wav") or "")
+            if isinstance(recording_urls, dict)
+            else ""
+        )
+        recorded_at_str = payload.get("recorded_at") or payload.get("recording_ended_at") or payload.get("occurred_at")
+        duration_ms = payload.get("duration_millis") or payload.get("duration_ms") or 0
+        recording_duration = int(duration_ms / 1000) if duration_ms else None
+        try:
+            supabase.table("call_logs").update({
+                "recording_status": "available" if recording_url else "failed",
+                "recording_url": recording_url.strip() or None,
+                "recorded_at": recorded_at_str,
+                "recording_duration_seconds": recording_duration,
+            }).eq("call_control_id", call_control_id).execute()
+            logger.info(
+                "[CALL_DIAG] call.recording.saved call_control_id=%s recording_url=%s",
+                call_control_id,
+                "set" if recording_url else "empty",
+            )
+        except Exception as e:
+            logger.warning("[CALL_DIAG] call.recording.saved update failed: %s", e)
         return {"received": True}
 
     def _parse_iso(s: str | None) -> datetime | None:

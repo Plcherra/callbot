@@ -10,6 +10,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from config import settings
 from voice import tts_chars
+from voice.tts_sanitizer import sanitize_for_tts
 from voice.google_tts import (
     GoogleTtsSynthesizeOptions,
     assert_voice_allowed,
@@ -159,6 +160,9 @@ async def generate_and_send_tts(
     _tts_failure_logged: Optional[list[bool]] = None,
 ) -> None:
     """Generate TTS and send via callback (Google Cloud TTS + chunking)."""
+    if not text or not text.strip():
+        return
+    text = sanitize_for_tts(text)
     if not text or not text.strip():
         return
     tts_logged = _tts_failure_logged if _tts_failure_logged is not None else [False]

@@ -1,11 +1,31 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../utils/call_formatters.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 
-class CallDetailScreen extends StatelessWidget {
+/// Recording status from backend: available | processing | not_recorded | failed
+/// null/absent = not_recorded
+String _recordingStatusLabel(String? status) {
+  switch (status) {
+    case 'available':
+      return 'Available';
+    case 'processing':
+      return 'Processing';
+    case 'not_recorded':
+      return 'Not recorded';
+    case 'failed':
+      return 'Failed';
+    default:
+      return 'Not recorded';
+  }
+}
+
+class CallDetailScreen extends StatefulWidget {
   final String receptionistId;
   final String callId;
   final Map<String, dynamic>? callData;
@@ -18,8 +38,22 @@ class CallDetailScreen extends StatelessWidget {
   });
 
   @override
+  State<CallDetailScreen> createState() => _CallDetailScreenState();
+}
+
+class _CallDetailScreenState extends State<CallDetailScreen> {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final call = callData;
+    final call = widget.callData;
     if (call == null) {
       return Scaffold(
         appBar: AppBar(
@@ -40,6 +74,22 @@ class CallDetailScreen extends StatelessWidget {
     final fromNumber = call['from_number'] as String? ?? '';
     final toNumber = call['to_number'] as String? ?? '';
     final outcome = callOutcomeLabel(call);
+
+    final recordingStatus = call['recording_status'] as String?;
+    final recordingUrl = (call['recording_url'] as String?)?.trim();
+    final recordedAt = call['recorded_at'] != null
+        ? DateTime.tryParse(call['recorded_at'] as String)
+        : null;
+    final recordingDuration = call['recording_duration_seconds'] as int?;
+
+    final hasRecording = recordingStatus == 'available' &&
+        recordingUrl != null &&
+        recordingUrl.isNotEmpty;
+    final hasTranscript = transcript != null && transcript.isNotEmpty;
+    final appointmentId = call['appointment_id'] as String?;
+    final isPhoneDevice = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.android);
 
     return Scaffold(
       appBar: AppBar(
@@ -72,39 +122,286 @@ class CallDetailScreen extends StatelessWidget {
             if (fromNumber.isNotEmpty)
               _DetailRow(
                 label: 'From',
-                value: fromNumber,
+                value: formatPhoneForDisplay(fromNumber),
                 onTap: () => _copyAndNotify(context, fromNumber),
               ),
             if (toNumber.isNotEmpty)
               _DetailRow(
                 label: 'To',
-                value: toNumber,
+                value: formatPhoneForDisplay(toNumber),
                 onTap: () => _copyAndNotify(context, toNumber),
               ),
-            if (transcript != null && transcript.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'Transcript',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SelectableText(
-                  transcript,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ],
+            const SizedBox(height: 20),
+            _buildQuickActions(
+              context: context,
+              fromNumber: fromNumber,
+              isPhoneDevice: isPhoneDevice,
+              appointmentId: appointmentId,
+            ),
+            const SizedBox(height: 24),
+            _buildRecordingAndTranscriptSection(
+              context: context,
+              recordingStatus: recordingStatus,
+              recordingUrl: recordingUrl,
+              recordedAt: recordedAt,
+              recordingDuration: recordingDuration,
+              hasRecording: hasRecording,
+              transcript: transcript,
+              hasTranscript: hasTranscript,
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildQuickActions({
+    required BuildContext context,
+    required String fromNumber,
+    required bool isPhoneDevice,
+    required String? appointmentId,
+  }) {
+    final actions = <Widget>[
+      if (fromNumber.isNotEmpty)
+        FilledButton.tonalIcon(
+          onPressed: () => _copyAndNotify(context, fromNumber),
+          icon: const Icon(Icons.copy, size: 18),
+          label: const Text('Copy number'),
+        ),
+      if (fromNumber.isNotEmpty && isPhoneDevice)
+        FilledButton.tonalIcon(
+          onPressed: () async {
+            final uri = Uri.parse('tel:$fromNumber');
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          },
+          icon: const Icon(Icons.phone, size: 18),
+          label: const Text('Call back'),
+        ),
+      if (appointmentId != null && appointmentId.isNotEmpty)
+        FilledButton.tonalIcon(
+          onPressed: () => context.push('/appointments/$appointmentId'),
+          icon: const Icon(Icons.event, size: 18),
+          label: const Text('View appointment'),
+        ),
+    ];
+    if (actions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick actions',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: actions),
+      ],
+    );
+  }
+
+  Widget _buildRecordingAndTranscriptSection({
+    required BuildContext context,
+    required String? recordingStatus,
+    required String? recordingUrl,
+    required DateTime? recordedAt,
+    required int? recordingDuration,
+    required bool hasRecording,
+    required String? transcript,
+    required bool hasTranscript,
+  }) {
+    final recordingCard = _buildRecordingCard(
+      context: context,
+      recordingStatus: recordingStatus,
+      recordingUrl: recordingUrl,
+      recordedAt: recordedAt,
+      recordingDuration: recordingDuration,
+      hasRecording: hasRecording,
+    );
+
+    if (hasTranscript && hasRecording) {
+      final useRow = MediaQuery.sizeOf(context).width > 600;
+      if (useRow) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: _buildTranscriptCard(context, transcript!)),
+            const SizedBox(width: 16),
+            Expanded(child: recordingCard),
+          ],
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildTranscriptCard(context, transcript!),
+          const SizedBox(height: 16),
+          recordingCard,
+        ],
+      );
+    }
+    if (hasTranscript) {
+      return _buildTranscriptCard(context, transcript!);
+    }
+    return recordingCard;
+  }
+
+  Widget _buildTranscriptCard(BuildContext context, String transcript) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Transcript',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: SelectableText(
+            transcript,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecordingCard({
+    required BuildContext context,
+    required String? recordingStatus,
+    required String? recordingUrl,
+    required DateTime? recordedAt,
+    required int? recordingDuration,
+    required bool hasRecording,
+  }) {
+    final statusLabel = _recordingStatusLabel(recordingStatus);
+    String statusExplanation = '';
+    switch (recordingStatus) {
+      case 'available':
+        statusExplanation = 'Play or download the recording.';
+        break;
+      case 'processing':
+        statusExplanation =
+            'Recording is being processed. Check back in a few minutes.';
+        break;
+      case 'not_recorded':
+        statusExplanation =
+            'This call was not recorded. Recording may be disabled or consent was not given.';
+        break;
+      case 'failed':
+        statusExplanation =
+            'Recording failed. The call may have been too short or an error occurred.';
+        break;
+      default:
+        statusExplanation =
+            'No recording is available for this call. Recording may be disabled.';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Recording',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _RecordingStatusChip(label: statusLabel, isAvailable: hasRecording),
+                  if (recordingDuration != null && recordingDuration > 0) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      formatCallDuration(recordingDuration),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                statusExplanation,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              if (hasRecording) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _isPlaying ? _stopPlaying : () => _playRecording(recordingUrl!),
+                      icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow, size: 18),
+                      label: Text(_isPlaying ? 'Stop' : 'Play'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _openUrl(recordingUrl!),
+                      icon: const Icon(Icons.download, size: 18),
+                      label: const Text('Download'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _copyAndNotify(context, recordingUrl!),
+                      icon: const Icon(Icons.link, size: 18),
+                      label: const Text('Copy link'),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _playRecording(String url) async {
+    try {
+      setState(() => _isPlaying = true);
+      await _audioPlayer.play(UrlSource(url));
+      await _audioPlayer.onPlayerComplete.first;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not play: ${e.toString()}')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isPlaying = false);
+    }
+  }
+
+  Future<void> _stopPlaying() async {
+    await _audioPlayer.stop();
+    setState(() => _isPlaying = false);
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open link')),
+      );
+    }
   }
 
   void _copyAndNotify(BuildContext context, String text) {
@@ -113,6 +410,42 @@ class CallDetailScreen extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Copied')),
       );
+    }
+  }
+}
+
+class _RecordingStatusChip extends StatelessWidget {
+  final String label;
+  final bool isAvailable;
+
+  const _RecordingStatusChip({required this.label, required this.isAvailable});
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, bgColor) = isAvailable
+        ? (Colors.green.shade800, Colors.green.shade100)
+        : _colorsForStatus(label);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color),
+      ),
+    );
+  }
+
+  (Color, Color) _colorsForStatus(String label) {
+    switch (label) {
+      case 'Processing':
+        return (Colors.orange.shade800, Colors.orange.shade100);
+      case 'Failed':
+        return (Colors.red.shade800, Colors.red.shade100);
+      default:
+        return (Colors.grey.shade700, Colors.grey.shade200);
     }
   }
 }

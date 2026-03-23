@@ -42,7 +42,9 @@ async def main() -> int:
 
     try:
         voice = resolve_tts_voice(DEFAULT_PRESET_KEY, None)
-        text = "Hello, this is a faster Google TTS smoke test. Morning and afternoon slots are available."
+        text = "Hello, thanks for calling. How can I help you today?"
+        speaking_rate = settings.google_tts_speaking_rate
+        print(f"smoke-google-tts.py: voice={voice.google_voice_name} speaking_rate={speaking_rate}")
         audio_bytes = await google_preview_mp3(text, voice)
     except Exception as e:
         print("smoke-google-tts.py: Google TTS failed:", e, file=sys.stderr)

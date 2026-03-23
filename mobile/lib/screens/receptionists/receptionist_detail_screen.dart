@@ -8,7 +8,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/receptionist.dart';
 import '../../strings.dart';
 import '../../services/api_client.dart';
+import '../../services/appointment_service.dart';
 import '../../services/call_history_service.dart';
+import '../../utils/appointment_formatters.dart';
 import '../../utils/call_formatters.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 
@@ -29,6 +31,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
 
   Receptionist? _receptionist;
   List<Map<String, dynamic>> _callHistory = [];
+  List<Map<String, dynamic>> _upcomingAppointments = [];
   bool _loading = true;
   String? _error;
 
@@ -83,9 +86,35 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
         } catch (_) {}
       }
 
+      List<Map<String, dynamic>> upcoming = [];
+      try {
+        final aptData = await loadAppointments(
+          receptionistId: widget.receptionistId,
+          limit: 20,
+        );
+        final all = List<Map<String, dynamic>>.from(aptData['appointments'] ?? []);
+        final now = DateTime.now().toUtc();
+        for (final a in all) {
+          final start = a['start_time'] != null
+              ? DateTime.tryParse(a['start_time'] as String)
+              : null;
+          if (start != null && start.isAfter(now) &&
+              (a['status'] as String? ?? '') != 'cancelled') {
+            upcoming.add(a);
+          }
+        }
+        upcoming.sort((a, b) {
+          final sa = DateTime.tryParse(a['start_time'] as String? ?? '');
+          final sb = DateTime.tryParse(b['start_time'] as String? ?? '');
+          if (sa == null || sb == null) return 0;
+          return sa.compareTo(sb);
+        });
+      } catch (_) {}
+
       setState(() {
         _receptionist = Receptionist.fromJson(recRes as Map<String, dynamic>);
         _callHistory = history;
+        _upcomingAppointments = upcoming.take(5).toList();
         _loading = false;
       });
     } catch (e) {
@@ -217,7 +246,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                   const SnackBar(content: Text('Number copied')),
                 );
               },
-              onTestCall: _isPhoneDevice
+              onCallBack: _isPhoneDevice
                   ? () => launchUrl(
                         Uri.parse('tel:${r.displayPhone}'),
                         mode: LaunchMode.externalApplication,
@@ -228,6 +257,9 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
               onViewCallHistory: () => context.push(
                 '/receptionists/${r.id}/calls?name=${Uri.encodeComponent(r.name)}',
               ),
+              onViewAppointments: () => context.push(
+                '/appointments?receptionist_id=${r.id}',
+              ),
             ),
             const SizedBox(height: 24),
             _RecentCallsSection(
@@ -236,6 +268,12 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
               onViewAll: () => context.push(
                 '/receptionists/${r.id}/calls?name=${Uri.encodeComponent(r.name)}',
               ),
+            ),
+            const SizedBox(height: 24),
+            _UpcomingAppointmentsSection(
+              appointments: _upcomingAppointments,
+              receptionistName: r.name,
+              onViewAll: () => context.push('/appointments?receptionist_id=${r.id}'),
             ),
             const SizedBox(height: 24),
             Row(
@@ -306,17 +344,19 @@ class _OverviewCard extends StatelessWidget {
   final Receptionist receptionist;
   final List<Map<String, dynamic>> callHistory;
   final VoidCallback onCopyNumber;
-  final VoidCallback? onTestCall;
+  final VoidCallback? onCallBack;
   final VoidCallback onManageSettings;
   final VoidCallback onViewCallHistory;
+  final VoidCallback onViewAppointments;
 
   const _OverviewCard({
     required this.receptionist,
     required this.callHistory,
     required this.onCopyNumber,
-    this.onTestCall,
+    this.onCallBack,
     required this.onManageSettings,
     required this.onViewCallHistory,
+    required this.onViewAppointments,
   });
 
   @override
@@ -338,38 +378,43 @@ class _OverviewCard extends StatelessWidget {
           children: [
             Text(
               'Overview',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _OverviewRow('Business number', r.displayPhone),
             _OverviewRow('Calendar', calendarLabel),
             _OverviewRow('Voice', voiceLabel),
             if (todayCount != null) _OverviewRow('Calls today', '$todayCount'),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 6,
+              runSpacing: 6,
               children: [
                 FilledButton.tonalIcon(
                   onPressed: onCopyNumber,
-                  icon: const Icon(Icons.copy, size: 18),
-                  label: const Text('Copy number'),
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy'),
                 ),
-                if (onTestCall != null)
+                if (onCallBack != null)
                   FilledButton.tonalIcon(
-                    onPressed: onTestCall,
-                    icon: const Icon(Icons.phone, size: 18),
-                    label: const Text('Test call'),
+                    onPressed: onCallBack,
+                    icon: const Icon(Icons.phone, size: 16),
+                    label: const Text('Call back'),
                   ),
                 FilledButton.tonalIcon(
                   onPressed: onManageSettings,
-                  icon: const Icon(Icons.settings, size: 18),
-                  label: const Text('Manage settings'),
+                  icon: const Icon(Icons.settings, size: 16),
+                  label: const Text('Settings'),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: onViewCallHistory,
-                  icon: const Icon(Icons.history, size: 18),
-                  label: const Text('View call history'),
+                  icon: const Icon(Icons.history, size: 16),
+                  label: const Text('Calls'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: onViewAppointments,
+                  icon: const Icon(Icons.event, size: 16),
+                  label: const Text('Appointments'),
                 ),
               ],
             ),
@@ -403,6 +448,91 @@ class _OverviewCard extends StatelessWidget {
     if (id.contains('@')) return 'Connected';
     if (id == 'primary') return 'Primary';
     return 'Connected';
+  }
+}
+
+class _UpcomingAppointmentsSection extends StatelessWidget {
+  final List<Map<String, dynamic>> appointments;
+  final String receptionistName;
+  final VoidCallback onViewAll;
+
+  const _UpcomingAppointmentsSection({
+    required this.appointments,
+    required this.receptionistName,
+    required this.onViewAll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Upcoming appointments',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            TextButton(
+              onPressed: onViewAll,
+              child: const Text('View all'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (appointments.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  Icon(Icons.event_available, size: 36, color: Colors.grey.shade400),
+                  const SizedBox(height: 8),
+                  Text(
+                    'No upcoming appointments',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Appointments booked by this receptionist will appear here.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ...appointments.map((apt) {
+            final start = apt['start_time'] != null
+                ? DateTime.tryParse(apt['start_time'] as String)
+                : null;
+            final serviceName = (apt['service_name'] as String?)?.trim();
+            final displayService =
+                serviceName != null && serviceName.isNotEmpty ? serviceName : 'Generic';
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(
+                  formatAppointmentDateTime(start),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                subtitle: Text(
+                  displayService,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () => context.push('/appointments/${apt['id']}'),
+              ),
+            );
+          }),
+      ],
+    );
   }
 }
 

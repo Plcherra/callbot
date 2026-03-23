@@ -5,8 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/receptionist.dart';
 import '../../models/user_profile.dart';
+import '../../services/appointment_service.dart';
 import '../../services/dashboard_service.dart';
+import '../../utils/appointment_formatters.dart';
+import '../../utils/call_formatters.dart';
 import '../../widgets/constrained_scaffold_body.dart';
+import '../../widgets/loading_skeleton.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -27,6 +31,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _totalCalls = 0;
   double _totalCallMinutes = 0.0;
   List<Map<String, dynamic>> _recentCalls = [];
+  List<Map<String, dynamic>> _upcomingAppointments = [];
+  int _needsReviewCount = 0;
+  Map<String, String> _receptionistNames = {};
   int? _remainingMinutes;
   bool _isPayg = false;
   bool _loading = true;
@@ -48,6 +55,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (user == null) throw Exception('Not authenticated');
       final data = await _dashboardService.loadForUser(user.id);
 
+      List<Map<String, dynamic>> upcoming = [];
+      int needsReview = 0;
+      Map<String, String> recNames = {};
+      try {
+        final aptData = await loadAppointments(limit: 30);
+        final allApts = List<Map<String, dynamic>>.from(aptData['appointments'] ?? []);
+        recNames = Map<String, String>.from(aptData['receptionists'] ?? {});
+        final now = DateTime.now().toUtc();
+        for (final a in allApts) {
+          if ((a['status'] as String?) == 'needs_review') needsReview++;
+          final start = a['start_time'] != null
+              ? DateTime.tryParse(a['start_time'] as String)
+              : null;
+          if (start != null && start.isAfter(now)) {
+            upcoming.add(a);
+          }
+        }
+        upcoming.sort((a, b) {
+          final sa = DateTime.tryParse(a['start_time'] as String? ?? '');
+          final sb = DateTime.tryParse(b['start_time'] as String? ?? '');
+          if (sa == null || sb == null) return 0;
+          return sa.compareTo(sb);
+        });
+      } catch (_) {}
+
+      if (!mounted) return;
       setState(() {
         _profile = data.profile;
         _receptionists = data.receptionists.take(6).toList();
@@ -61,6 +94,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _totalCalls = data.totalCalls;
         _totalCallMinutes = data.totalCallMinutes;
         _recentCalls = data.recentCalls;
+        _upcomingAppointments = upcoming.take(5).toList();
+        _needsReviewCount = needsReview;
+        _receptionistNames = recNames;
         _loading = false;
       });
       if (!_loading && _error == null) {
@@ -121,7 +157,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_loading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Dashboard')),
-        body: const Center(child: CircularProgressIndicator()),
+        body: constrainedScaffoldBody(
+          child: ListView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            children: [
+              ...List.generate(3, (_) => const SkeletonCard()),
+              const SizedBox(height: 24),
+              LoadingSkeleton(width: 100, height: 16),
+              const SizedBox(height: 12),
+              ...List.generate(2, (_) => const SkeletonCard()),
+              const SizedBox(height: 24),
+              LoadingSkeleton(width: 140, height: 16),
+              const SizedBox(height: 12),
+              ...List.generate(3, (_) => const SkeletonCard(showTrailing: false)),
+            ],
+          ),
+        ),
       );
     }
 
@@ -190,20 +241,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             if (!profile.onboardingComplete && isActive)
               _buildOnboardingAlert(context),
+            if (isActive) _buildAppointmentsCard(context),
             if (!isActive) ...[
               _buildUpgradeCard(context),
             ] else ...[
               _buildStatsGrid(profile),
               const SizedBox(height: 24),
-              if (_recentCalls.isNotEmpty) ...[
-                _buildRecentCalls(context),
-                const SizedBox(height: 24),
-              ],
-              _buildRecentReceptionists(context),
+              _buildRecentCallsSection(context),
+              const SizedBox(height: 24),
+              _buildUpcomingAppointmentsSection(context),
+              const SizedBox(height: 24),
+              _buildRecentReceptionistsSection(context),
             ],
           ],
         ),
       ),
+      ),
+    );
+  }
+
+  Widget _buildAppointmentsCard(BuildContext context) {
+    final hasNeedsReview = _needsReviewCount > 0;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: ListTile(
+        leading: Icon(Icons.event_available, color: Theme.of(context).colorScheme.primary),
+        title: Row(
+          children: [
+            const Text('Appointments'),
+            if (hasNeedsReview) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$_needsReviewCount need review',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange.shade800),
+                ),
+              ),
+            ],
+          ],
+        ),
+        subtitle: const Text(
+          'Review, confirm, or edit appointments booked by your AI.',
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => context.push(hasNeedsReview ? '/appointments?status=needs_review' : '/appointments'),
       ),
     );
   }
@@ -328,73 +414,189 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildRecentCalls(BuildContext context) {
+  Widget _buildRecentCallsSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Recent Calls',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        Text('Recent Calls', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 12),
-        ..._recentCalls.take(5).map((call) {
-          final start = call['started_at'] != null
-              ? DateTime.tryParse(call['started_at'] as String)
-              : null;
-          final dur = call['duration_seconds'] as int?;
-          return Card(
-            margin: const EdgeInsets.only(bottom: 8),
-            child: ListTile(
-              title: Text(
-                call['from_number'] as String? ?? call['to_number'] as String? ?? 'Unknown',
+        if (_recentCalls.isEmpty)
+          _EmptySection(
+            icon: Icons.phone_missed_outlined,
+            title: 'No calls yet',
+            subtitle: "When customers call your AI receptionist, they'll appear here.",
+          )
+        else
+          ..._recentCalls.take(5).map((call) {
+            final start = call['started_at'] != null
+                ? DateTime.tryParse(call['started_at'] as String)
+                : null;
+            final dur = call['duration_seconds'] as int?;
+            final fromNum = call['from_number'] as String? ?? call['to_number'] as String? ?? '';
+            final recId = call['receptionist_id'] as String?;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(
+                  formatPhoneForDisplay(fromNum, mask: true),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                subtitle: Text(
+                  '${formatCallTimestamp(start)} · ${formatCallDuration(dur)}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: recId != null
+                    ? () => context.push(
+                          '/receptionists/$recId/calls/${call['id']}',
+                          extra: call,
+                        )
+                    : null,
               ),
-              subtitle: Text(
-                [
-                  if (start != null) start.toIso8601String().substring(0, 16),
-                  if (dur != null) '${dur}s',
-                ].join(' · '),
-              ),
-              trailing: const Icon(Icons.phone),
-            ),
-          );
-        }),
+            );
+          }),
       ],
     );
   }
 
-  Widget _buildRecentReceptionists(BuildContext context) {
+  Widget _buildUpcomingAppointmentsSection(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Recent Receptionists',
-          style: Theme.of(context).textTheme.titleMedium,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Upcoming Appointments', style: Theme.of(context).textTheme.titleMedium),
+            if (_upcomingAppointments.isNotEmpty)
+              TextButton(
+                onPressed: () => context.push('/appointments'),
+                child: const Text('View all'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_upcomingAppointments.isEmpty)
+          _EmptySection(
+            icon: Icons.event_available,
+            title: 'No upcoming appointments',
+            subtitle: 'Appointments booked by your AI will appear here.',
+          )
+        else
+          ..._upcomingAppointments.map((apt) {
+            final start = apt['start_time'] != null
+                ? DateTime.tryParse(apt['start_time'] as String)
+                : null;
+            final serviceName = (apt['service_name'] as String?)?.trim();
+            final displayService =
+                serviceName != null && serviceName.isNotEmpty ? serviceName : 'Generic appointment';
+            final recName = _receptionistNames[apt['receptionist_id']] ?? '—';
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(
+                  formatAppointmentDateTime(start),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+                subtitle: Text(
+                  '$displayService · $recName',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () => context.push('/appointments/${apt['id']}'),
+              ),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildRecentReceptionistsSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Recent Receptionists', style: Theme.of(context).textTheme.titleMedium),
+            TextButton(
+              onPressed: () => context.push('/receptionists'),
+              child: const Text('View all'),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         if (_receptionists.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const Text('No receptionists yet. '),
-                TextButton(
-                  onPressed: () => context.push('/receptionists'),
-                  child: const Text('Add one'),
-                ),
-              ],
+          _EmptySection(
+            icon: Icons.support_agent,
+            title: 'No receptionists yet',
+            subtitle: 'Create your first AI receptionist to get a dedicated phone number.',
+            action: TextButton(
+              onPressed: () => context.push('/receptionists/create'),
+              child: const Text('Add one'),
             ),
           )
         else
           ..._receptionists.map((r) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  title: Text(r.name),
-                  subtitle: Text(r.displayPhone),
-                  trailing: const Icon(Icons.chevron_right),
+                  title: Text(r.name, style: Theme.of(context).textTheme.titleSmall),
+                  subtitle: Text(
+                    formatPhoneForDisplay(r.displayPhone),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
                   onTap: () => context.push('/receptionists/${r.id}'),
                 ),
               )),
       ],
+    );
+  }
+}
+
+class _EmptySection extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? action;
+
+  const _EmptySection({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.action,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+            Icon(icon, size: 40, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            Text(title, style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+              textAlign: TextAlign.center,
+            ),
+            if (action != null) ...[
+              const SizedBox(height: 12),
+              action!,
+            ],
+          ],
+        ),
+      ),
     );
   }
 }

@@ -82,9 +82,10 @@ async def lifespan(app: FastAPI):
         settings.validate_supabase()
         settings.validate_telnyx()
         logger.info(
-            "[startup] Voice config: TTS_PROVIDER=google default_voice=%s backup_voice=%s cache_backend=%s GROK_API_KEY=%s",
-            (settings.google_tts_default_voice_name or "")[:32],
-            (settings.google_tts_backup_voice_name or "")[:32],
+            "[startup] Voice config: TTS_PROVIDER=google default_voice=%s backup_voice=%s speaking_rate=%s cache_backend=%s GROK_API_KEY=%s",
+            (settings.google_tts_default_voice_name or "").strip(),
+            (settings.google_tts_backup_voice_name or "").strip(),
+            settings.google_tts_speaking_rate,
             settings.tts_cache_backend,
             "set" if (settings.grok_api_key or "").strip() else "not set",
         )

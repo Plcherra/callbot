@@ -11,7 +11,7 @@ from typing import Any
 from config import settings
 
 # NOTE: Preset keys are stable identifiers (API + DB). Labels/descriptions may evolve over time.
-DEFAULT_PRESET_KEY = "friendly_warm"
+DEFAULT_PRESET_KEY = "professional_calm"  # Resolves to en-US-Neural2-C (direct, fast default)
 
 # Single shared neutral preview sentence. Voice presets must affect audio only, not content.
 PREVIEW_SAMPLE_TEXT = "Hello, thanks for calling. How can I help you today?"
@@ -140,7 +140,7 @@ def resolve_tts_voice(voice_preset_key: str | None, fallback_voice_id: str | Non
         gname = (preset.get("google_voice_name") or "").strip() or (settings.google_tts_default_voice_name or "").strip()
         glang = (preset.get("google_language_code") or "").strip() or (settings.google_tts_default_language_code or "en-US").strip()
     else:
-        gname = (settings.google_tts_default_voice_name or "en-US-Neural2-F").strip()
+        gname = (settings.google_tts_default_voice_name or "en-US-Neural2-C").strip()
         glang = (settings.google_tts_default_language_code or "en-US").strip()
 
     return ResolvedTtsVoice(

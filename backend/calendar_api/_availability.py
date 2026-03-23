@@ -7,6 +7,29 @@ from ._parsing import get_free_slots, parse_datetime_range, parse_iso_datetime_o
 
 logger = logging.getLogger(__name__)
 
+# Period buckets for summary_periods (hour ranges, inclusive start, exclusive end)
+_PERIOD_HOURS = [
+    ("morning", 6, 12),
+    ("afternoon", 12, 17),
+    ("evening", 17, 21),
+]
+
+
+def _slots_to_summary_periods(slots: list[str]) -> list[str]:
+    """Return which periods (morning, afternoon, evening) have at least one slot."""
+    seen: set[str] = set()
+    for s in slots:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            h = dt.hour
+            for name, lo, hi in _PERIOD_HOURS:
+                if lo <= h < hi:
+                    seen.add(name)
+                    break
+        except (ValueError, TypeError):
+            pass
+    return sorted(seen, key=lambda p: next(i for i, (n, _, _) in enumerate(_PERIOD_HOURS) if n == p))
+
 
 def handle_check_availability(
     service,
@@ -106,11 +129,16 @@ def handle_check_availability(
     requested_range_start: str | None = None
     requested_range_end: str | None = None
 
+    exact_slots: list[str] = []
+    summary_periods: list[str] = []
+
     if parse_mode in range_modes:
         requested_range_start = range_data["timeMin"]
         requested_range_end = range_data["timeMax"]
         available_slots = free_slots
-        suggested_slots = free_slots[:suggested_slots_max]
+        suggested_slots = free_slots[: min(suggested_slots_max, 3)]
+        exact_slots = list(suggested_slots)
+        summary_periods = _slots_to_summary_periods(suggested_slots) if suggested_slots else _slots_to_summary_periods(free_slots)
         logger.info(
             "[CAL_DATE] range_slot_generation mode=%s range_start=%s range_end=%s duration_minutes=%s candidate_slots=%d returned_slots=%d",
             parse_mode,
@@ -150,12 +178,20 @@ def handle_check_availability(
                 requested_slot_end,
                 len(slot_busy),
             )
+            if slot_available and requested_slot_start:
+                exact_slots = [requested_slot_start]
+                suggested_slots = [requested_slot_start]
+                summary_periods = _slots_to_summary_periods(exact_slots)
+            elif not slot_available:
+                suggested_slots = []
 
     return {
         "success": True,
         "free_slots": free_slots,
         "available_slots": available_slots,
         "suggested_slots": suggested_slots,
+        "exact_slots": exact_slots,
+        "summary_periods": summary_periods,
         "requested_range_start": requested_range_start,
         "requested_range_end": requested_range_end,
         "slot_duration_minutes": duration_minutes,

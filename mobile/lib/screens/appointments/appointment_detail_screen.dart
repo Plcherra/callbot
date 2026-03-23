@@ -1,0 +1,763 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../services/appointment_service.dart';
+import '../../utils/appointment_formatters.dart';
+import '../../widgets/constrained_scaffold_body.dart';
+
+class AppointmentDetailScreen extends StatefulWidget {
+  final String appointmentId;
+
+  const AppointmentDetailScreen({super.key, required this.appointmentId});
+
+  @override
+  State<AppointmentDetailScreen> createState() => _AppointmentDetailScreenState();
+}
+
+class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
+  Map<String, dynamic>? _appointment;
+  bool _loading = true;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final apt = await loadAppointment(widget.appointmentId);
+      setState(() {
+        _appointment = apt;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _updateStatus(String status) async {
+    setState(() => _saving = true);
+    try {
+      final ok = await updateAppointment(widget.appointmentId, status: status);
+      if (ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Status updated to ${_statusLabel(status)}')),
+        );
+        _load();
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _showEditService() async {
+    final current = (_appointment?['service_name'] as String?)?.trim() ?? '';
+    final c = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Edit service',
+        label: 'Service name',
+        initialValue: current,
+        hint: 'e.g. Consultation, House cleaning',
+      ),
+    );
+    if (c != null && c != current) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, serviceName: c);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showEditNotes() async {
+    final current = (_appointment?['notes'] as String?)?.trim() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Edit notes',
+        label: 'Notes / instructions',
+        initialValue: current,
+      ),
+    );
+    if (result != null && result != current) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, notes: result);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notes updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showAttachPaymentLink() async {
+    final current = (_appointment?['payment_link'] as String?)?.trim() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Attach payment link',
+        label: 'Payment URL',
+        initialValue: current,
+        hint: 'https://...',
+      ),
+    );
+    if (result != null) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, paymentLink: result.isEmpty ? null : result);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment link updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showEditAddress() async {
+    final current = (_appointment?['customer_address'] as String?)?.trim() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Edit address',
+        label: 'Service address',
+        initialValue: current,
+        hint: '123 Main St, City',
+      ),
+    );
+    if (result != null) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, customerAddress: result.isEmpty ? null : result);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Address updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showEditVideoLink() async {
+    final current = (_appointment?['location_text'] as String?)?.trim() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Edit video meeting link',
+        label: 'Meeting URL',
+        initialValue: current,
+        hint: 'https://zoom.us/... or https://meet.google.com/...',
+      ),
+    );
+    if (result != null) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, locationText: result.isEmpty ? null : result);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Meeting link updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  Future<void> _showEditServiceInstructions() async {
+    final current = (_appointment?['meeting_instructions'] as String?)?.trim() ?? '';
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Edit service instructions',
+        label: 'Prep instructions for the customer',
+        initialValue: current,
+        hint: 'e.g. Please arrive 10 min early, bring ID',
+      ),
+    );
+    if (result != null) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(widget.appointmentId, meetingInstructions: result.isEmpty ? null : result);
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Instructions updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  String _buildDefaultMessage(Map<String, dynamic> apt) {
+    final parts = <String>[];
+    final base = (apt['followup_message_resolved'] as String?)?.trim();
+    if (base != null && base.isNotEmpty) parts.add(base);
+    final payment = (apt['payment_link'] as String?)?.trim();
+    if (payment != null && payment.isNotEmpty) parts.add('Payment: $payment');
+    final instructions = (apt['meeting_instructions'] as String?)?.trim();
+    if (instructions != null && instructions.isNotEmpty) parts.add(instructions);
+    final addr = (apt['customer_address'] as String?)?.trim();
+    if (addr != null && addr.isNotEmpty) parts.add('Location: $addr');
+    final loc = (apt['location_text'] as String?)?.trim();
+    if (loc != null && loc.isNotEmpty && addr == null) parts.add('Meeting link: $loc');
+    return parts.isEmpty ? 'Your appointment is confirmed.' : parts.join('\n\n');
+  }
+
+  Future<void> _showSendConfirmation({bool isResend = false}) async {
+    final apt = _appointment;
+    if (apt == null) return;
+    final callerNumber = (apt['caller_number'] as String?)?.trim();
+    if (callerNumber == null || callerNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No caller number — cannot send SMS')),
+      );
+      return;
+    }
+    final defaultMsg = _buildDefaultMessage(apt);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _MessageComposerDialog(
+        title: isResend ? 'Resend confirmation' : 'Send confirmation',
+        initialMessage: defaultMsg,
+      ),
+    );
+    if (result == null) return;
+    setState(() => _saving = true);
+    try {
+      final res = await sendConfirmation(widget.appointmentId, message: result);
+      if (mounted) {
+        if (res['success'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(isResend ? 'Confirmation resent' : 'Confirmation sent')),
+          );
+          _load();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(res['error']?.toString() ?? 'Failed to send')),
+          );
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  bool _isAddressBased(Map<String, dynamic> apt) {
+    final t = (apt['location_type'] as String?)?.toLowerCase();
+    return t == 'customer_address';
+  }
+
+  bool _isVideoMeeting(Map<String, dynamic> apt) {
+    final t = (apt['location_type'] as String?)?.toLowerCase();
+    return t == 'video_meeting';
+  }
+
+  Future<void> _showEditAddressOrVideo() async {
+    final addr = (_appointment?['customer_address'] as String?)?.trim() ?? '';
+    final loc = (_appointment?['location_text'] as String?)?.trim() ?? '';
+    final current = addr.isNotEmpty ? addr : loc;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => _EditTextDialog(
+        title: 'Add address or meeting link',
+        label: 'Address or video URL',
+        initialValue: current,
+        hint: '123 Main St or https://zoom.us/...',
+      ),
+    );
+    if (result != null) {
+      setState(() => _saving = true);
+      try {
+        final ok = await updateAppointment(
+          widget.appointmentId,
+          customerAddress: result.isNotEmpty ? result : null,
+          locationText: result.isNotEmpty ? result : null,
+        );
+        if (ok && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Updated')));
+          _load();
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
+    }
+  }
+
+  String _statusLabel(String s) {
+    switch (s) {
+      case 'confirmed': return 'Confirmed';
+      case 'needs_review': return 'Needs Review';
+      case 'cancelled': return 'Cancelled';
+      case 'completed': return 'Completed';
+      default: return s;
+    }
+  }
+
+  Widget _buildFollowUpSection({
+    required Map<String, dynamic> apt,
+    required bool confirmSent,
+    required bool hasPayment,
+    required bool hasInstructions,
+    String? locationType,
+  }) {
+    final lastSent = apt['confirmation_message_sent_at'];
+    DateTime? lastSentDt;
+    if (lastSent != null) {
+      lastSentDt = DateTime.tryParse(lastSent as String);
+    }
+    String lastSentStr = '—';
+    if (lastSentDt != null) {
+      final local = lastSentDt.toLocal();
+      lastSentStr = '${local.month}/${local.day}/${local.year} ${local.hour}:${local.minute.toString().padLeft(2, '0')}';
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Follow-up', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _FollowUpRow(label: 'Confirmation', value: confirmSent ? 'Sent' : 'Not sent'),
+              _FollowUpRow(label: 'Last sent', value: lastSentStr),
+              _FollowUpRow(label: 'Channel', value: 'SMS'),
+              _FollowUpRow(label: 'Payment link', value: hasPayment ? 'Yes' : 'No'),
+              _FollowUpRow(label: 'Instructions', value: hasInstructions ? 'Yes' : 'No'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_appointment == null || _error != null) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_error ?? 'Appointment not found', textAlign: TextAlign.center),
+                const SizedBox(height: 16),
+                FilledButton(onPressed: _load, child: const Text('Retry')),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final apt = _appointment!;
+    final start = apt['start_time'] != null ? DateTime.tryParse(apt['start_time'] as String) : null;
+    final status = apt['status'] as String? ?? 'needs_review';
+    final serviceName = (apt['service_name'] as String?)?.trim();
+    final displayService = serviceName != null && serviceName.isNotEmpty ? serviceName : 'Generic appointment';
+    final isGeneric = (apt['booking_mode'] as String?) == 'generic' || (serviceName == null || serviceName.isEmpty);
+    final transcript = apt['transcript'] as String?;
+    final location = (apt['customer_address'] as String?)?.trim();
+    final locationText = (apt['location_text'] as String?)?.trim();
+    final locDisplay = location ?? locationText;
+    final paymentLink = (apt['payment_link'] as String?)?.trim();
+    final hasPayment = paymentLink != null && paymentLink.isNotEmpty;
+    final confirmSent = apt['confirmation_message_sent_at'] != null;
+    final callerNumber = (apt['caller_number'] as String?)?.trim();
+
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => context.pop()),
+        title: const Text('Appointment details'),
+        actions: [
+          if (apt['caller_number'] != null && (apt['caller_number'] as String).isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: apt['caller_number'] as String));
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Number copied')));
+              },
+              tooltip: 'Copy caller number',
+            ),
+        ],
+      ),
+      body: constrainedScaffoldBody(
+        child: _saving
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                children: [
+                  if (isGeneric)
+                    Card(
+                      color: Colors.amber.shade50,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Row(
+                          children: [
+                            Icon(Icons.warning_amber, color: Colors.amber.shade800),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Generic appointment — service/details not fully confirmed',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.amber.shade900,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (isGeneric) const SizedBox(height: 16),
+                  _DetailRow(label: 'Date & time', value: formatAppointmentDateTime(start)),
+                  _DetailRow(label: 'Service', value: displayService),
+                  _DetailRow(label: 'Receptionist', value: apt['receptionist_name'] as String? ?? '—'),
+                  _DetailRow(label: 'Caller', value: apt['caller_number'] != null ? maskPhone(apt['caller_number']) : '—'),
+                  _DetailRow(label: 'Status', value: _statusLabel(status)),
+                  if (locDisplay != null && locDisplay.isNotEmpty)
+                    _DetailRow(label: 'Location / address', value: locDisplay),
+                  if (hasPayment) _DetailRow(label: 'Payment link', value: 'Attached'),
+                  const SizedBox(height: 24),
+                  _buildFollowUpSection(
+                    apt: apt,
+                    confirmSent: confirmSent,
+                    hasPayment: hasPayment,
+                    hasInstructions: (apt['meeting_instructions'] as String?)?.trim().isNotEmpty ?? false,
+                    locationType: apt['location_type'] as String?,
+                  ),
+                  if (apt['notes'] != null && (apt['notes'] as String).trim().isNotEmpty)
+                    _DetailRow(label: 'Notes', value: (apt['notes'] as String).trim()),
+                  if (transcript != null && transcript.trim().isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    Text('Transcript', style: Theme.of(context).textTheme.titleSmall),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: SelectableText(
+                        truncatePreview(transcript, maxLength: 500),
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 32),
+                  Text('Actions', style: Theme.of(context).textTheme.titleSmall),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (status != 'confirmed')
+                        FilledButton.icon(
+                          onPressed: _saving ? null : () => _updateStatus('confirmed'),
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Confirm'),
+                        ),
+                      if (status != 'cancelled')
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : () => _updateStatus('cancelled'),
+                          icon: const Icon(Icons.cancel, size: 18),
+                          label: const Text('Reject'),
+                        ),
+                      if (status != 'completed' && start != null && start.isBefore(DateTime.now()))
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : () => _updateStatus('completed'),
+                          icon: const Icon(Icons.done_all, size: 18),
+                          label: const Text('Mark completed'),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _showEditService,
+                        icon: const Icon(Icons.edit, size: 18),
+                        label: const Text('Edit service'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _showEditNotes,
+                        icon: const Icon(Icons.note_add, size: 18),
+                        label: const Text('Edit notes'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: confirmSent || callerNumber == null || callerNumber.isEmpty
+                            ? null
+                            : () => _showSendConfirmation(isResend: false),
+                        icon: const Icon(Icons.send, size: 18),
+                        label: const Text('Send confirmation'),
+                      ),
+                      if (confirmSent)
+                        OutlinedButton.icon(
+                          onPressed: callerNumber == null || callerNumber.isEmpty ? null : () => _showSendConfirmation(isResend: true),
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Resend confirmation'),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _showAttachPaymentLink,
+                        icon: const Icon(Icons.payment, size: 18),
+                        label: const Text('Payment link'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _saving ? null : _showEditServiceInstructions,
+                        icon: const Icon(Icons.list_alt, size: 18),
+                        label: const Text('Service instructions'),
+                      ),
+                      if (_isAddressBased(apt))
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _showEditAddress,
+                          icon: const Icon(Icons.place, size: 18),
+                          label: const Text('Address'),
+                        ),
+                      if (_isVideoMeeting(apt))
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _showEditVideoLink,
+                          icon: const Icon(Icons.video_call, size: 18),
+                          label: const Text('Meeting link'),
+                        ),
+                      if (!_isAddressBased(apt) && !_isVideoMeeting(apt))
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _showEditAddressOrVideo,
+                          icon: const Icon(Icons.location_on, size: 18),
+                          label: const Text('Address / link'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _FollowUpRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _FollowUpRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ),
+          Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium)),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageComposerDialog extends StatefulWidget {
+  final String title;
+  final String initialMessage;
+
+  const _MessageComposerDialog({required this.title, required this.initialMessage});
+
+  @override
+  State<_MessageComposerDialog> createState() => _MessageComposerDialogState();
+}
+
+class _MessageComposerDialogState extends State<_MessageComposerDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialMessage);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Edit the message before sending. Keep it concise.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: 'Your appointment is confirmed for...',
+              border: OutlineInputBorder(),
+              alignLabelWithHint: true,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final t = _controller.text.trim();
+            Navigator.of(context).pop(t.isEmpty ? widget.initialMessage : t);
+          },
+          child: const Text('Send'),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditTextDialog extends StatefulWidget {
+  final String title;
+  final String label;
+  final String initialValue;
+  final String? hint;
+
+  const _EditTextDialog({
+    required this.title,
+    required this.label,
+    required this.initialValue,
+    this.hint,
+  });
+
+  @override
+  State<_EditTextDialog> createState() => _EditTextDialogState();
+}
+
+class _EditTextDialogState extends State<_EditTextDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: widget.label.contains('Notes') ? 4 : 1,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          hintText: widget.hint,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _DetailRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(value, style: Theme.of(context).textTheme.bodyLarge),
+        ],
+      ),
+    );
+  }
+}

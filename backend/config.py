@@ -48,10 +48,10 @@ class Settings(BaseSettings):
     # Google Cloud TTS (ADC or GOOGLE_APPLICATION_CREDENTIALS)
     google_tts_voice_allowlist: str = ""  # Comma-separated voice names; empty = derive from presets + default
     google_tts_default_language_code: str = "en-US"  # Env: GOOGLE_TTS_DEFAULT_LANGUAGE_CODE
-    google_tts_default_voice_name: str = "en-US-Neural2-F"  # Env: GOOGLE_TTS_DEFAULT_VOICE_NAME
-    google_tts_backup_voice_name: str = "en-US-Neural2-C"  # Env: GOOGLE_TTS_BACKUP_VOICE_NAME
+    google_tts_default_voice_name: str = "en-US-Neural2-C"  # Env: GOOGLE_TTS_DEFAULT_VOICE_NAME
+    google_tts_backup_voice_name: str = "en-US-Neural2-A"  # Env: GOOGLE_TTS_BACKUP_VOICE_NAME
     google_tts_allow_premium_tiers: bool = False  # Env: GOOGLE_TTS_ALLOW_PREMIUM_TIERS (Studio, etc.)
-    google_tts_speaking_rate: float = 1.0  # Env: GOOGLE_TTS_SPEAKING_RATE
+    google_tts_speaking_rate: float = 1.22  # Env: GOOGLE_TTS_SPEAKING_RATE
     google_tts_pitch: float = 0.0  # Semitones -20..20; Env: GOOGLE_TTS_PITCH
     google_tts_preview_sample_rate_hertz: int = 24000  # MP3 preview; Env: GOOGLE_TTS_PREVIEW_SAMPLE_RATE_HERTZ
     # Cost / limits

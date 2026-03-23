@@ -609,6 +609,16 @@ def handle_create_appointment(
 
     logger.info("[CAL_BOOK] create_appointment success event_id=%s", event.get("id"))
 
+    # Status: generic -> needs_review, service_based -> confirmed
+    booking_mode = followup.get("booking_mode") or "generic"
+    appointment_status = "needs_review" if booking_mode == "generic" else "confirmed"
+
+    # Caller number (E.164) for appointment review UI
+    to_number_raw = (params.get("caller_phone") or "").strip() or None
+    caller_number = _normalize_phone(to_number_raw) if to_number_raw else None
+    if caller_number and not _is_e164(caller_number):
+        caller_number = None
+
     # Persist extended booking record (provider-ready for Square etc.)
     try:
         supabase.table("appointments").insert({
@@ -626,6 +636,8 @@ def handle_create_appointment(
             "customer_address": customer_address,
             "price_cents": price_cents,
             "notes": notes,
+            "status": appointment_status,
+            "caller_number": caller_number,
             "booking_mode": followup.get("booking_mode"),
             "followup_mode": followup.get("followup_mode"),
             "followup_message_resolved": followup.get("followup_message_resolved"),
@@ -640,8 +652,7 @@ def handle_create_appointment(
 
     # Immediate post-booking SMS follow-up (best-effort; never breaks booking).
     try:
-        to_number_raw = (params.get("caller_phone") or "").strip() or None
-        to_number = _normalize_phone(to_number_raw) if to_number_raw else None
+        to_number = caller_number
         from_number = _resolve_sms_from_number(supabase=supabase, receptionist_id=receptionist_id)
         resolved_msg = (followup.get("followup_message_resolved") or "").strip() or None
         validation_ok = to_number is not None and _is_e164(to_number)

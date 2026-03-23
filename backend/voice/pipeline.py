@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Callable, Awaitable, Optional
 
@@ -17,10 +18,82 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY = 20
 SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh", "yeah", "yes"})
 FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "so"})
-DEBOUNCE_MS = 400
+DEBOUNCE_MS = 1200
+DEBOUNCE_MS_SHORT_PAUSE = 1800
+SHORT_PAUSE_MAX_WORDS = 4
 MIN_CONFIDENCE = 0.35
+
+# Phrases that indicate the caller likely has more to say (incomplete turn)
+INCOMPLETE_PHRASE_ENDINGS = (
+    " to",
+    " for",
+    " at",
+    " on",
+    " i want",
+    " i wanna",
+    " i need",
+    " can you",
+    " could you",
+    " tomorrow at",
+    " today at",
+)
+INCOMPLETE_SINGLE_WORDS = frozenset({"to", "for", "at", "on"})
 CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
 PRE_TOOL_FILLER_PHRASE = "One sec."
+
+# Voice output: assistant must output only literal spoken words (no narration/actions)
+VOICE_OUTPUT_INSTRUCTIONS = (
+    "\n\nVoice output rules: Your replies are spoken aloud. Output ONLY the literal words to be spoken. "
+    "Never include emojis, emoticons (e.g. :)), stage directions, or action narration such as (smiles), [laughs], *pause*, or standalone words like 'Smile' or 'Smiles' used as action text. "
+    "Keep content suitable for text-to-speech: no markup, no parenthetical asides that are not meant to be spoken."
+)
+
+
+def _extract_spoken_slots(text: str) -> list[str]:
+    """Best-effort extraction of time-like mentions from spoken response for guard logging."""
+    if not text or not text.strip():
+        return []
+    t = text.lower()
+    found: list[str] = []
+    for m in re.finditer(r"\b(\d{1,2})\s*(?::\d{2})?\s*(am|pm|a\.m\.|p\.m\.|o'?clock)?\b", t, re.IGNORECASE):
+        found.append(m.group(0).strip())
+    for period in ("morning", "afternoon", "evening"):
+        if period in t:
+            found.append(period)
+    return found
+
+
+def _log_availability_guard(response: str, tool_slots: dict[str, Any]) -> None:
+    """Log tool slots vs spoken slots; warn if response mentions times not in tool result."""
+    tool_exact = tool_slots.get("exact_slots") or []
+    tool_suggested = tool_slots.get("suggested_slots") or []
+    tool_periods = tool_slots.get("summary_periods") or []
+    slots_str = ",".join(tool_exact or tool_suggested)
+    logger.info("[AVAILABILITY_SPOKEN_GUARD] tool_slots=%s", slots_str or "(none)")
+    spoken = _extract_spoken_slots(response)
+    logger.info("[AVAILABILITY_SPOKEN_GUARD] spoken_slots=%s", ",".join(spoken) if spoken else "(none)")
+    if not spoken:
+        return
+    allowed = set(str(s) for s in (tool_exact or tool_suggested))
+    allowed_periods = set(p.lower() for p in tool_periods)
+    for s in spoken:
+        s_lower = s.lower()
+        if s_lower in allowed_periods:
+            continue
+        if any(s_lower in a or a in s_lower for a in allowed):
+            continue
+        if re.match(r"^\d", s) and not allowed:
+            logger.warning(
+                "[AVAILABILITY_SPOKEN_GUARD] spoken time %r may not be in tool result tool_slots=%s",
+                s,
+                slots_str,
+            )
+        elif re.match(r"^\d", s):
+            logger.warning(
+                "[AVAILABILITY_SPOKEN_GUARD] spoken time %r differs from tool slots=%s",
+                s,
+                slots_str,
+            )
 
 
 def normalize_tool_args(args: dict) -> dict:
@@ -52,6 +125,7 @@ def make_calendar_tool_exec(
     on_audio: Callable[[bytes], Awaitable[None]],
     on_error: Optional[Callable[[Exception], None]],
     tts_failure_logged: list[bool],
+    last_availability_slots: dict[str, Any],
 ) -> Callable[[str, dict], Awaitable[str]]:
     """
     Create a per-turn tool_exec coroutine that:
@@ -137,6 +211,15 @@ def make_calendar_tool_exec(
             result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
             t_tool_end = time.perf_counter()
             logger.info("[BOOKING_LATENCY] calendar_tool_end tool=%s duration_ms=%.0f", name, (t_tool_end - t_tool_start) * 1000)
+            if name == "check_availability" and result:
+                try:
+                    parsed = json.loads(result)
+                    if parsed.get("success") is True:
+                        last_availability_slots["exact_slots"] = parsed.get("exact_slots") or []
+                        last_availability_slots["suggested_slots"] = parsed.get("suggested_slots") or []
+                        last_availability_slots["summary_periods"] = parsed.get("summary_periods") or []
+                except (json.JSONDecodeError, TypeError):
+                    pass
             if name == "create_appointment" and result:
                 try:
                     parsed = json.loads(result)
@@ -169,6 +252,16 @@ def _passes_transcript_guard(text: str) -> bool:
     return True
 
 
+def _is_incomplete_transcript(text: str) -> bool:
+    """Return True if transcript ends in a dangling phrase and caller likely has more to say."""
+    s = (text or "").strip().lower()
+    if not s:
+        return False
+    if s in INCOMPLETE_SINGLE_WORDS:
+        return True
+    return any(s.endswith(ending) or s == ending.strip() for ending in INCOMPLETE_PHRASE_ENDINGS)
+
+
 async def run_voice_pipeline(
     config: dict[str, Any],
     on_audio: Callable[[bytes], Awaitable[None]],
@@ -183,8 +276,9 @@ async def run_voice_pipeline(
     Debounce prevents duplicate triggers from tiny transcript updates.
     New caller speech cancels any pending or in-flight response.
     """
+    system_content = (config.get("system_prompt") or "") + VOICE_OUTPUT_INSTRUCTIONS
     history: list[dict[str, Any]] = [
-        {"role": "system", "content": config["system_prompt"]},
+        {"role": "system", "content": system_content},
     ]
     if config.get("greeting"):
         history.append({"role": "assistant", "content": config["greeting"]})
@@ -248,11 +342,13 @@ async def run_voice_pipeline(
                 and config.get("voice_server_base_url")
             )
             if use_calendar:
+                last_availability_slots: dict[str, Any] = {}
                 tool_exec = make_calendar_tool_exec(
                     config=config,
                     on_audio=on_audio,
                     on_error=on_error,
                     tts_failure_logged=tts_failure_logged,
+                    last_availability_slots=last_availability_slots,
                 )
 
                 response = await chat_with_tools(
@@ -265,6 +361,8 @@ async def run_voice_pipeline(
                 response = await chat(history, config["grok_api_key"])
 
             history.append({"role": "assistant", "content": response})
+            if use_calendar and last_availability_slots:
+                _log_availability_guard(response, last_availability_slots)
             logger.info("[turn] TTS started response_len=%d", len(response))
             t_tts_start = time.perf_counter()
             logger.info("[BOOKING_LATENCY] tts_start t=%.3f response_len=%d", t_tts_start, len(response))
@@ -299,7 +397,6 @@ async def run_voice_pipeline(
             debounce_task = None
 
         full_transcript = " ".join(transcript_buffer).strip()
-        transcript_buffer.clear()
         confidence = alts[0].get("confidence") if alts else None
 
         logger.debug(
@@ -311,10 +408,25 @@ async def run_voice_pipeline(
 
         if not full_transcript:
             logger.debug("[turn] Trigger skipped: empty transcript")
+            transcript_buffer.clear()
             return
 
+        if _is_incomplete_transcript(full_transcript):
+            logger.info("[TURN_GUARD] incomplete_transcript_wait transcript=%s", full_transcript[:80])
+            return
+
+        transcript_buffer.clear()
         turn_complete_transcript = full_transcript
         turn_complete_confidence = confidence
+
+        words = full_transcript.lower().split()
+        use_short_pause_debounce = (
+            len(words) <= SHORT_PAUSE_MAX_WORDS
+            and not all(w in SHORT_ALLOWED for w in words)
+        )
+        if use_short_pause_debounce:
+            logger.info("[TURN_GUARD] deferred_due_to_short_pause transcript=%s", full_transcript[:80])
+        debounce_ms = DEBOUNCE_MS_SHORT_PAUSE if use_short_pause_debounce else DEBOUNCE_MS
 
         def _on_debounce_fire() -> None:
             nonlocal debounce_task, grok_task
@@ -326,7 +438,7 @@ async def run_voice_pipeline(
                 logger.debug("[turn] Debounce fired but already processing, skipping")
 
         debounce_task = asyncio.create_task(
-            asyncio.sleep(DEBOUNCE_MS / 1000.0)
+            asyncio.sleep(debounce_ms / 1000.0)
         )
         debounce_task.add_done_callback(
             lambda t: _on_debounce_fire() if not t.cancelled() else None

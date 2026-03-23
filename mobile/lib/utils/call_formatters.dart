@@ -58,6 +58,21 @@ String truncateTranscriptPreview(String? text, {int maxLength = 80}) {
   return '${t.substring(0, maxLength).trim()}…';
 }
 
+/// Format E.164 phone for display (e.g. "+1 (555) 123-4567" or last 4 digits masked).
+String formatPhoneForDisplay(String? raw, {bool mask = false}) {
+  if (raw == null || raw.trim().isEmpty) return '—';
+  final digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.isEmpty) return raw;
+  if (mask && digits.length > 4) return '***${digits.substring(digits.length - 2)}';
+  if (digits.length >= 10) {
+    final area = digits.length >= 10 ? digits.substring(digits.length - 10, digits.length - 7) : '';
+    final mid = digits.length >= 7 ? digits.substring(digits.length - 7, digits.length - 4) : digits;
+    final last = digits.substring(digits.length >= 4 ? digits.length - 4 : 0);
+    return '($area) $mid-$last';
+  }
+  return raw;
+}
+
 /// Outcome badge label derived from call data.
 /// Backend fields used: duration_seconds, answered_at, outcome (if present).
 String callOutcomeLabel(Map<String, dynamic> call) {

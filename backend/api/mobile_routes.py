@@ -753,6 +753,225 @@ async def receptionist_website(request: Request, receptionist_id: str):
     return {"ok": True}
 
 
+# --- Appointments (review workflow) ---
+def _get_user_receptionist_ids(supabase, user_id: str) -> list[str]:
+    """Return list of receptionist IDs owned by user."""
+    r = (
+        supabase.table("receptionists")
+        .select("id")
+        .eq("user_id", user_id)
+        .is_("deleted_at", "null")
+        .execute()
+    )
+    return [row["id"] for row in (r.data or []) if row.get("id")]
+
+
+def _assert_appointment_ownership(appointment_id: str, user_id: str, supabase) -> str | None:
+    """Return None if user owns the appointment (via receptionist), else error string."""
+    r = (
+        supabase.table("appointments")
+        .select("id, receptionist_id")
+        .eq("id", appointment_id)
+        .single()
+        .execute()
+    )
+    if not r.data:
+        return "Appointment not found"
+    rec_id = r.data.get("receptionist_id")
+    if not rec_id:
+        return "Appointment not found"
+    err = _assert_receptionist_ownership(rec_id, user_id, supabase)
+    return err
+
+
+@router.get("/appointments")
+async def list_appointments(request: Request):
+    """List upcoming appointments for user's receptionists. Optional status filter."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    rec_ids = _get_user_receptionist_ids(supabase, user["id"])
+    if not rec_ids:
+        return {"appointments": [], "receptionists": {}}
+
+    status_filter = request.query_params.get("status")
+    receptionist_filter = request.query_params.get("receptionist_id")
+    limit = min(int(request.query_params.get("limit", 50)), 100)
+    offset = max(0, int(request.query_params.get("offset", 0)))
+    rec_ids_filter = rec_ids
+    if receptionist_filter and receptionist_filter in rec_ids:
+        rec_ids_filter = [receptionist_filter]
+
+    try:
+        q = (
+            supabase.table("appointments")
+            .select(
+                "id, receptionist_id, event_id, start_time, end_time, duration_minutes, "
+                "summary, description, service_id, service_name, location_type, location_text, "
+                "customer_address, price_cents, notes, status, caller_number, booking_mode, "
+                "followup_mode, followup_message_resolved, payment_link, "
+                "confirmation_message_sent_at, payment_link_sent_at, created_at"
+            )
+            .in_("receptionist_id", rec_ids_filter)
+            .order("start_time", desc=False)
+            .range(offset, offset + limit - 1)
+        )
+        if status_filter and status_filter in ("confirmed", "needs_review", "cancelled", "completed"):
+            q = q.eq("status", status_filter)
+        rows = q.execute()
+        appointments = rows.data or []
+
+        rec_rows = (
+            supabase.table("receptionists")
+            .select("id, name")
+            .in_("id", list({a["receptionist_id"] for a in appointments}))
+            .execute()
+        )
+        receptionists = {r["id"]: r.get("name") or "Receptionist" for r in (rec_rows.data or [])}
+
+        return {"appointments": appointments, "receptionists": receptionists}
+    except Exception as e:
+        logger.exception("[appointments] list failed: %s", e)
+        return {"appointments": [], "receptionists": {}}
+
+
+@router.get("/appointments/{appointment_id}")
+async def get_appointment(request: Request, appointment_id: str):
+    """Get single appointment with receptionist and optional call transcript."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_appointment_ownership(appointment_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    try:
+        r = (
+            supabase.table("appointments")
+            .select(
+                "id, receptionist_id, event_id, start_time, end_time, duration_minutes, "
+                "summary, description, service_id, service_name, location_type, location_text, "
+                "customer_address, price_cents, notes, status, caller_number, booking_mode, "
+                "followup_mode, followup_message_resolved, payment_link, "
+                "meeting_instructions, owner_selected_platform, internal_followup_notes, "
+                "confirmation_message_sent_at, payment_link_sent_at, created_at, updated_at"
+            )
+            .eq("id", appointment_id)
+            .single()
+            .execute()
+        )
+        if not r.data:
+            return JSONResponse({"error": "Appointment not found"}, status_code=404)
+
+        apt = dict(r.data)
+        rec_id = apt.get("receptionist_id")
+        if rec_id:
+            rec_r = supabase.table("receptionists").select("id, name").eq("id", rec_id).single().execute()
+            apt["receptionist_name"] = (rec_r.data or {}).get("name") or "Receptionist"
+        else:
+            apt["receptionist_name"] = "—"
+
+        call_log_id = apt.get("call_log_id")
+        if call_log_id:
+            try:
+                cl = supabase.table("call_logs").select("transcript").eq("id", call_log_id).single().execute()
+                apt["transcript"] = (cl.data or {}).get("transcript")
+            except Exception:
+                apt["transcript"] = None
+        else:
+            apt["transcript"] = None
+
+        return apt
+    except Exception as e:
+        logger.exception("[appointments] get failed: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@router.patch("/appointments/{appointment_id}")
+async def update_appointment(request: Request, appointment_id: str):
+    """Update appointment: confirm, reject, edit service/notes, attach payment link, etc."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_appointment_ownership(appointment_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    updates = {"updated_at": datetime.utcnow().isoformat() + "Z"}
+    if "status" in body and body["status"] in ("confirmed", "needs_review", "cancelled", "completed"):
+        updates["status"] = body["status"]
+    if "service_name" in body:
+        updates["service_name"] = (body["service_name"] or "").strip() or None
+    if "notes" in body:
+        updates["notes"] = (body["notes"] or "").strip() or None
+    if "payment_link" in body:
+        updates["payment_link"] = (body["payment_link"] or "").strip() or None
+    if "location_text" in body:
+        updates["location_text"] = (body["location_text"] or "").strip() or None
+    if "customer_address" in body:
+        updates["customer_address"] = (body["customer_address"] or "").strip() or None
+    if "internal_followup_notes" in body:
+        updates["internal_followup_notes"] = (body["internal_followup_notes"] or "").strip() or None
+    if "meeting_instructions" in body:
+        updates["meeting_instructions"] = (body["meeting_instructions"] or "").strip() or None
+
+    if len(updates) <= 1:
+        return {"ok": True}
+
+    supabase.table("appointments").update(updates).eq("id", appointment_id).execute()
+    return {"ok": True}
+
+
+@router.post("/appointments/{appointment_id}/send-confirmation")
+async def send_appointment_confirmation_route(request: Request, appointment_id: str):
+    """Send confirmation SMS to the appointment caller. Optional body: { message?: string }."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_appointment_ownership(appointment_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    try:
+        body = await request.json() if request.headers.get("content-length", "0") != "0" else {}
+    except Exception:
+        body = {}
+
+    message = (body.get("message") or "").strip() or None
+
+    r = (
+        supabase.table("appointments")
+        .select(
+            "id, receptionist_id, caller_number, followup_message_resolved, "
+            "payment_link, meeting_instructions, customer_address, location_text"
+        )
+        .eq("id", appointment_id)
+        .single()
+        .execute()
+    )
+    if not r.data:
+        return JSONResponse({"error": "Appointment not found"}, status_code=404)
+
+    from api.appointment_followup import send_appointment_confirmation
+
+    result = send_appointment_confirmation(supabase, r.data, message=message)
+    if not result.get("success"):
+        return JSONResponse(
+            {"success": False, "error": result.get("error", "Failed to send")},
+            status_code=400,
+        )
+    return {"success": True}
+
+
 @router.get("/receptionists/{receptionist_id}/call-history")
 async def get_call_history(request: Request, receptionist_id: str):
     user, supabase = _require_auth(request)
@@ -769,20 +988,43 @@ async def get_call_history(request: Request, receptionist_id: str):
     try:
         rows = (
             supabase.table("call_logs")
-            .select("id, call_control_id, from_number, to_number, direction, status, started_at, answered_at, ended_at, duration_seconds, cost_cents, transcript")
+            .select(
+                "id, call_control_id, from_number, to_number, direction, status, started_at, answered_at, ended_at, "
+                "duration_seconds, cost_cents, transcript, outcome, "
+                "recording_status, recording_url, recorded_at, recording_duration_seconds"
+            )
             .eq("receptionist_id", receptionist_id)
-            .eq("status", "completed")
             .order("started_at", desc=True)
             .range(offset, offset + limit - 1)
             .execute()
         )
         calls = rows.data if rows and rows.data is not None else []
+        # Resolve appointment_id for each call (appointments.call_log_id = call.id)
+        call_ids = [c["id"] for c in (calls or []) if c.get("id")]
+        appointment_by_call = {}
+        if call_ids:
+            try:
+                apt_rows = (
+                    supabase.table("appointments")
+                    .select("id, call_log_id")
+                    .in_("call_log_id", call_ids)
+                    .execute()
+                )
+                for a in (apt_rows.data or []):
+                    clid = a.get("call_log_id")
+                    if clid:
+                        appointment_by_call[str(clid)] = a.get("id")
+            except Exception:
+                pass
         # Defensive: ensure each row has expected fields, coerce None duration
         safe_calls = []
         for r in (calls or []):
             safe = dict(r) if isinstance(r, dict) else {}
             if safe.get("duration_seconds") is None:
                 safe["duration_seconds"] = 0
+            call_id = safe.get("id")
+            if call_id and str(call_id) in appointment_by_call:
+                safe["appointment_id"] = appointment_by_call[str(call_id)]
             safe_calls.append(safe)
         logger.info(
             "[CALL_DIAG] call-history receptionist_id=%s count=%s offset=%s",

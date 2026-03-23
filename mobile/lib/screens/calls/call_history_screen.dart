@@ -22,6 +22,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   List<Map<String, dynamic>> _calls = [];
   bool _loading = true;
   String? _error;
+  String? _outcomeFilter;
 
   @override
   void initState() {
@@ -48,6 +49,11 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     }
   }
 
+  List<Map<String, dynamic>> get _filteredCalls {
+    if (_outcomeFilter == null || _outcomeFilter!.isEmpty) return _calls;
+    return _calls.where((c) => callOutcomeLabel(c) == _outcomeFilter).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -63,23 +69,60 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _error != null
                 ? _buildError()
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: _calls.isEmpty
-                        ? _buildEmpty()
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 16),
-                            itemCount: _calls.length,
-                            itemBuilder: (context, i) {
-                              final call = _calls[i];
-                              return _CallRow(
-                                call: call,
-                                onTap: () => _openDetail(call),
-                              );
-                            },
-                          ),
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _buildFilterChips(),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _load,
+                          child: _filteredCalls.isEmpty
+                              ? _buildEmpty()
+                              : ListView.builder(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 24, vertical: 16),
+                                  itemCount: _filteredCalls.length,
+                                  itemBuilder: (context, i) {
+                                    final call = _filteredCalls[i];
+                                    return _CallRow(
+                                      call: call,
+                                      onTap: () => _openDetail(call),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChips() {
+    const filters = [
+      (null, 'All'),
+      ('Completed', 'Completed'),
+      ('Short Call', 'Short Call'),
+      ('Missed', 'Missed'),
+      ('Booked', 'Booked'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+      child: Row(
+        children: filters.map((f) {
+          final selected = _outcomeFilter == f.$1;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(f.$2),
+              selected: selected,
+              onSelected: (_) {
+                setState(() => _outcomeFilter = selected ? null : f.$1);
+              },
+            ),
+          );
+        }).toList(),
       ),
     );
   }
@@ -118,6 +161,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   }
 
   Widget _buildEmpty() {
+    final isFiltered = _outcomeFilter != null;
     return CustomScrollView(
       slivers: [
         SliverFillRemaining(
@@ -131,12 +175,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                     size: 48, color: Colors.grey.shade400),
                 const SizedBox(height: 12),
                 Text(
-                  'No calls yet',
+                  isFiltered ? 'No $_outcomeFilter calls' : 'No calls yet',
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  "When customers call your AI receptionist, they'll appear here.",
+                  isFiltered
+                      ? 'Try a different filter.'
+                      : "When customers call your AI receptionist, they'll appear here.",
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
@@ -179,7 +225,7 @@ class _CallRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
         onTap: onTap,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         title: Row(
           children: [
             Expanded(
@@ -188,13 +234,22 @@ class _CallRow extends StatelessWidget {
                 style: Theme.of(context).textTheme.titleSmall,
               ),
             ),
+            if (_hasRecording(call))
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(
+                  Icons.mic,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
             _OutcomeChip(label: outcome),
           ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Row(
               children: [
                 Text(
@@ -204,7 +259,7 @@ class _CallRow extends StatelessWidget {
                 if (fromNumber.isNotEmpty) ...[
                   const SizedBox(width: 8),
                   Text(
-                    _maskNumber(fromNumber),
+                    formatPhoneForDisplay(fromNumber, mask: true),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
@@ -213,11 +268,12 @@ class _CallRow extends StatelessWidget {
               ],
             ),
             if (preview.isNotEmpty) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 preview,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontStyle: FontStyle.italic,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -230,11 +286,12 @@ class _CallRow extends StatelessWidget {
     );
   }
 
-  String _maskNumber(String s) {
-    final digits = s.replaceAll(RegExp(r'\D'), '');
-    if (digits.length <= 4) return '***';
-    return '***${digits.substring(digits.length - 2)}';
+  bool _hasRecording(Map<String, dynamic> call) {
+    final status = call['recording_status'] as String?;
+    final url = (call['recording_url'] as String?)?.trim();
+    return status == 'available' && url != null && url.isNotEmpty;
   }
+
 }
 
 class _OutcomeChip extends StatelessWidget {

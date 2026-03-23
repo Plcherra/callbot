@@ -49,6 +49,7 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
         on_audio=on_audio,
         on_error=None,
         tts_failure_logged=[False],
+        last_availability_slots={},
     )
 
     # Simulate the model calling the same tool twice with slightly different arg types.
@@ -91,6 +92,7 @@ async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
+        last_availability_slots={},
     )
 
     result = await tool_exec("create_appointment", {
@@ -130,6 +132,7 @@ async def test_check_availability_blocked_when_services_exist_and_no_service_sel
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
+        last_availability_slots={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow"})
@@ -175,6 +178,7 @@ async def test_check_availability_proceeds_when_service_name_passed(monkeypatch)
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
+        last_availability_slots={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow", "service_name": "Business consulting"})
@@ -207,6 +211,7 @@ async def test_check_availability_proceeds_when_generic_appointment_requested(mo
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
+        last_availability_slots={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow", "generic_appointment_requested": True})

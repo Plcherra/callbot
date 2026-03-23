@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
@@ -80,8 +81,13 @@ async def _send_mulaw_chunks(
 ) -> None:
     if chunk_bytes <= 0:
         chunk_bytes = 1600
+    t_chunk_start = time.perf_counter()
+    chunks_sent = 0
     for i in range(0, len(audio), chunk_bytes):
         await on_audio(audio[i : i + chunk_bytes])
+        chunks_sent += 1
+    t_chunk_end = time.perf_counter()
+    logger.info("[BOOKING_LATENCY] tts_chunks_sent chunks=%s duration_ms=%.0f", chunks_sent, (t_chunk_end - t_chunk_start) * 1000)
 
 
 async def _google_synthesize_to_mulaw(
@@ -125,6 +131,8 @@ async def _google_synthesize_to_mulaw(
             len(text),
         )
         return hit
+    t_synth_start = time.perf_counter()
+    logger.info("[BOOKING_LATENCY] tts_synthesis_start chars=%s t=%.3f", len(text), t_synth_start)
     audio = await synthesize_text_with_retry(
         text,
         opts,
@@ -132,6 +140,8 @@ async def _google_synthesize_to_mulaw(
         base_seconds=settings.tts_google_retry_base_seconds,
         max_seconds=settings.tts_google_retry_max_seconds,
     )
+    t_synth_end = time.perf_counter()
+    logger.info("[BOOKING_LATENCY] tts_synthesis_end duration_ms=%.0f bytes=%s", (t_synth_end - t_synth_start) * 1000, len(audio))
     await cache.put(key, audio)
     return audio
 

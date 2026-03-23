@@ -7,7 +7,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "check_availability",
-            "description": "Check available time slots in the calendar for a given date. When services are configured: (a) if the caller names a service (e.g. 'business consulting'), pass service_name—do NOT ask for more specificity like 'what type of consulting?'; (b) if the caller wants a general appointment with no specific service, pass generic_appointment_requested=true. Only ask for clarification when the service is ambiguous or missing. When the caller provides both date and service, call check_availability immediately with service_name.",
+            "description": "Check available time slots in the calendar for a given date. When services are configured: (a) if the caller names a service (e.g. 'business consulting'), pass service_name—do NOT ask for more specificity; (b) if the caller wants a general appointment, pass generic_appointment_requested=true. When presenting availability: if many slots exist, summarize by period first (morning, afternoon, evening)—e.g. 'I have morning and afternoon openings. What time works for you?' or 'Morning is full, but I have afternoon availability.'; offer at most 3 exact times aloud unless the caller explicitly asks for all slots—e.g. 'I can do 1, 2, or 4 PM. Which works best?'; never read raw availability arrays or exhaustive slot lists aloud; do not mention timezone unless the caller asks or ambiguity blocks booking.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -21,7 +21,7 @@ CALENDAR_TOOLS = [
                     },
                     "end_date": {"type": "string", "description": "Optional end date if checking a date range"},
                     "duration_minutes": {"type": "string", "description": "Appointment duration in minutes (default 30)"},
-                    "timezone": {"type": "string", "description": "Timezone e.g. America/New_York (default America/New_York)"},
+                    "timezone": {"type": "string", "description": "Only pass if caller's location suggests a different timezone; omit to use business default. Do not mention timezone to caller unless they ask or it blocks booking."},
                     "service_name": {
                         "type": "string",
                         "description": "Name of the service the caller selected (e.g. Business consulting). If the caller names a configured service, pass it exactly so the backend can proceed. Do not ask for extra specificity if they already named one.",
@@ -43,7 +43,7 @@ CALENDAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "create_appointment",
-            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot. If the service requires a location, you must collect and pass location_type and location_text or customer_address before calling. After success, give only a short spoken confirmation (e.g. date and time). Do not read follow-up message content aloud.",
+            "description": "Create a new appointment/booking in the calendar. Use after the caller has chosen a time slot. If the service requires a location, you must collect and pass location_type and location_text or customer_address before calling. After success: give ONE concise spoken confirmation, e.g. \"Done — you're booked for tomorrow at 2 PM.\" Do not repeat extra metadata (event ID, link, etc). Do not read follow-up message content aloud—that is sent via SMS.",
             "parameters": {
                 "type": "object",
                 "properties": {

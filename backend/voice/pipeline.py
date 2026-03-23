@@ -1,8 +1,9 @@
 """Voice pipeline: Deepgram STT -> Grok LLM -> TTS (Google Cloud)."""
 
 import asyncio
-import logging
 import json
+import logging
+import time
 from typing import Any, Callable, Awaitable, Optional
 
 from config import settings
@@ -19,7 +20,7 @@ FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "
 DEBOUNCE_MS = 400
 MIN_CONFIDENCE = 0.35
 CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
-PRE_TOOL_FILLER_PHRASE = "One moment…"
+PRE_TOOL_FILLER_PHRASE = "One sec."
 
 
 def normalize_tool_args(args: dict) -> dict:
@@ -73,6 +74,8 @@ def make_calendar_tool_exec(
         if tool_name not in CALENDAR_TOOL_NAMES:
             return
         pre_tool_spoken_this_turn = True
+        t_pre = time.perf_counter()
+        logger.info("[BOOKING_LATENCY] pre_tool_speech_start tool=%s t=%.3f", tool_name, t_pre)
         phrase = PRE_TOOL_FILLER_PHRASE
         logger.info("[CALL_DIAG] pre_tool_speech_sent tool=%s text=%r", tool_name, phrase)
         await generate_and_send_tts(
@@ -129,7 +132,11 @@ def make_calendar_tool_exec(
                 tool_cache[key] = result
                 return result
 
+            t_tool_start = time.perf_counter()
+            logger.info("[BOOKING_LATENCY] calendar_tool_start tool=%s t=%.3f", name, t_tool_start)
             result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
+            t_tool_end = time.perf_counter()
+            logger.info("[BOOKING_LATENCY] calendar_tool_end tool=%s duration_ms=%.0f", name, (t_tool_end - t_tool_start) * 1000)
             if name == "create_appointment" and result:
                 try:
                     parsed = json.loads(result)
@@ -226,6 +233,8 @@ async def run_voice_pipeline(
             return
 
         logger.info("[turn] Grok task started transcript=%r", user_text[:80])
+        t_turn_start = time.perf_counter()
+        logger.info("[BOOKING_LATENCY] turn_start t=%.3f", t_turn_start)
         is_processing = True
         grok_task = None
         try:
@@ -257,10 +266,14 @@ async def run_voice_pipeline(
 
             history.append({"role": "assistant", "content": response})
             logger.info("[turn] TTS started response_len=%d", len(response))
+            t_tts_start = time.perf_counter()
+            logger.info("[BOOKING_LATENCY] tts_start t=%.3f response_len=%d", t_tts_start, len(response))
             await generate_and_send_tts(
                 response, config, on_audio, on_error,
                 _tts_failure_logged=tts_failure_logged,
             )
+            t_turn_end = time.perf_counter()
+            logger.info("[BOOKING_LATENCY] turn_end total_ms=%.0f tts_ms=%.0f", (t_turn_end - t_turn_start) * 1000, (t_turn_end - t_tts_start) * 1000)
         except asyncio.CancelledError:
             logger.debug("[turn] Grok task cancelled")
             raise

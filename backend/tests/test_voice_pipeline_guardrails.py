@@ -12,7 +12,7 @@ from voice.calendar_tools import CALENDAR_TOOLS
 @pytest.mark.asyncio
 async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
     """
-    Guardrail: before first calendar tool call in a user turn, say 'One moment…' once,
+    Guardrail: before first calendar tool call in a user turn, say 'One sec.' once,
     and dedupe identical tool calls (normalized args) within the turn.
     """
     calls: dict[str, int] = {"tts": 0, "calendar": 0}

@@ -656,24 +656,24 @@ def handle_create_appointment(
 
         if to_number_raw and not to_number:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped reason=normalize_failed raw=%r mode=%s",
+                "[CAL_BOOK] booking_created_no_followup_channel reason=normalize_failed raw=%r mode=%s",
                 to_number_raw,
                 followup.get("booking_mode"),
             )
         elif to_number and not _is_e164(to_number):
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped reason=invalid_e164 normalized=%r mode=%s",
+                "[CAL_BOOK] booking_created_no_followup_channel reason=invalid_e164 normalized=%r mode=%s",
                 to_number,
                 followup.get("booking_mode"),
             )
         elif not from_number:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped reason=from_number_empty receptionist_id=%s",
+                "[CAL_BOOK] booking_created_no_followup_channel reason=from_number_empty receptionist_id=%s",
                 receptionist_id,
             )
         elif not resolved_msg:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped reason=no_followup_message mode=%s",
+                "[CAL_BOOK] booking_created_no_followup_channel reason=no_followup_message mode=%s",
                 followup.get("booking_mode"),
             )
         elif to_number and from_number and resolved_msg:
@@ -690,7 +690,7 @@ def handle_create_appointment(
             )
         else:
             logger.info(
-                "[CAL_BOOK] sms_followup_skipped reason=no_to_number caller_phone_present=%s",
+                "[CAL_BOOK] booking_created_no_followup_channel reason=no_to_number caller_phone_present=%s",
                 bool(to_number_raw),
             )
     except Exception as ex:

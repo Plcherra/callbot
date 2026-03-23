@@ -31,7 +31,7 @@ async def main() -> int:
     from voice_presets import DEFAULT_PRESET_KEY, resolve_tts_voice
     from voice.tts_facade import google_preview_mp3
 
-    tts_provider = (settings.tts_provider or "elevenlabs").strip().lower()
+    tts_provider = (settings.tts_provider or "google").strip().lower()
     if tts_provider != "google":
         print(
             "smoke-google-tts.py: TTS_PROVIDER must be 'google'. "
@@ -42,7 +42,7 @@ async def main() -> int:
 
     try:
         voice = resolve_tts_voice(DEFAULT_PRESET_KEY, None)
-        text = "Hello, this is a Google TTS smoke test."
+        text = "Hello, this is a faster Google TTS smoke test. Morning and afternoon slots are available."
         audio_bytes = await google_preview_mp3(text, voice)
     except Exception as e:
         print("smoke-google-tts.py: Google TTS failed:", e, file=sys.stderr)

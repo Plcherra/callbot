@@ -1,0 +1,279 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../services/call_history_service.dart';
+import '../../utils/call_formatters.dart';
+import '../../widgets/constrained_scaffold_body.dart';
+
+class CallHistoryScreen extends StatefulWidget {
+  final String receptionistId;
+  final String? receptionistName;
+
+  const CallHistoryScreen({
+    super.key,
+    required this.receptionistId,
+    this.receptionistName,
+  });
+
+  @override
+  State<CallHistoryScreen> createState() => _CallHistoryScreenState();
+}
+
+class _CallHistoryScreenState extends State<CallHistoryScreen> {
+  List<Map<String, dynamic>> _calls = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final calls = await loadCallHistory(widget.receptionistId);
+      setState(() {
+        _calls = calls;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),
+        ),
+        title: Text(widget.receptionistName ?? 'Call history'),
+      ),
+      body: constrainedScaffoldBody(
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? _buildError()
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: _calls.isEmpty
+                        ? _buildEmpty()
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 16),
+                            itemCount: _calls.length,
+                            itemBuilder: (context, i) {
+                              final call = _calls[i];
+                              return _CallRow(
+                                call: call,
+                                onTap: () => _openDetail(call),
+                              );
+                            },
+                          ),
+                  ),
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: Colors.red.shade400),
+            const SizedBox(height: 16),
+            Text(
+              'Could not load calls',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              style: Theme.of(context).textTheme.bodySmall,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    return CustomScrollView(
+      slivers: [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.phone_missed_outlined,
+                    size: 48, color: Colors.grey.shade400),
+                const SizedBox(height: 12),
+                Text(
+                  'No calls yet',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "When customers call your AI receptionist, they'll appear here.",
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _openDetail(Map<String, dynamic> call) {
+    context.push(
+      '/receptionists/${widget.receptionistId}/calls/${call['id']}',
+      extra: call,
+    );
+  }
+}
+
+class _CallRow extends StatelessWidget {
+  final Map<String, dynamic> call;
+  final VoidCallback onTap;
+
+  const _CallRow({required this.call, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final start = call['started_at'] != null
+        ? DateTime.tryParse(call['started_at'] as String)
+        : null;
+    final dur = call['duration_seconds'] as int?;
+    final transcript = call['transcript'] as String?;
+    final preview = truncateTranscriptPreview(transcript);
+    final outcome = callOutcomeLabel(call);
+    final fromNumber = call['from_number'] as String? ?? '';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                formatCallTimestamp(start),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            _OutcomeChip(label: outcome),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(
+                  formatCallDuration(dur),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (fromNumber.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    _maskNumber(fromNumber),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ],
+            ),
+            if (preview.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                preview,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 20),
+      ),
+    );
+  }
+
+  String _maskNumber(String s) {
+    final digits = s.replaceAll(RegExp(r'\D'), '');
+    if (digits.length <= 4) return '***';
+    return '***${digits.substring(digits.length - 2)}';
+  }
+}
+
+class _OutcomeChip extends StatelessWidget {
+  final String label;
+
+  const _OutcomeChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, bgColor) = _colorsForOutcome(label);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  (Color, Color) _colorsForOutcome(String label) {
+    switch (label) {
+      case 'Booked':
+        return (Colors.green.shade800, Colors.green.shade100);
+      case 'Completed':
+        return (Colors.blue.shade800, Colors.blue.shade100);
+      case 'Short Call':
+        return (Colors.orange.shade800, Colors.orange.shade100);
+      case 'Missed':
+        return (Colors.red.shade800, Colors.red.shade100);
+      default:
+        return (Colors.grey.shade700, Colors.grey.shade200);
+    }
+  }
+}

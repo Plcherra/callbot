@@ -16,6 +16,8 @@ import 'screens/settings/edit_business_screen.dart';
 import 'screens/checkout/checkout_screen.dart';
 import 'screens/help/help_screen.dart';
 import 'screens/call/active_call_screen.dart';
+import 'screens/calls/call_history_screen.dart';
+import 'screens/calls/call_detail_screen.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -107,6 +109,21 @@ GoRouter createAppRouter() {
         path: '/receptionists/:id',
         builder: (context, state) => ReceptionistDetailScreen(
           receptionistId: state.pathParameters['id']!,
+        ),
+      ),
+      GoRoute(
+        path: '/receptionists/:id/calls',
+        builder: (context, state) => CallHistoryScreen(
+          receptionistId: state.pathParameters['id']!,
+          receptionistName: state.uri.queryParameters['name'],
+        ),
+      ),
+      GoRoute(
+        path: '/receptionists/:id/calls/:callId',
+        builder: (context, state) => CallDetailScreen(
+          receptionistId: state.pathParameters['id']!,
+          callId: state.pathParameters['callId']!,
+          callData: state.extra as Map<String, dynamic>?,
         ),
       ),
       GoRoute(

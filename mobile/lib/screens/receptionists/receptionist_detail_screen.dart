@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/receptionist.dart';
 import '../../strings.dart';
 import '../../services/api_client.dart';
+import '../../services/call_history_service.dart';
+import '../../utils/call_formatters.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 
 class ReceptionistDetailScreen extends StatefulWidget {
@@ -53,7 +53,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
           .from('receptionists')
           .select(
               'id, name, phone_number, inbound_phone_number, calendar_id, status, '
-              'system_prompt, greeting, voice_id, assistant_identity, extra_instructions')
+              'system_prompt, greeting, voice_id, voice_preset_key, assistant_identity, extra_instructions')
           .eq('id', widget.receptionistId)
           .eq('user_id', user.id)
           .maybeSingle();
@@ -68,13 +68,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
 
       List<Map<String, dynamic>> history = [];
       try {
-        final histRes = await ApiClient.get(
-          '/api/mobile/receptionists/${widget.receptionistId}/call-history?limit=20',
-        );
-        if (histRes.statusCode >= 200 && histRes.statusCode < 300 && histRes.body.isNotEmpty) {
-          final decoded = jsonDecode(histRes.body) as Map<String, dynamic>?;
-          history = List<Map<String, dynamic>>.from((decoded?['calls'] as List?) ?? []);
-        }
+        history = await loadCallHistory(widget.receptionistId, limit: 20);
       } catch (_) {
         // Fallback: try call_usage if call_logs API fails
         try {
@@ -84,7 +78,8 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
               .eq('receptionist_id', widget.receptionistId)
               .order('started_at', ascending: false)
               .limit(20);
-          history = (fallback as List).cast<Map<String, dynamic>>();
+          final raw = fallback is List ? fallback : (fallback as dynamic).data;
+          history = List<Map<String, dynamic>>.from((raw as List?) ?? []);
         } catch (_) {}
       }
 
@@ -117,8 +112,41 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
 
     if (_receptionist == null) {
       return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: Text('Receptionist not found')),
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => context.go('/receptionists'),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _error != null ? 'Could not load' : 'Receptionist not found',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _error!,
+                    style: Theme.of(context).textTheme.bodySmall,
+                    textAlign: TextAlign.center,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _load,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -172,147 +200,43 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Your business number — give this to customers so they can call and book.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
             const SizedBox(height: 8),
             SelectableText(
               r.displayPhone,
-              style: Theme.of(context).textTheme.headlineSmall,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
             ),
             const SizedBox(height: 24),
-            if (_isPhoneDevice)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.phone),
-                  title: const Text('Test call'),
-                  subtitle: const Text(
-                    'Opens your phone dialer to call the AI.',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => launchUrl(
-                    Uri.parse('tel:${r.displayPhone}'),
-                    mode: LaunchMode.externalApplication,
-                  ),
-                ),
-              )
-            else
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Call this number from your phone to test the AI.',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: () {
-                          Clipboard.setData(
-                            ClipboardData(text: r.displayPhone),
-                          );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Copied!')),
-                          );
-                        },
-                        icon: const Icon(Icons.copy),
-                        label: const Text('Copy'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Overview',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 12),
-                    _OverviewRow('Your business number', r.displayPhone),
-                    if (r.calendarId != null)
-                      _OverviewRow('Calendar', r.calendarId!),
-                    _OverviewRow('Voice', (r.voiceId != null && r.voiceId!.isNotEmpty) ? 'Custom' : 'Default'),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Call history',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            if (_callHistory.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      Icon(Icons.phone_missed_outlined, size: 48, color: Colors.grey.shade400),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No calls yet',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "When customers call your AI receptionist, they'll appear here.",
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              ..._callHistory.map((call) {
-                final start = call['started_at'] != null
-                    ? DateTime.tryParse(call['started_at'] as String)
-                    : null;
-                final dur = call['duration_seconds'] as int?;
-                final transcript = call['transcript'] as String?;
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ExpansionTile(
-                    title: Text(
-                      start != null
-                          ? '${start.toLocal()}'
-                          : 'Unknown',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    subtitle: dur != null
-                        ? Text(
-                            '${dur ~/ 60}m ${dur % 60}s',
-                            style: const TextStyle(fontSize: 12),
-                          )
-                        : null,
-                    children: [
-                      if (transcript != null && transcript.trim().isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Text(
-                            transcript,
-                            style: const TextStyle(fontSize: 12),
-                            maxLines: 5,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                  ),
+            _OverviewCard(
+              receptionist: r,
+              callHistory: _callHistory,
+              onCopyNumber: () {
+                Clipboard.setData(ClipboardData(text: r.displayPhone));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Number copied')),
                 );
-              }),
+              },
+              onTestCall: _isPhoneDevice
+                  ? () => launchUrl(
+                        Uri.parse('tel:${r.displayPhone}'),
+                        mode: LaunchMode.externalApplication,
+                      )
+                  : null,
+              onManageSettings: () =>
+                  context.push('/receptionists/${r.id}/settings'),
+              onViewCallHistory: () => context.push(
+                '/receptionists/${r.id}/calls?name=${Uri.encodeComponent(r.name)}',
+              ),
+            ),
+            const SizedBox(height: 24),
+            _RecentCallsSection(
+              calls: _callHistory.take(3).toList(),
+              receptionistId: r.id,
+              onViewAll: () => context.push(
+                '/receptionists/${r.id}/calls?name=${Uri.encodeComponent(r.name)}',
+              ),
+            ),
             const SizedBox(height: 24),
             Row(
               children: [
@@ -375,6 +299,283 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
         ],
       ),
     );
+  }
+}
+
+class _OverviewCard extends StatelessWidget {
+  final Receptionist receptionist;
+  final List<Map<String, dynamic>> callHistory;
+  final VoidCallback onCopyNumber;
+  final VoidCallback? onTestCall;
+  final VoidCallback onManageSettings;
+  final VoidCallback onViewCallHistory;
+
+  const _OverviewCard({
+    required this.receptionist,
+    required this.callHistory,
+    required this.onCopyNumber,
+    this.onTestCall,
+    required this.onManageSettings,
+    required this.onViewCallHistory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final r = receptionist;
+    final todayCount = _todayCallCount(callHistory);
+    final voiceLabel = (r.voicePresetKey != null && r.voicePresetKey!.isNotEmpty)
+        ? _formatPresetKey(r.voicePresetKey!)
+        : ((r.voiceId != null && r.voiceId!.isNotEmpty) ? 'Custom' : 'Default');
+    final calendarLabel = (r.calendarId != null && r.calendarId!.isNotEmpty)
+        ? _shortCalendarDisplay(r.calendarId!)
+        : 'Not connected';
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Overview',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            _OverviewRow('Business number', r.displayPhone),
+            _OverviewRow('Calendar', calendarLabel),
+            _OverviewRow('Voice', voiceLabel),
+            if (todayCount != null) _OverviewRow('Calls today', '$todayCount'),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.tonalIcon(
+                  onPressed: onCopyNumber,
+                  icon: const Icon(Icons.copy, size: 18),
+                  label: const Text('Copy number'),
+                ),
+                if (onTestCall != null)
+                  FilledButton.tonalIcon(
+                    onPressed: onTestCall,
+                    icon: const Icon(Icons.phone, size: 18),
+                    label: const Text('Test call'),
+                  ),
+                FilledButton.tonalIcon(
+                  onPressed: onManageSettings,
+                  icon: const Icon(Icons.settings, size: 18),
+                  label: const Text('Manage settings'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: onViewCallHistory,
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('View call history'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int? _todayCallCount(List<Map<String, dynamic>> calls) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    var count = 0;
+    for (final c in calls) {
+      final s = c['started_at'];
+      if (s == null) continue;
+      final dt = DateTime.tryParse(s as String);
+      if (dt != null) {
+        final d = DateTime(dt.year, dt.month, dt.day);
+        if (d == today) count++;
+      }
+    }
+    return count > 0 ? count : null;
+  }
+
+  String _formatPresetKey(String key) {
+    return key.split('_').map((s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}').join(' ');
+  }
+
+  String _shortCalendarDisplay(String id) {
+    if (id.contains('@')) return 'Connected';
+    if (id == 'primary') return 'Primary';
+    return 'Connected';
+  }
+}
+
+class _RecentCallsSection extends StatelessWidget {
+  final List<Map<String, dynamic>> calls;
+  final String receptionistId;
+  final VoidCallback onViewAll;
+
+  const _RecentCallsSection({
+    required this.calls,
+    required this.receptionistId,
+    required this.onViewAll,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Recent calls',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            TextButton(
+              onPressed: onViewAll,
+              child: const Text('View all calls'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (calls.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(Icons.phone_missed_outlined,
+                      size: 48, color: Colors.grey.shade400),
+                  const SizedBox(height: 12),
+                  Text(
+                    'No calls yet',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    "When customers call your AI receptionist, they'll appear here.",
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          ...calls.map((call) => _DetailCallRow(
+                call: call,
+                receptionistId: receptionistId,
+                onTap: () => context.push(
+                  '/receptionists/$receptionistId/calls/${call['id']}',
+                  extra: call,
+                ),
+              )),
+      ],
+    );
+  }
+}
+
+class _DetailCallRow extends StatelessWidget {
+  final Map<String, dynamic> call;
+  final String receptionistId;
+  final VoidCallback onTap;
+
+  const _DetailCallRow({
+    required this.call,
+    required this.receptionistId,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final start = call['started_at'] != null
+        ? DateTime.tryParse(call['started_at'] as String)
+        : null;
+    final dur = call['duration_seconds'] as int?;
+    final preview = truncateTranscriptPreview(call['transcript'] as String?);
+    final outcome = callOutcomeLabel(call);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                formatCallTimestamp(start),
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            _OutcomeChip(label: outcome),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 4),
+            Text(
+              formatCallDuration(dur),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (preview.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                preview,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontStyle: FontStyle.italic,
+                    ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
+        ),
+        trailing: const Icon(Icons.chevron_right, size: 20),
+      ),
+    );
+  }
+}
+
+class _OutcomeChip extends StatelessWidget {
+  final String label;
+
+  const _OutcomeChip({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, bgColor) = _colorsForOutcome(label);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+
+  (Color, Color) _colorsForOutcome(String label) {
+    switch (label) {
+      case 'Booked':
+        return (Colors.green.shade800, Colors.green.shade100);
+      case 'Completed':
+        return (Colors.blue.shade800, Colors.blue.shade100);
+      case 'Short Call':
+        return (Colors.orange.shade800, Colors.orange.shade100);
+      case 'Missed':
+        return (Colors.red.shade800, Colors.red.shade100);
+      default:
+        return (Colors.grey.shade700, Colors.grey.shade200);
+    }
   }
 }
 

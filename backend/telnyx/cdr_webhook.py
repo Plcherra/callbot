@@ -62,11 +62,42 @@ def _parse_event(raw_body: bytes) -> dict | None:
         return None
 
 
+def _infer_outcome(
+    *,
+    supabase,
+    row_id: str | None,
+    answered_at,
+    duration_seconds: int,
+) -> str | None:
+    """Infer call outcome: booked | missed | short_call | completed | unknown."""
+    if not row_id:
+        return None
+    if answered_at is None and duration_seconds <= 0:
+        return "missed"
+    if duration_seconds > 0 and duration_seconds < 30:
+        return "short_call"
+    if duration_seconds >= 30:
+        try:
+            apt = (
+                supabase.table("appointments")
+                .select("id")
+                .eq("call_log_id", row_id)
+                .limit(1)
+                .execute()
+            )
+            if apt and apt.data and len(apt.data) > 0:
+                return "booked"
+        except Exception:
+            pass
+        return "completed"
+    return "unknown"
+
+
 def _get_call_log_row(supabase, call_control_id: str) -> dict | None:
     """Fetch call_logs row by call_control_id. Returns row dict or None."""
     try:
         sel = supabase.table("call_logs").select(
-            "id, started_at, answered_at, recording_consent_played"
+            "id, started_at, answered_at, recording_consent_played, receptionist_id"
         ).eq("call_control_id", call_control_id).limit(1).execute()
         if sel and sel.data and len(sel.data) > 0 and isinstance(sel.data[0], dict):
             return sel.data[0]
@@ -95,6 +126,14 @@ def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_second
         row = _get_call_log_row(supabase, call_control_id)
         if row and row.get("recording_consent_played") and not row.get("recording_status"):
             updates["recording_status"] = "processing"
+        outcome = _infer_outcome(
+            supabase=supabase,
+            row_id=row_id,
+            answered_at=row.get("answered_at") if row else None,
+            duration_seconds=duration_seconds,
+        )
+        if outcome:
+            updates["outcome"] = outcome
         result = supabase.table("call_logs").update(updates).eq("call_control_id", call_control_id).execute()
         rows_affected = len(result.data) if result and result.data else 0
         logger.info(

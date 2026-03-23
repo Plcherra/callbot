@@ -158,6 +158,7 @@ def make_calendar_tool_exec(
     api_key = config.get("voice_server_api_key")
     rec_id = config.get("receptionist_id")
     caller_phone = (config.get("caller_phone") or "").strip() or None
+    call_control_id = (config.get("call_control_id") or "").strip() or None
 
     async def _maybe_pre_tool_speech(tool_name: str) -> None:
         nonlocal pre_tool_spoken_this_turn
@@ -226,7 +227,7 @@ def make_calendar_tool_exec(
 
             t_tool_start = time.perf_counter()
             logger.info("[BOOKING_LATENCY] calendar_tool_start tool=%s t=%.3f", name, t_tool_start)
-            result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized)
+            result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized, call_control_id=call_control_id)
             t_tool_end = time.perf_counter()
             logger.info("[BOOKING_LATENCY] calendar_tool_end tool=%s duration_ms=%.0f", name, (t_tool_end - t_tool_start) * 1000)
             if name == "check_availability" and result:

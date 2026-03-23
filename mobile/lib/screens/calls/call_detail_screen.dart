@@ -283,7 +283,8 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     String statusExplanation = '';
     switch (recordingStatus) {
       case 'available':
-        statusExplanation = 'Play or download the recording.';
+        statusExplanation =
+            'Play or download. Link expires ~10 min after call ended.';
         break;
       case 'processing':
         statusExplanation =

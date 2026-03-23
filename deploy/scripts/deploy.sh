@@ -24,6 +24,15 @@ npm install 2>/dev/null || true
 echo "=== Validating environment ==="
 ./venv/bin/python scripts/validate-env.py || { echo "ERROR: Backend env validation failed"; exit 1; }
 
+# Run DB migrations (skip with SKIP_MIGRATIONS=1)
+echo "=== Running migrations ==="
+bash ./deploy/scripts/run-migrations.sh || { echo "WARNING: Migrations failed or skipped. Check DATABASE_URL."; }
+
+# Verify migrations (fail deploy if RUN_MIGRATION_CHECK=1 and check fails)
+if [ "${RUN_MIGRATION_CHECK:-0}" = "1" ]; then
+  ./venv/bin/python scripts/check-migrations.py || { echo "ERROR: Migration check failed. Apply 030, 031, 032."; exit 1; }
+fi
+
 # Ensure landing/dist exists (static site - no build)
 if [ ! -d "$ROOT/landing/dist" ]; then
   echo "WARNING: landing/dist not found. Create it or pull from repo."

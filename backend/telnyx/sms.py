@@ -30,6 +30,9 @@ def send_sms(*, to_number: str, from_number: str, text: str) -> dict:
         return {"success": False, "error": "missing_to_from_or_text"}
 
     body = {"to": to_number, "from": from_number, "text": text}
+    webhook_base = (settings.telnyx_webhook_base_url or "").strip().rstrip("/")
+    if webhook_base:
+        body["webhook_url"] = f"{webhook_base}/api/telnyx/sms"
     try:
         with httpx.Client(timeout=15.0) as client:
             r = client.post(

@@ -58,6 +58,19 @@ CALL_LOGS_FULL_SELECT = (
     f"{CALL_LOGS_BASE_SELECT}, "
     ", ".join(CALL_LOGS_OPTIONAL_COLUMNS)
 )
+
+# appointments: base columns (020, 023) vs optional from 030
+APPOINTMENTS_BASE_SELECT = (
+    "id, receptionist_id, event_id, start_time, end_time, duration_minutes, "
+    "summary, description, service_id, service_name, location_type, location_text, "
+    "customer_address, price_cents, notes, booking_mode, "
+    "followup_mode, followup_message_resolved, payment_link, "
+    "meeting_instructions, owner_selected_platform, internal_followup_notes, "
+    "created_at, updated_at"
+)
+APPOINTMENTS_OPTIONAL_030 = "status, caller_number, call_log_id, confirmation_message_sent_at, payment_link_sent_at"
+APPOINTMENTS_FULL_SELECT = f"{APPOINTMENTS_BASE_SELECT}, {APPOINTMENTS_OPTIONAL_030}"
+
 router.include_router(dashboard_router)
 router.include_router(settings_router)
 
@@ -820,16 +833,12 @@ async def list_appointments(request: Request):
     if receptionist_filter and receptionist_filter in rec_ids:
         rec_ids_filter = [receptionist_filter]
 
+    appointments = []
+    used_reduced_select = False
     try:
         q = (
             supabase.table("appointments")
-            .select(
-                "id, receptionist_id, event_id, start_time, end_time, duration_minutes, "
-                "summary, description, service_id, service_name, location_type, location_text, "
-                "customer_address, price_cents, notes, status, caller_number, booking_mode, "
-                "followup_mode, followup_message_resolved, payment_link, "
-                "confirmation_message_sent_at, payment_link_sent_at, created_at"
-            )
+            .select(APPOINTMENTS_FULL_SELECT)
             .in_("receptionist_id", rec_ids_filter)
             .order("start_time", desc=False)
             .range(offset, offset + limit - 1)
@@ -838,19 +847,50 @@ async def list_appointments(request: Request):
             q = q.eq("status", status_filter)
         rows = q.execute()
         appointments = rows.data or []
-
-        rec_rows = (
-            supabase.table("receptionists")
-            .select("id, name")
-            .in_("id", list({a["receptionist_id"] for a in appointments}))
-            .execute()
-        )
-        receptionists = {r["id"]: r.get("name") or "Receptionist" for r in (rec_rows.data or [])}
-
-        return {"appointments": appointments, "receptionists": receptionists}
     except Exception as e:
-        logger.exception("[appointments] list failed: %s", e)
-        return {"appointments": [], "receptionists": {}}
+        if _is_missing_column_error(e):
+            logger.warning(
+                "[APPOINTMENTS_SCHEMA_FALLBACK] missing_columns=030 optional using_reduced_select=true error=%s",
+                str(e)[:200],
+            )
+            try:
+                q = (
+                    supabase.table("appointments")
+                    .select(APPOINTMENTS_BASE_SELECT)
+                    .in_("receptionist_id", rec_ids_filter)
+                    .order("start_time", desc=False)
+                    .range(offset, offset + limit - 1)
+                )
+                rows = q.execute()
+                appointments = rows.data or []
+                used_reduced_select = True
+            except Exception as retry_exc:
+                logger.exception("[APPOINTMENTS] list fallback failed: %s", retry_exc)
+                return {"appointments": [], "receptionists": {}}
+        else:
+            logger.exception("[appointments] list failed: %s", e)
+            return {"appointments": [], "receptionists": {}}
+
+    if used_reduced_select:
+        for a in appointments:
+            a.setdefault("status", "needs_review")
+            a.setdefault("caller_number", None)
+            a.setdefault("confirmation_message_sent_at", None)
+            a.setdefault("payment_link_sent_at", None)
+        logger.info(
+            "[APPOINTMENTS_SCHEMA_FALLBACK] using_reduced_select=true count=%s (apply migration 030)",
+            len(appointments),
+        )
+
+    rec_rows = (
+        supabase.table("receptionists")
+        .select("id, name")
+        .in_("id", list({a["receptionist_id"] for a in appointments}))
+        .execute()
+    )
+    receptionists = {r["id"]: r.get("name") or "Receptionist" for r in (rec_rows.data or [])}
+
+    return {"appointments": appointments, "receptionists": receptionists}
 
 
 @router.get("/appointments/{appointment_id}")
@@ -867,43 +907,71 @@ async def get_appointment(request: Request, appointment_id: str):
     try:
         r = (
             supabase.table("appointments")
-            .select(
-                "id, receptionist_id, event_id, start_time, end_time, duration_minutes, "
-                "summary, description, service_id, service_name, location_type, location_text, "
-                "customer_address, price_cents, notes, status, caller_number, booking_mode, "
-                "followup_mode, followup_message_resolved, payment_link, "
-                "meeting_instructions, owner_selected_platform, internal_followup_notes, "
-                "confirmation_message_sent_at, payment_link_sent_at, created_at, updated_at"
-            )
+            .select(APPOINTMENTS_FULL_SELECT)
             .eq("id", appointment_id)
             .single()
             .execute()
         )
-        if not r.data:
-            return JSONResponse({"error": "Appointment not found"}, status_code=404)
-
-        apt = dict(r.data)
-        rec_id = apt.get("receptionist_id")
-        if rec_id:
-            rec_r = supabase.table("receptionists").select("id, name").eq("id", rec_id).single().execute()
-            apt["receptionist_name"] = (rec_r.data or {}).get("name") or "Receptionist"
-        else:
-            apt["receptionist_name"] = "—"
-
-        call_log_id = apt.get("call_log_id")
-        if call_log_id:
-            try:
-                cl = supabase.table("call_logs").select("transcript").eq("id", call_log_id).single().execute()
-                apt["transcript"] = (cl.data or {}).get("transcript")
-            except Exception:
-                apt["transcript"] = None
-        else:
-            apt["transcript"] = None
-
-        return apt
     except Exception as e:
-        logger.exception("[appointments] get failed: %s", e)
-        return JSONResponse({"error": str(e)}, status_code=500)
+        if _is_missing_column_error(e):
+            try:
+                r = (
+                    supabase.table("appointments")
+                    .select(APPOINTMENTS_BASE_SELECT)
+                    .eq("id", appointment_id)
+                    .single()
+                    .execute()
+                )
+            except Exception as retry_exc:
+                logger.exception("[appointments] get fallback failed: %s", retry_exc)
+                return JSONResponse({"error": str(retry_exc)}, status_code=500)
+        else:
+            logger.exception("[appointments] get failed: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    if not r or not r.data:
+        return JSONResponse({"error": "Appointment not found"}, status_code=404)
+
+    apt = dict(r.data)
+    for key in ("status", "caller_number", "call_log_id", "confirmation_message_sent_at", "payment_link_sent_at"):
+        if key not in apt:
+            apt[key] = None
+    apt.setdefault("status", "needs_review")
+
+    rec_id = apt.get("receptionist_id")
+    if rec_id:
+        rec_r = supabase.table("receptionists").select("id, name").eq("id", rec_id).single().execute()
+        apt["receptionist_name"] = (rec_r.data or {}).get("name") or "Receptionist"
+    else:
+        apt["receptionist_name"] = "—"
+
+    call_log_id = apt.get("call_log_id")
+    if call_log_id:
+        try:
+            cl = supabase.table("call_logs").select("transcript").eq("id", call_log_id).single().execute()
+            apt["transcript"] = (cl.data or {}).get("transcript")
+        except Exception:
+            apt["transcript"] = None
+    else:
+        apt["transcript"] = None
+
+    try:
+        sms_rows = (
+            supabase.table("sms_messages")
+            .select("status")
+            .eq("appointment_id", appointment_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if sms_rows and sms_rows.data and len(sms_rows.data) > 0:
+            apt["sms_delivery_status"] = sms_rows.data[0].get("status") or "sent"
+        else:
+            apt["sms_delivery_status"] = None
+    except Exception:
+        apt["sms_delivery_status"] = None
+
+    return apt
 
 
 @router.patch("/appointments/{appointment_id}")

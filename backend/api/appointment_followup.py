@@ -85,10 +85,7 @@ def send_appointment_confirmation(
 
     sms_res = telnyx_sms.send_sms(to_number=to_number, from_number=from_number, text=text)
     if not sms_res.get("success"):
-        return {
-            "success": False,
-            "error": sms_res.get("error") or "SMS send failed",
-        }
+        return {"success": False, "error": sms_res.get("error") or "SMS send failed"}
 
     now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     updates = {
@@ -102,5 +99,18 @@ def send_appointment_confirmation(
         supabase.table("appointments").update(updates).eq("id", appointment["id"]).execute()
     except Exception as e:
         logger.warning("[followup] update timestamps failed: %s", e)
+
+    telnyx_msg_id = sms_res.get("telnyx_message_id")
+    if telnyx_msg_id:
+        try:
+            from telnyx.sms_webhook import store_sms_sent
+            store_sms_sent(
+                supabase=supabase,
+                telnyx_message_id=telnyx_msg_id,
+                appointment_id=appointment.get("id"),
+                to_number=to_number,
+            )
+        except Exception as store_ex:
+            logger.warning("[followup] store_sms_sent failed: %s", store_ex)
 
     return {"success": True}

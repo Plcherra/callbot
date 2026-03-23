@@ -25,22 +25,29 @@ jobs:
           ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to VPS
+        env:
+          # Gate deploy skips: set vars to 'true' when infra is ready.
+          # ENABLE_NGINX_SYNC: set when passwordless sudo is configured (setup-passwordless-sudo.sh)
+          # ENABLE_VALIDATE_INFRA: set when nginx/Telnyx/cloudflared are production-ready
+          # ENABLE_GOOGLE_TTS_VALIDATION: set when VPS .env has GOOGLE_APPLICATION_CREDENTIALS
+          ENABLE_NGINX_SYNC: ${{ vars.ENABLE_NGINX_SYNC || '' }}
+          ENABLE_VALIDATE_INFRA: ${{ vars.ENABLE_VALIDATE_INFRA || '' }}
+          ENABLE_GOOGLE_TTS_VALIDATION: ${{ vars.ENABLE_GOOGLE_TTS_VALIDATION || '' }}
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+            export ENABLE_NGINX_SYNC='$ENABLE_NGINX_SYNC'
+            export ENABLE_VALIDATE_INFRA='$ENABLE_VALIDATE_INFRA'
+            export ENABLE_GOOGLE_TTS_VALIDATION='$ENABLE_GOOGLE_TTS_VALIDATION'
             echo '=== Connected to VPS ==='
             cd ${{ secrets.APP_PATH }} || { echo 'Directory not found'; exit 1; }
             pwd
             git fetch --all
             git reset --hard origin/main
             git pull origin main || { echo 'Git pull failed'; exit 1; }
-            echo 'Latest commit: \$(git rev-parse HEAD)'
-            # Skip nginx sync and infra validation until passwordless sudo is set up.
-            # Run on VPS: sudo bash deploy/scripts/setup-passwordless-sudo.sh
-            # Then remove the two lines below.
-            export SKIP_NGINX_SYNC=1
-            export SKIP_VALIDATE_INFRA=1
-            # Skip Google TTS cred check during deploy. Remove once VPS .env has GOOGLE_APPLICATION_CREDENTIALS.
-            export SKIP_GOOGLE_TTS_VALIDATION=1
+            echo 'Latest commit: '\$(git rev-parse HEAD)
+            [ \"\$ENABLE_NGINX_SYNC\" != 'true' ] && export SKIP_NGINX_SYNC=1 || true
+            [ \"\$ENABLE_VALIDATE_INFRA\" != 'true' ] && export SKIP_VALIDATE_INFRA=1 || true
+            [ \"\$ENABLE_GOOGLE_TTS_VALIDATION\" != 'true' ] && export SKIP_GOOGLE_TTS_VALIDATION=1 || true
             ./deploy/scripts/deploy.sh || { echo 'Deploy failed'; exit 1; }
             echo '=== Deployment completed ==='
           "

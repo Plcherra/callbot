@@ -63,6 +63,7 @@ async def handle_calendar_request(body: dict) -> dict:
     receptionist_id = body.get("receptionist_id")
     action = body.get("action")
     params = body.get("params") or {}
+    call_control_id = (body.get("call_control_id") or "").strip() or None
 
     if not receptionist_id or not isinstance(receptionist_id, str):
         raise HTTPException(status_code=400, detail="receptionist_id required")
@@ -107,7 +108,7 @@ async def handle_calendar_request(body: dict) -> dict:
                 return guard_err
             return _handle_check_availability(service, calendar_id, params)
         if action == "create_appointment":
-            return _handle_create_appointment(service, calendar_id, params, receptionist_id, supabase)
+            return _handle_create_appointment(service, calendar_id, params, receptionist_id, supabase, call_control_id=call_control_id)
         return _handle_reschedule(service, calendar_id, params)
     except Exception as e:
         msg = str(e)
@@ -164,7 +165,15 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
     )
 
 
-def _handle_create_appointment(service, calendar_id: str, params: dict, receptionist_id: str, supabase) -> dict:
+def _handle_create_appointment(
+    service,
+    calendar_id: str,
+    params: dict,
+    receptionist_id: str,
+    supabase,
+    *,
+    call_control_id: str | None = None,
+) -> dict:
     return handle_create_appointment(
         service,
         calendar_id,
@@ -173,6 +182,7 @@ def _handle_create_appointment(service, calendar_id: str, params: dict, receptio
         supabase=supabase,
         default_timezone=DEFAULT_TIMEZONE,
         default_slot_minutes=DEFAULT_SLOT_MINUTES,
+        call_control_id=call_control_id,
     )
 
 

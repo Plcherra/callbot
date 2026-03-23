@@ -92,6 +92,8 @@ async def call_calendar_tool(
     receptionist_id: str,
     action: str,
     args: dict,
+    *,
+    call_control_id: str | None = None,
 ) -> str:
     """Execute calendar tool via voice calendar API."""
     url = f"{base_url.rstrip('/')}/api/voice/calendar"
@@ -127,6 +129,7 @@ async def call_calendar_tool(
                     "receptionist_id": receptionist_id,
                     "action": action,
                     "params": normalized,
+                    "call_control_id": call_control_id,
                 },
             )
             return resp.text

@@ -20,6 +20,7 @@ if _env_local.exists():
     load_dotenv(_env_local)
 
 import logging
+import os
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -48,6 +49,19 @@ from telnyx.voice_webhook_verify import (
 from calendar_api.calendar_handler import handle_calendar_request
 from prompts.fetch import _build_from_supabase_sync
 from supabase_client import create_service_role_client
+
+# Sentry: init when SENTRY_DSN is set (optional)
+_sentry_dsn = (os.environ.get("SENTRY_DSN") or os.environ.get("NEXT_PUBLIC_SENTRY_DSN") or "").strip()
+if _sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=0.1,
+        environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
+    )
+    logging.getLogger(__name__).info("Sentry initialized")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,10 +121,21 @@ async def lifespan(app: FastAPI):
             ).limit(1).execute()
         except Exception as e:
             err_msg = (str(e) or "").lower()
-            if "does not exist" in err_msg or ("column" in err_msg and "not found" in err_msg):
+            if "does not exist" in err_msg or ("column" in err_msg and ("not found" in err_msg or "unknown" in err_msg)):
                 logger.warning(
                     "[startup] call_logs missing optional columns. Call history will use reduced schema. "
                     "Apply migrations: 031_call_logs_recording_fields.sql, 032_call_logs_outcome.sql"
+                )
+        try:
+            supabase.table("appointments").select(
+                "id, status, caller_number, call_log_id, confirmation_message_sent_at, payment_link_sent_at"
+            ).limit(1).execute()
+        except Exception as e:
+            err_msg = (str(e) or "").lower()
+            if "does not exist" in err_msg or ("column" in err_msg and ("not found" in err_msg or "unknown" in err_msg)):
+                logger.warning(
+                    "[startup] appointments missing optional columns (030). Appointments API will use reduced schema. "
+                    "Apply migration: 030_appointment_review.sql"
                 )
     except ValueError as e:
         logger.error("Startup validation failed: %s", e)
@@ -284,6 +309,45 @@ async def telnyx_cdr(request: Request):
     except Exception as e:
         logger.exception("CDR webhook error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/telnyx/sms")
+async def telnyx_sms_webhook(request: Request):
+    """Telnyx messaging webhook: message.sent, message.finalized for delivery tracking."""
+    raw = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    client_ip = get_client_ip(headers, request.client.host if request.client else None)
+    user_agent = headers.get("user-agent") or headers.get("User-Agent")
+
+    ed25519_sig = headers.get("telnyx-signature-ed25519")
+    timestamp = headers.get("telnyx-timestamp")
+    hmac_sig = (
+        headers.get("t-signature")
+        or headers.get("telnyx-signature")
+        or headers.get("x-telnyx-signature")
+    )
+
+    if await check_rate_limit(client_ip):
+        logger.warning("Telnyx SMS webhook rate limited", extra={"client_ip": client_ip})
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    result = verify_webhook_request(
+        raw,
+        ed25519_sig=ed25519_sig,
+        timestamp=timestamp,
+        hmac_sig=hmac_sig,
+        client_ip=client_ip,
+        user_agent=user_agent,
+    )
+
+    if not result.verified:
+        record_verification_failure(client_ip)
+        raise HTTPException(status_code=403, detail=result.detail)
+
+    from telnyx.sms_webhook import handle_sms_webhook
+
+    response = handle_sms_webhook(raw)
+    return JSONResponse(response)
 
 
 @app.post("/api/telnyx/outbound")

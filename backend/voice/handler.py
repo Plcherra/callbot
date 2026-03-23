@@ -144,6 +144,8 @@ async def handle_voice_stream_connection(ws: WebSocket) -> None:
             }
             if caller_phone:
                 config["caller_phone"] = caller_phone
+            if call_sid:
+                config["call_control_id"] = call_sid
             voice_api_key = get_voice_api_key()
             prompt_base = get_prompt_base()
             if receptionist_id and voice_api_key:

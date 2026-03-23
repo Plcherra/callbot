@@ -332,6 +332,17 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
       final local = lastSentDt.toLocal();
       lastSentStr = '${local.month}/${local.day}/${local.year} ${local.hour}:${local.minute.toString().padLeft(2, '0')}';
     }
+    String confirmationValue = 'Not sent';
+    if (confirmSent) {
+      final status = apt['sms_delivery_status'] as String?;
+      if (status == 'delivered') {
+        confirmationValue = 'Delivered';
+      } else if (status == 'delivery_failed' || status == 'sending_failed') {
+        confirmationValue = 'Failed';
+      } else {
+        confirmationValue = 'Sent';
+      }
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -347,7 +358,7 @@ class _AppointmentDetailScreenState extends State<AppointmentDetailScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _FollowUpRow(label: 'Confirmation', value: confirmSent ? 'Sent' : 'Not sent'),
+              _FollowUpRow(label: 'Confirmation', value: confirmationValue),
               _FollowUpRow(label: 'Last sent', value: lastSentStr),
               _FollowUpRow(label: 'Channel', value: 'SMS'),
               _FollowUpRow(label: 'Payment link', value: hasPayment ? 'Yes' : 'No'),

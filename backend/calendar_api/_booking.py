@@ -370,6 +370,7 @@ def handle_create_appointment(
     supabase,
     default_timezone: str,
     default_slot_minutes: int,
+    call_control_id: str | None = None,
 ) -> dict:
     timezone = (params.get("timezone") or default_timezone).strip() or default_timezone
     start_time = params.get("start_time") or params.get("date_text")
@@ -619,9 +620,24 @@ def handle_create_appointment(
     if caller_number and not _is_e164(caller_number):
         caller_number = None
 
-    # Persist extended booking record (provider-ready for Square etc.)
+    call_log_id = None
+    if call_control_id:
+        try:
+            cl_res = (
+                supabase.table("call_logs")
+                .select("id")
+                .eq("call_control_id", call_control_id)
+                .limit(1)
+                .execute()
+            )
+            if cl_res and cl_res.data and len(cl_res.data) > 0:
+                call_log_id = cl_res.data[0].get("id")
+        except Exception as ex:
+            logger.debug("[CAL_BOOK] call_log_id lookup failed: %s", ex)
+
+    appointment_id = None
     try:
-        supabase.table("appointments").insert({
+        insert_data = {
             "receptionist_id": receptionist_id,
             "event_id": event.get("id"),
             "start_time": start_iso,
@@ -646,7 +662,12 @@ def handle_create_appointment(
             "owner_selected_platform": followup.get("owner_selected_platform"),
             "internal_followup_notes": followup.get("internal_followup_notes"),
             "updated_at": datetime.utcnow().isoformat() + "Z",
-        }).execute()
+        }
+        if call_log_id:
+            insert_data["call_log_id"] = call_log_id
+        ins_res = supabase.table("appointments").insert(insert_data).execute()
+        if ins_res and getattr(ins_res, "data", None) and len(ins_res.data) > 0:
+            appointment_id = ins_res.data[0].get("id")
     except Exception as ex:
         logger.warning("[CAL_BOOK] appointments insert failed (event already created): %s", ex)
 
@@ -699,6 +720,27 @@ def handle_create_appointment(
                 (sms_res.get("telnyx_message_id") or "")[:40],
                 (sms_res.get("error") or "")[:100],
             )
+            if sms_res.get("success") and appointment_id:
+                now_iso = datetime.utcnow().isoformat() + "Z"
+                updates = {"confirmation_message_sent_at": now_iso, "updated_at": now_iso}
+                if followup.get("payment_link"):
+                    updates["payment_link_sent_at"] = now_iso
+                try:
+                    supabase.table("appointments").update(updates).eq("id", appointment_id).execute()
+                except Exception as up_ex:
+                    logger.warning("[CAL_BOOK] failed to set confirmation_message_sent_at: %s", up_ex)
+                telnyx_msg_id = sms_res.get("telnyx_message_id")
+                if telnyx_msg_id:
+                    try:
+                        from telnyx.sms_webhook import store_sms_sent
+                        store_sms_sent(
+                            supabase=supabase,
+                            telnyx_message_id=telnyx_msg_id,
+                            appointment_id=appointment_id,
+                            to_number=to_number,
+                        )
+                    except Exception as store_ex:
+                        logger.warning("[CAL_BOOK] store_sms_sent failed: %s", store_ex)
         else:
             logger.info(
                 "[CAL_BOOK] booking_created_no_followup_channel reason=no_to_number caller_phone_present=%s",

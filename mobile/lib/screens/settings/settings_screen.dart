@@ -53,10 +53,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/dashboard'),
-        ),
       ),
       body: constrainedScaffoldBody(
         child: ListView(

@@ -20,8 +20,13 @@ import 'screens/calls/call_history_screen.dart';
 import 'screens/calls/call_detail_screen.dart';
 import 'screens/appointments/appointments_screen.dart';
 import 'screens/appointments/appointment_detail_screen.dart';
+import 'widgets/main_shell.dart';
 
 final _rootNavigatorKey = GlobalKey<NavigatorState>();
+final _dashboardNavigatorKey = GlobalKey<NavigatorState>();
+final _receptionistsNavigatorKey = GlobalKey<NavigatorState>();
+final _appointmentsNavigatorKey = GlobalKey<NavigatorState>();
+final _settingsNavigatorKey = GlobalKey<NavigatorState>();
 
 GoRouter createAppRouter() {
   return GoRouter(
@@ -92,68 +97,8 @@ GoRouter createAppRouter() {
         ),
       ),
       GoRoute(
-        path: '/dashboard',
-        builder: (context, state) => const DashboardScreen(),
-      ),
-      GoRoute(
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
-      ),
-      GoRoute(
-        path: '/receptionists',
-        builder: (context, state) => const ReceptionistsScreen(),
-      ),
-      GoRoute(
-        path: '/receptionists/create',
-        builder: (context, state) => const CreateReceptionistScreen(),
-      ),
-      GoRoute(
-        path: '/receptionists/:id',
-        builder: (context, state) => ReceptionistDetailScreen(
-          receptionistId: state.pathParameters['id']!,
-        ),
-      ),
-      GoRoute(
-        path: '/receptionists/:id/calls',
-        builder: (context, state) => CallHistoryScreen(
-          receptionistId: state.pathParameters['id']!,
-          receptionistName: state.uri.queryParameters['name'],
-        ),
-      ),
-      GoRoute(
-        path: '/receptionists/:id/calls/:callId',
-        builder: (context, state) => CallDetailScreen(
-          receptionistId: state.pathParameters['id']!,
-          callId: state.pathParameters['callId']!,
-          callData: state.extra as Map<String, dynamic>?,
-        ),
-      ),
-      GoRoute(
-        path: '/appointments',
-        builder: (context, state) => AppointmentsScreen(
-          initialStatus: state.uri.queryParameters['status'],
-          receptionistId: state.uri.queryParameters['receptionist_id'],
-        ),
-      ),
-      GoRoute(
-        path: '/appointments/:id',
-        builder: (context, state) => AppointmentDetailScreen(
-          appointmentId: state.pathParameters['id']!,
-        ),
-      ),
-      GoRoute(
-        path: '/receptionists/:id/settings',
-        builder: (context, state) => ReceptionistSettingsScreen(
-          receptionistId: state.pathParameters['id']!,
-        ),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
-      ),
-      GoRoute(
-        path: '/settings/business-edit',
-        builder: (context, state) => const EditBusinessScreen(),
       ),
       GoRoute(
         path: '/checkout',
@@ -177,6 +122,104 @@ GoRouter createAppRouter() {
             caller: caller,
           );
         },
+      ),
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) =>
+            MainShell(navigationShell: navigationShell),
+        branches: [
+          StatefulShellBranch(
+            navigatorKey: _dashboardNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/dashboard',
+                builder: (context, state) => const DashboardScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _receptionistsNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/receptionists',
+                builder: (context, state) => const ReceptionistsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'create',
+                    builder: (context, state) =>
+                        const CreateReceptionistScreen(),
+                  ),
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => ReceptionistDetailScreen(
+                      receptionistId: state.pathParameters['id']!,
+                    ),
+                    routes: [
+                      GoRoute(
+                        path: 'settings',
+                        builder: (context, state) =>
+                            ReceptionistSettingsScreen(
+                          receptionistId: state.pathParameters['id']!,
+                        ),
+                      ),
+                      GoRoute(
+                        path: 'calls',
+                        builder: (context, state) => CallHistoryScreen(
+                          receptionistId: state.pathParameters['id']!,
+                          receptionistName: state.uri.queryParameters['name'],
+                        ),
+                        routes: [
+                          GoRoute(
+                            path: ':callId',
+                            builder: (context, state) => CallDetailScreen(
+                              receptionistId: state.pathParameters['id']!,
+                              callId: state.pathParameters['callId']!,
+                              callData: state.extra as Map<String, dynamic>?,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _appointmentsNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/appointments',
+                builder: (context, state) => AppointmentsScreen(
+                  initialStatus: state.uri.queryParameters['status'],
+                  receptionistId: state.uri.queryParameters['receptionist_id'],
+                ),
+                routes: [
+                  GoRoute(
+                    path: ':id',
+                    builder: (context, state) => AppointmentDetailScreen(
+                      appointmentId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            navigatorKey: _settingsNavigatorKey,
+            routes: [
+              GoRoute(
+                path: '/settings',
+                builder: (context, state) => const SettingsScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'business-edit',
+                    builder: (context, state) => const EditBusinessScreen(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
       ),
     ],
   );

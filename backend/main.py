@@ -99,6 +99,19 @@ async def lifespan(app: FastAPI):
                 "Use only when headers are stripped by proxy (e.g. Cloudflare Tunnel). "
                 "TELNYX_ALLOWED_IPS must be set (non-empty) or requests will be rejected."
             )
+        # Warn if call_logs optional columns are missing (migrations 031, 032)
+        try:
+            supabase = create_service_role_client()
+            supabase.table("call_logs").select(
+                "id, outcome, recording_status, recording_url, recorded_at, recording_duration_seconds"
+            ).limit(1).execute()
+        except Exception as e:
+            err_msg = (str(e) or "").lower()
+            if "does not exist" in err_msg or ("column" in err_msg and "not found" in err_msg):
+                logger.warning(
+                    "[startup] call_logs missing optional columns. Call history will use reduced schema. "
+                    "Apply migrations: 031_call_logs_recording_fields.sql, 032_call_logs_outcome.sql"
+                )
     except ValueError as e:
         logger.error("Startup validation failed: %s", e)
         raise

@@ -16,12 +16,20 @@ from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 20
-SHORT_ALLOWED = frozenset({"hi", "no", "ok", "oh", "yeah", "yes"})
 FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "so"})
 DEBOUNCE_MS = 1200
-DEBOUNCE_MS_SHORT_PAUSE = 1800
+DEBOUNCE_MS_FALLBACK = 800
 SHORT_PAUSE_MAX_WORDS = 4
 MIN_CONFIDENCE = 0.35
+
+# Short utterances that should trigger processing immediately (normal debounce, no extended wait).
+# Normalized for matching: lowercase, strip punctuation, collapse spaces (e.g. "9 am" -> "9am").
+SHORT_UTTERANCE_WHITELIST = frozenset({
+    "hello", "hi", "hey", "yes", "yeah", "yup", "no", "okay", "ok",
+    "book", "booking", "pricing", "price", "tomorrow", "today",
+    "9am", "9 am", "10am", "10 am", "11am", "11 am", "8am", "8 am",
+    "can you hear me", "you there", "anybody there",
+})
 
 # Phrases that indicate the caller likely has more to say (incomplete turn)
 INCOMPLETE_PHRASE_ENDINGS = (
@@ -38,6 +46,16 @@ INCOMPLETE_PHRASE_ENDINGS = (
     " today at",
 )
 INCOMPLETE_SINGLE_WORDS = frozenset({"to", "for", "at", "on"})
+
+
+def _normalize_for_whitelist(text: str) -> str:
+    """Normalize transcript for whitelist matching: lowercase, strip punctuation, collapse spaces."""
+    if not text:
+        return ""
+    s = (text or "").strip().lower()
+    s = re.sub(r"[?!.,;:]+", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
 CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
 PRE_TOOL_FILLER_PHRASE = "One sec."
 
@@ -242,7 +260,10 @@ def _passes_transcript_guard(text: str) -> bool:
     s = (text or "").strip()
     if len(s) < 2:
         return False
-    if len(s) == 2 and s.lower() not in SHORT_ALLOWED:
+    norm = _normalize_for_whitelist(s)
+    if norm in SHORT_UTTERANCE_WHITELIST:
+        return True
+    if len(s) == 2 and norm not in SHORT_UTTERANCE_WHITELIST:
         return False
     words = s.lower().split()
     if len(words) == 1 and words[0] in FILLER_WORDS:
@@ -260,6 +281,18 @@ def _is_incomplete_transcript(text: str) -> bool:
     if s in INCOMPLETE_SINGLE_WORDS:
         return True
     return any(s.endswith(ending) or s == ending.strip() for ending in INCOMPLETE_PHRASE_ENDINGS)
+
+
+def _is_whitelisted_short_utterance(text: str) -> bool:
+    """Return True if transcript is a known short complete utterance that should trigger immediately."""
+    norm = _normalize_for_whitelist(text)
+    if not norm:
+        return False
+    if norm in SHORT_UTTERANCE_WHITELIST:
+        return True
+    # Also match "9 am" -> "9am" style (whitelist has both)
+    collapsed = norm.replace(" ", "")
+    return collapsed in SHORT_UTTERANCE_WHITELIST
 
 
 async def run_voice_pipeline(
@@ -420,13 +453,16 @@ async def run_voice_pipeline(
         turn_complete_confidence = confidence
 
         words = full_transcript.lower().split()
-        use_short_pause_debounce = (
-            len(words) <= SHORT_PAUSE_MAX_WORDS
-            and not all(w in SHORT_ALLOWED for w in words)
-        )
-        if use_short_pause_debounce:
-            logger.info("[TURN_GUARD] deferred_due_to_short_pause transcript=%s", full_transcript[:80])
-        debounce_ms = DEBOUNCE_MS_SHORT_PAUSE if use_short_pause_debounce else DEBOUNCE_MS
+        word_count = len(words)
+
+        if _is_whitelisted_short_utterance(full_transcript):
+            debounce_ms = DEBOUNCE_MS
+            logger.info("[TURN_GUARD] short_utterance_allowed transcript=%s", full_transcript[:80])
+        elif word_count <= SHORT_PAUSE_MAX_WORDS:
+            debounce_ms = DEBOUNCE_MS_FALLBACK
+            logger.info("[TURN_GUARD] short_utterance_fallback_trigger transcript=%s", full_transcript[:80])
+        else:
+            debounce_ms = DEBOUNCE_MS
 
         def _on_debounce_fire() -> None:
             nonlocal debounce_task, grok_task

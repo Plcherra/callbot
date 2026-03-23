@@ -8,8 +8,6 @@ import '../../models/receptionist.dart';
 import '../../strings.dart';
 import '../../services/api_client.dart';
 import '../../widgets/constrained_scaffold_body.dart';
-import 'receptionist_detail_screen.dart';
-import 'create_receptionist_screen.dart';
 
 class ReceptionistsScreen extends StatefulWidget {
   const ReceptionistsScreen({super.key});
@@ -160,10 +158,6 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Receptionists'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.go('/dashboard'),
-        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),

@@ -7,6 +7,7 @@ and structured logging for the /api/telnyx/voice endpoint.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import time
@@ -123,12 +124,68 @@ def record_verification_failure(client_ip: str) -> None:
     ]
 
 
+_allowed_ip_cache: tuple[str, frozenset[str], tuple[ipaddress._BaseNetwork, ...]] | None = None
+
+
+def _parse_allowed_ips(raw: str) -> tuple[frozenset[str], tuple[ipaddress._BaseNetwork, ...]]:
+    """
+    Parse TELNYX_ALLOWED_IPS: comma-separated exact IPs and/or CIDRs (e.g. 192.76.120.0/24).
+    Backward compatible: entries without '/' are exact host IPs.
+    """
+    exact: set[str] = set()
+    nets: list[ipaddress._BaseNetwork] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "/" in part:
+            try:
+                nets.append(ipaddress.ip_network(part, strict=False))
+            except ValueError:
+                logger.warning("Invalid CIDR in TELNYX_ALLOWED_IPS (ignored): %s", part)
+        else:
+            exact.add(part)
+    return frozenset(exact), tuple(nets)
+
+
+def _get_allowed_ip_sets() -> tuple[frozenset[str], tuple[ipaddress._BaseNetwork, ...]]:
+    """Cached exact IPs + networks from TELNYX_ALLOWED_IPS."""
+    global _allowed_ip_cache
+    raw = (settings.telnyx_allowed_ips or "").strip()
+    if not raw:
+        return frozenset(), ()
+    if _allowed_ip_cache and _allowed_ip_cache[0] == raw:
+        return _allowed_ip_cache[1], _allowed_ip_cache[2]
+    exact, nets = _parse_allowed_ips(raw)
+    _allowed_ip_cache = (raw, exact, nets)
+    return exact, nets
+
+
+def client_ip_in_allowed_list(client_ip: str) -> bool:
+    """True if client_ip matches an exact entry or falls within a configured CIDR."""
+    exact, nets = _get_allowed_ip_sets()
+    if client_ip in exact:
+        return True
+    if not nets:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in nets)
+
+
+def _telnyx_allowlist_configured() -> bool:
+    """Non-empty TELNYX_ALLOWED_IPS (exact IPs and/or CIDRs)."""
+    return bool((settings.telnyx_allowed_ips or "").strip())
+
+
 def _get_allowed_ips() -> set[str]:
-    """Parse TELNYX_ALLOWED_IPS into a set of stripped IPs."""
+    """Legacy: exact-only set (for tests); prefer client_ip_in_allowed_list."""
     raw = (settings.telnyx_allowed_ips or "").strip()
     if not raw:
         return set()
-    return {ip.strip() for ip in raw.split(",") if ip.strip()}
+    return {ip.strip() for ip in raw.split(",") if ip.strip() and "/" not in ip.strip()}
 
 
 @dataclass
@@ -173,8 +230,7 @@ def verify_webhook_request(
 
         # Ed25519 failed (e.g. body modified by Cloudflare/proxy)
         if settings.telnyx_skip_verify:
-            allowed_ips = _get_allowed_ips()
-            if not allowed_ips:
+            if not _telnyx_allowlist_configured():
                 _log_verification(
                     "rejected_skip_verify_requires_allowlist",
                     "skip_verification",
@@ -190,7 +246,7 @@ def verify_webhook_request(
                     detail="Webhook signature verification failed",
                     code="webhook_verification_failed",
                 )
-            if client_ip not in allowed_ips:
+            if not client_ip_in_allowed_list(client_ip):
                 _log_verification(
                     "rejected_ip_not_allowed",
                     "skip_verification",
@@ -235,8 +291,7 @@ def verify_webhook_request(
     # 2. Skip fallback: headers missing AND TELNYX_SKIP_VERIFY=true
     skip, reason = should_skip_verification(ed25519_headers_present, settings.telnyx_skip_verify)
     if skip:
-        allowed_ips = _get_allowed_ips()
-        if not allowed_ips:
+        if not _telnyx_allowlist_configured():
             _log_verification(
                 "rejected_skip_verify_requires_allowlist",
                 "skip_verification",
@@ -252,7 +307,7 @@ def verify_webhook_request(
                 detail="Webhook signature verification failed",
                 code="webhook_verification_failed",
             )
-        if client_ip not in allowed_ips:
+        if not client_ip_in_allowed_list(client_ip):
             missing = ["telnyx-signature-ed25519", "telnyx-timestamp"]
             _log_verification(
                 "rejected_ip_not_allowed",

@@ -5,12 +5,15 @@ import json
 import logging
 import re
 import time
+from collections import deque
 from datetime import datetime
 from typing import Any, Callable, Awaitable, Optional
 
 from config import settings
+from telnyx.sms_delivery_registry import get_delivery_status
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
+from voice.slot_selection import is_new_availability_search_intent, resolve_slot_selection
 from voice.tts_facade import generate_and_send_tts
 from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 
@@ -159,7 +162,7 @@ def make_calendar_tool_exec(
     on_audio: Callable[[bytes], Awaitable[None]],
     on_error: Optional[Callable[[Exception], None]],
     tts_failure_logged: list[bool],
-    last_availability_slots: dict[str, Any],
+    offered_slots_state: dict[str, Any],
 ) -> Callable[[str, dict], Awaitable[str]]:
     """
     Create a per-turn tool_exec coroutine that:
@@ -253,18 +256,37 @@ def make_calendar_tool_exec(
                 try:
                     parsed = json.loads(result)
                     if parsed.get("success") is True:
-                        last_availability_slots["exact_slots"] = parsed.get("exact_slots") or []
-                        last_availability_slots["suggested_slots"] = parsed.get("suggested_slots") or []
-                        last_availability_slots["summary_periods"] = parsed.get("summary_periods") or []
+                        offered_slots_state["exact_slots"] = parsed.get("exact_slots") or []
+                        offered_slots_state["suggested_slots"] = parsed.get("suggested_slots") or []
+                        offered_slots_state["summary_periods"] = parsed.get("summary_periods") or []
+                        dt = (normalized.get("date_text") or "").strip()
+                        if dt:
+                            offered_slots_state["last_date_text"] = dt
                 except (json.JSONDecodeError, TypeError):
                     pass
             if name == "create_appointment" and result:
                 try:
                     parsed = json.loads(result)
                     if parsed.get("success") is True:
-                        for f in ("followup_message_resolved", "payment_link", "meeting_instructions", "owner_selected_platform"):
+                        sms = parsed.get("sms_followup")
+                        vs = config.get("voice_session")
+                        if sms and isinstance(vs, dict):
+                            vs["sms"] = sms
+                        for f in (
+                            "followup_message_resolved",
+                            "payment_link",
+                            "meeting_instructions",
+                            "owner_selected_platform",
+                            "sms_followup",
+                        ):
                             parsed.pop(f, None)
                         result = json.dumps(parsed)
+                        offered_slots_state["exact_slots"] = []
+                        offered_slots_state["suggested_slots"] = []
+                        offered_slots_state["summary_periods"] = []
+                        vs = config.get("voice_session")
+                        if isinstance(vs, dict):
+                            vs["booking_completed"] = True
                 except (json.JSONDecodeError, TypeError):
                     pass
             tool_cache[key] = result
@@ -315,11 +337,34 @@ def _is_whitelisted_short_utterance(text: str) -> bool:
     return collapsed in SHORT_UTTERANCE_WHITELIST
 
 
+def _is_post_booking_followup_message(text: str) -> bool:
+    """Common follow-up after booking; should not sit in debounce limbo."""
+    norm = _normalize_for_whitelist(text)
+    if not norm:
+        return False
+    return any(
+        p in norm
+        for p in (
+            "anything else",
+            "any thing else",
+            "need to know",
+            "is that all",
+            "that all",
+            "something else",
+            "what else",
+            "one more thing",
+            "anything i should",
+        )
+    )
+
+
 def _contains_clear_intent(text: str) -> bool:
     """True when transcript clearly expresses booking/help intent."""
     norm = _normalize_for_whitelist(text)
     if not norm:
         return False
+    if _is_post_booking_followup_message(text):
+        return True
     if "?" in (text or "") and any(h in norm for h in INTENT_HINTS):
         return True
     return any(h in norm for h in INTENT_HINTS)
@@ -385,11 +430,35 @@ def _slots_sentence(slots: list[str]) -> str:
     return f"{spoken[0]}, {spoken[1]}, or {spoken[2]}"
 
 
+def _truth_aware_sms_line(voice_session: dict[str, Any] | None) -> str:
+    """One short line about confirmation text; never claim delivered if API failed or delivery failed."""
+    vs = voice_session or {}
+    sms = vs.get("sms") if isinstance(vs.get("sms"), dict) else {}
+    if not sms.get("attempted"):
+        return ""
+    if not sms.get("api_accepted"):
+        return " I wasn't able to send a confirmation text—please save this time or call back if anything changes."
+    msg_id = (sms.get("telnyx_message_id") or "").strip()
+    delivery = get_delivery_status(msg_id) if msg_id else None
+    if delivery == "delivery_failed":
+        if sms.get("from_number_is_toll_free"):
+            return (
+                " A confirmation text didn't go through—if you're expecting SMS, toll-free numbers often need "
+                "verification with your carrier provider first."
+            )
+        return " A confirmation text didn't go through—please save this time or call us if you need to change it."
+    if delivery in ("delivered",):
+        return " You should get a confirmation text shortly."
+    return " I've sent a confirmation text—if it doesn't show up, you can call back anytime."
+
+
 def _template_from_tool_result(
     tool_name: str,
     result_json: str,
     requested_date: Optional[str],
     requested_time: Optional[str],
+    *,
+    voice_session: Optional[dict[str, Any]] = None,
 ) -> Optional[str]:
     try:
         parsed = json.loads(result_json or "{}")
@@ -411,13 +480,29 @@ def _template_from_tool_result(
 
     if tool_name == "create_appointment":
         start = (parsed.get("start_time") or "").strip()
+        sms_line = _truth_aware_sms_line(voice_session)
         if start:
-            return f"You're all set for {_to_spoken_slot(start)}. I sent a confirmation text."
+            base = f"You're all set for {_to_spoken_slot(start)}."
+            return base + sms_line if sms_line else base
         if requested_time:
             date_part = requested_date or "that day"
-            return f"You're all set for {requested_time} {date_part}. I sent a confirmation text."
-        return "You're all set. I sent a confirmation text."
+            base = f"You're all set for {requested_time} {date_part}."
+            return base + sms_line if sms_line else base
+        base = "You're all set."
+        return base + sms_line if sms_line else base
     return None
+
+
+def _deterministic_post_booking_reply(user_text: str, voice_session: dict[str, Any]) -> Optional[str]:
+    """One short truth-aware reply for common post-booking questions; no chains."""
+    if not voice_session.get("booking_completed"):
+        return None
+    if not _is_post_booking_followup_message(user_text):
+        return None
+    sms_line = _truth_aware_sms_line(voice_session).strip()
+    if sms_line:
+        return f"You're all set.{sms_line}"
+    return "You're all set. If anything changes, just call us back."
 
 
 async def run_voice_pipeline(
@@ -456,12 +541,25 @@ async def run_voice_pipeline(
     config["tts_state"] = tts_state
     config.setdefault("tts_provider", (settings.tts_provider or "google").strip().lower())
 
+    offered_slots_state: dict[str, Any] = {}
+    voice_session: dict[str, Any] = {}
+    config["voice_session"] = voice_session
+    pending_turn_queue: deque[tuple[str, Optional[float], int]] = deque()
+    dispatch_commit_id_holder: dict[str, Optional[int]] = {"id": None}
+    commit_seq = 0
+    active_debounce_commit_id: list[Optional[int]] = [None]
+
     def _cancel_pending_response() -> None:
         """Cancel debounce and in-flight Grok. Call when new caller speech arrives."""
         nonlocal debounce_task, grok_task
         if debounce_task and not debounce_task.done():
             debounce_task.cancel()
             debounce_task = None
+            logger.info(
+                "[TURN_GUARD] dispatch_cancelled reason=new_speech_or_interim commit_id=%s",
+                active_debounce_commit_id[0],
+            )
+            active_debounce_commit_id[0] = None
             logger.debug("[turn] Debounce cancelled (new speech)")
         if grok_task and not grok_task.done():
             grok_task.cancel()
@@ -475,31 +573,45 @@ async def run_voice_pipeline(
         turn_complete_transcript = ""
         turn_complete_confidence = None
 
-        if not user_text or not _passes_transcript_guard(user_text):
-            logger.debug(
-                "[turn] Trigger rejected: empty/filler transcript=%r guard=%s",
-                user_text[:50] if user_text else "",
-                _passes_transcript_guard(user_text or ""),
-            )
-            return
-        # Do not drop known short caller intents (e.g. "hello", "yes") just because
-        # STT confidence is low; these are explicitly allowed by turn guard.
-        if confidence is not None and confidence < MIN_CONFIDENCE:
-            if not _is_whitelisted_short_utterance(user_text):
-                logger.debug("[turn] Trigger rejected: low confidence=%.2f", confidence)
-                return
-            logger.info(
-                "[TURN_GUARD] low_confidence_whitelist_bypass transcript=%s confidence=%.2f",
-                user_text[:80],
-                confidence,
-            )
+        cid = dispatch_commit_id_holder["id"]
+        dispatch_commit_id_holder["id"] = None
+        logger.info("[TURN_GUARD] dispatch_started path=process commit_id=%s", cid)
 
-        logger.info("[turn] Grok task started transcript=%r", user_text[:80])
-        t_turn_start = time.perf_counter()
-        logger.info("[BOOKING_LATENCY] turn_start t=%.3f", t_turn_start)
         is_processing = True
         grok_task = None
         try:
+            if not user_text or not _passes_transcript_guard(user_text):
+                logger.info("[TURN_GUARD] dispatch_skipped reason=guard_reject commit_id=%s", cid)
+                return
+            if confidence is not None and confidence < MIN_CONFIDENCE:
+                if not _is_whitelisted_short_utterance(user_text):
+                    logger.info("[TURN_GUARD] dispatch_skipped reason=low_confidence commit_id=%s", cid)
+                    return
+                logger.info(
+                    "[TURN_GUARD] low_confidence_whitelist_bypass transcript=%s confidence=%.2f",
+                    user_text[:80],
+                    confidence,
+                )
+
+            vs = config.get("voice_session") or {}
+            dpb = _deterministic_post_booking_reply(user_text, vs if isinstance(vs, dict) else {})
+            if dpb:
+                history.append({"role": "user", "content": user_text})
+                history.append({"role": "assistant", "content": dpb})
+                logger.info("[turn] TTS started response_len=%d (post_booking_deterministic)", len(dpb))
+                await generate_and_send_tts(
+                    dpb,
+                    config,
+                    on_audio,
+                    on_error,
+                    _tts_failure_logged=tts_failure_logged,
+                )
+                return
+
+            logger.info("[turn] Grok task started transcript=%r", user_text[:80])
+            t_turn_start = time.perf_counter()
+            logger.info("[BOOKING_LATENCY] turn_start t=%.3f", t_turn_start)
+
             history.append({"role": "user", "content": user_text})
             if len(history) > MAX_HISTORY + 2:
                 history[2 : 2 + len(history) - MAX_HISTORY - 2] = []
@@ -510,12 +622,41 @@ async def run_voice_pipeline(
                 and config.get("voice_server_base_url")
             )
             if use_calendar:
-                last_availability_slots: dict[str, Any] = {}
                 fast_date = _extract_date_text_hint(user_text)
                 fast_time = _extract_time_hint(user_text)
                 fast_tool_name = None
                 fast_tool_args: dict[str, Any] = {}
-                if _is_booking_confirmation_intent(user_text):
+
+                slot_fast = False
+                if not is_new_availability_search_intent(user_text):
+                    sr = resolve_slot_selection(user_text, offered_slots_state)
+                    if sr.ok and sr.slot_iso:
+                        slot_fast = True
+                        fast_tool_name = "create_appointment"
+                        fast_tool_args = {
+                            "start_time": sr.slot_iso,
+                            "duration_minutes": 30,
+                            "summary": "Appointment",
+                            "generic_appointment_requested": True,
+                        }
+                        fast_date = (offered_slots_state.get("last_date_text") or "").strip() or fast_date
+                        fast_time = None
+                        logger.info(
+                            "[CALL_DIAG] slot_selection_fast_path_selected transcript=%s",
+                            user_text[:120],
+                        )
+                        logger.info(
+                            "[CALL_DIAG] slot_selection_resolved slot=%s source=%s",
+                            sr.slot_iso[:48],
+                            sr.source,
+                        )
+                    elif sr.ambiguous:
+                        logger.info("[CALL_DIAG] slot_selection_ambiguous transcript=%s", user_text[:120])
+                        logger.info("[CALL_DIAG] slot_selection_fallback_to_llm reason=ambiguous")
+                    else:
+                        logger.debug("[CALL_DIAG] slot_selection_no_match transcript=%s", user_text[:80])
+
+                if not slot_fast and _is_booking_confirmation_intent(user_text):
                     fast_tool_name = "create_appointment"
                     date_and_time = " ".join(
                         [p for p in [fast_date, ("at " + fast_time) if fast_time else None] if p]
@@ -527,7 +668,7 @@ async def run_voice_pipeline(
                     else:
                         fast_tool_args["summary"] = "Appointment"
                         fast_tool_args["generic_appointment_requested"] = True
-                elif _is_availability_intent(user_text):
+                elif not slot_fast and _is_availability_intent(user_text):
                     fast_tool_name = "check_availability"
                     fast_tool_args = {
                         "date_text": fast_date or "tomorrow",
@@ -559,7 +700,7 @@ async def run_voice_pipeline(
                     on_audio=on_audio,
                     on_error=on_error,
                     tts_failure_logged=tts_failure_logged,
-                    last_availability_slots=last_availability_slots,
+                    offered_slots_state=offered_slots_state,
                 )
 
                 if fast_tool_name:
@@ -570,6 +711,7 @@ async def run_voice_pipeline(
                         fast_result,
                         requested_date=fast_date,
                         requested_time=fast_time,
+                        voice_session=config.get("voice_session"),
                     )
                     if templated:
                         logger.info("[CALL_DIAG] template_response_used type=%s", fast_tool_name)
@@ -612,8 +754,8 @@ async def run_voice_pipeline(
                 response = await chat(history, config["grok_api_key"])
 
             history.append({"role": "assistant", "content": response})
-            if use_calendar and last_availability_slots:
-                _log_availability_guard(response, last_availability_slots)
+            if use_calendar and offered_slots_state:
+                _log_availability_guard(response, offered_slots_state)
             logger.info("[turn] TTS started response_len=%d", len(response))
             t_tts_start = time.perf_counter()
             logger.info("[BOOKING_LATENCY] tts_start t=%.3f response_len=%d", t_tts_start, len(response))
@@ -638,10 +780,17 @@ async def run_voice_pipeline(
             )
         finally:
             is_processing = False
+            if pending_turn_queue:
+                t2, c2, cid2 = pending_turn_queue.popleft()
+                turn_complete_transcript = t2
+                turn_complete_confidence = c2
+                dispatch_commit_id_holder["id"] = cid2
+                logger.info("[TURN_GUARD] dispatch_started path=queued_flush commit_id=%s", cid2)
+                grok_task = asyncio.create_task(process_user_input())
 
     def _schedule_trigger(alts: list) -> None:
         """Schedule Grok after debounce. Only one response per user turn."""
-        nonlocal debounce_task, turn_complete_transcript, turn_complete_confidence, grok_task
+        nonlocal debounce_task, turn_complete_transcript, turn_complete_confidence, grok_task, commit_seq
 
         if debounce_task and not debounce_task.done():
             debounce_task.cancel()
@@ -683,30 +832,37 @@ async def run_voice_pipeline(
             commit_reason = "short_whitelist_final"
 
         transcript_buffer.clear()
-        turn_complete_transcript = commit_text
-        turn_complete_confidence = confidence
 
+        commit_seq += 1
+        commit_id = commit_seq
         logger.info(
             "[TURN_GUARD] commit_candidate reason=%s transcript=%s",
             commit_reason,
             commit_text[:120],
         )
+        logger.info("[TURN_GUARD] commit_enqueued commit_id=%s", commit_id)
 
         words = commit_text.lower().split()
         word_count = len(words)
 
         # Fail-open policy: final short-whitelist or clear-intent utterances dispatch immediately.
         if is_short_whitelist or has_clear_intent:
+            turn_complete_transcript = commit_text
+            turn_complete_confidence = confidence
             if not is_processing:
+                dispatch_commit_id_holder["id"] = commit_id
                 logger.info(
-                    "[TURN_GUARD] immediate_dispatch reason=%s transcript=%s",
+                    "[TURN_GUARD] dispatch_started path=immediate reason=%s commit_id=%s transcript=%s",
                     commit_reason,
+                    commit_id,
                     commit_text[:120],
                 )
                 grok_task = asyncio.create_task(process_user_input())
             else:
+                pending_turn_queue.append((commit_text, confidence, commit_id))
                 logger.info(
-                    "[TURN_GUARD] immediate_dispatch_skipped_already_processing transcript=%s",
+                    "[TURN_GUARD] dispatch_skipped reason=queued_for_after_processing commit_id=%s transcript=%s",
+                    commit_id,
                     commit_text[:120],
                 )
             return
@@ -717,21 +873,38 @@ async def run_voice_pipeline(
         else:
             debounce_ms = DEBOUNCE_MS
 
-        def _on_debounce_fire() -> None:
+        snap_text, snap_conf, snap_id = commit_text, confidence, commit_id
+
+        def _on_debounce_done(t: asyncio.Task) -> None:
             nonlocal debounce_task, grok_task
             debounce_task = None
+            active_debounce_commit_id[0] = None
+            if t.cancelled():
+                logger.info(
+                    "[TURN_GUARD] dispatch_cancelled reason=debounce_task_cancelled commit_id=%s",
+                    snap_id,
+                )
+                return
+            turn_complete_transcript = snap_text
+            turn_complete_confidence = snap_conf
             if not is_processing:
-                logger.debug("[turn] Debounce fired, scheduling process_user_input")
+                dispatch_commit_id_holder["id"] = snap_id
+                logger.info(
+                    "[TURN_GUARD] dispatch_started path=debounce commit_id=%s debounce_ms=%s",
+                    snap_id,
+                    debounce_ms,
+                )
                 grok_task = asyncio.create_task(process_user_input())
             else:
-                logger.debug("[turn] Debounce fired but already processing, skipping")
+                pending_turn_queue.append((snap_text, snap_conf, snap_id))
+                logger.info(
+                    "[TURN_GUARD] dispatch_skipped reason=queued_after_debounce commit_id=%s",
+                    snap_id,
+                )
 
-        debounce_task = asyncio.create_task(
-            asyncio.sleep(debounce_ms / 1000.0)
-        )
-        debounce_task.add_done_callback(
-            lambda t: _on_debounce_fire() if not t.cancelled() else None
-        )
+        active_debounce_commit_id[0] = commit_id
+        debounce_task = asyncio.create_task(asyncio.sleep(debounce_ms / 1000.0))
+        debounce_task.add_done_callback(_on_debounce_done)
 
     async def on_dg_message(msg: dict) -> None:
         nonlocal transcript_buffer, last_rich_transcript, last_rich_transcript_ts

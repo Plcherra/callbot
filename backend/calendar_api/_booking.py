@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 from ._parsing import get_free_slots, parse_iso_datetime_or_natural
 from telnyx import sms as telnyx_sms
+from telnyx.sms_delivery_registry import is_us_toll_free_e164
 
 logger = logging.getLogger(__name__)
 
@@ -672,9 +673,14 @@ def handle_create_appointment(
         logger.warning("[CAL_BOOK] appointments insert failed (event already created): %s", ex)
 
     # Immediate post-booking SMS follow-up (best-effort; never breaks booking).
+    sms_attempted = False
+    sms_api_accepted = False
+    sms_telnyx_message_id: str | None = None
+    sms_from_for_telemetry: str | None = None
     try:
         to_number = caller_number
         from_number = _resolve_sms_from_number(supabase=supabase, receptionist_id=receptionist_id)
+        sms_from_for_telemetry = from_number
         resolved_msg = (followup.get("followup_message_resolved") or "").strip() or None
         validation_ok = to_number is not None and _is_e164(to_number)
 
@@ -709,8 +715,11 @@ def handle_create_appointment(
                 followup.get("booking_mode"),
             )
         elif to_number and from_number and resolved_msg:
+            sms_attempted = True
             sms_text = f"{resolved_msg}\n\n{_SMS_OPTOUT_SUFFIX}"
             sms_res = telnyx_sms.send_sms(to_number=to_number, from_number=from_number, text=sms_text)
+            sms_api_accepted = bool(sms_res.get("success"))
+            sms_telnyx_message_id = (sms_res.get("telnyx_message_id") or "").strip() or None
             logger.info(
                 "[CAL_BOOK] sms_followup_sent to=%s from=%s success=%s telnyx_status=%s telnyx_msg_id=%s telnyx_error=%s",
                 _mask_phone(to_number),
@@ -749,6 +758,20 @@ def handle_create_appointment(
     except Exception as ex:
         logger.warning("[CAL_BOOK] sms_followup_failed (booking kept): %s", ex)
 
+    sms_followup = {
+        "attempted": sms_attempted,
+        "api_accepted": sms_api_accepted,
+        "telnyx_message_id": sms_telnyx_message_id,
+        "from_number_is_toll_free": bool(sms_from_for_telemetry and is_us_toll_free_e164(sms_from_for_telemetry)),
+        "delivery": "unknown",
+    }
+    if sms_attempted and sms_api_accepted:
+        logger.info(
+            "[CAL_BOOK] sms_api_accepted_downstream_unknown msg_id=%s toll_free_sender=%s",
+            (sms_telnyx_message_id or "")[:36],
+            sms_followup["from_number_is_toll_free"],
+        )
+
     return {
         "success": True,
         "event_id": event.get("id"),
@@ -761,6 +784,7 @@ def handle_create_appointment(
         "payment_link": followup.get("payment_link"),
         "meeting_instructions": followup.get("meeting_instructions"),
         "owner_selected_platform": followup.get("owner_selected_platform"),
+        "sms_followup": sms_followup,
     }
 
 

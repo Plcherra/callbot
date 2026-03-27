@@ -97,7 +97,7 @@ def _get_call_log_row(supabase, call_control_id: str) -> dict | None:
     """Fetch call_logs row by call_control_id. Returns row dict or None."""
     try:
         sel = supabase.table("call_logs").select(
-            "id, started_at, answered_at, recording_consent_played, receptionist_id"
+            "id, started_at, answered_at, recording_consent_played, recording_status, receptionist_id"
         ).eq("call_control_id", call_control_id).limit(1).execute()
         if sel and sel.data and len(sel.data) > 0 and isinstance(sel.data[0], dict):
             return sel.data[0]
@@ -124,7 +124,7 @@ def _finalize_call_log(supabase, call_control_id: str, ended_at, duration_second
             "duration_seconds": duration_seconds,
         }
         row = _get_call_log_row(supabase, call_control_id)
-        if row and row.get("recording_consent_played") and not row.get("recording_status"):
+        if row and row.get("recording_consent_played") and not (row.get("recording_status") or "").strip():
             updates["recording_status"] = "processing"
         outcome = _infer_outcome(
             supabase=supabase,

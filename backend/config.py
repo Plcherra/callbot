@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     telnyx_skip_verify: bool = False  # Skip webhook signature verification
     telnyx_allowed_ips: str = ""  # Optional comma-separated IPs when TELNYX_SKIP_VERIFY; empty = no allowlist
     telnyx_allow_receptionist_fallback: bool = False  # If True, use first active receptionist when DID unmatched (dangerous; keep False for verification so bad DID matches are not masked)
+    telnyx_enable_recording: bool = True  # Attempt recording_start on call.answered
 
     # Voice AI
     deepgram_api_key: str = ""

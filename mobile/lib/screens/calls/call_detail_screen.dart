@@ -149,6 +149,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
               recordingStatus: effectiveRecordingStatus,
               recordingUrl: recordingUrl,
               recordedAt: recordedAt,
+              startedAt: start,
               recordingDuration: recordingDuration,
               hasRecording: hasRecording,
               transcript: transcript,
@@ -210,6 +211,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     required String? recordingStatus,
     required String? recordingUrl,
     required DateTime? recordedAt,
+    required DateTime? startedAt,
     required int? recordingDuration,
     required bool hasRecording,
     required String? transcript,
@@ -220,6 +222,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
       recordingStatus: recordingStatus,
       recordingUrl: recordingUrl,
       recordedAt: recordedAt,
+      startedAt: startedAt,
       recordingDuration: recordingDuration,
       hasRecording: hasRecording,
     );
@@ -281,6 +284,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     required String? recordingStatus,
     required String? recordingUrl,
     required DateTime? recordedAt,
+    required DateTime? startedAt,
     required int? recordingDuration,
     required bool hasRecording,
   }) {
@@ -296,8 +300,16 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
             'Recording link has expired. Request a fresh recording URL from backend storage.';
         break;
       case 'processing':
-        statusExplanation =
-            'Recording is being processed. Check back in a few minutes.';
+        final ageMinutes = startedAt == null
+            ? null
+            : DateTime.now().toUtc().difference(startedAt.toUtc()).inMinutes;
+        if (ageMinutes != null && ageMinutes >= 15) {
+          statusExplanation =
+              'Recording is still processing after $ageMinutes minutes. Provider recording webhook may be delayed or missing.';
+        } else {
+          statusExplanation =
+              'Recording is being processed. Check back in a few minutes.';
+        }
         break;
       case 'not_recorded':
         statusExplanation =

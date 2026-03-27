@@ -356,9 +356,17 @@ async def run_voice_pipeline(
                 _passes_transcript_guard(user_text or ""),
             )
             return
+        # Do not drop known short caller intents (e.g. "hello", "yes") just because
+        # STT confidence is low; these are explicitly allowed by turn guard.
         if confidence is not None and confidence < MIN_CONFIDENCE:
-            logger.debug("[turn] Trigger rejected: low confidence=%.2f", confidence)
-            return
+            if not _is_whitelisted_short_utterance(user_text):
+                logger.debug("[turn] Trigger rejected: low confidence=%.2f", confidence)
+                return
+            logger.info(
+                "[TURN_GUARD] low_confidence_whitelist_bypass transcript=%s confidence=%.2f",
+                user_text[:80],
+                confidence,
+            )
 
         logger.info("[turn] Grok task started transcript=%r", user_text[:80])
         t_turn_start = time.perf_counter()
@@ -522,6 +530,13 @@ async def run_voice_pipeline(
 
         if is_final and transcript:
             transcript_buffer.append(transcript)
+            if not speech_final and _is_whitelisted_short_utterance(transcript):
+                logger.info(
+                    "[TURN_GUARD] final_short_utterance_trigger transcript=%s",
+                    transcript[:80],
+                )
+                _schedule_trigger(alts)
+                return
 
         if speech_final:
             logger.debug("[turn] speech_final=True, scheduling trigger")

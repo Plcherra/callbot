@@ -115,6 +115,39 @@ async def _send_streaming_start(call_control_id: str, stream_url: str) -> bool:
     return False
 
 
+async def _send_recording_start(call_control_id: str) -> bool:
+    """Best-effort recording_start on answered calls so call.recording.saved can be emitted."""
+    api_key = settings.telnyx_api_key
+    if not api_key:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{TELNYX_API}/calls/{call_control_id}/actions/record_start",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "format": "mp3",
+                    "channels": "single",
+                    "play_beep": False,
+                },
+            )
+        if resp.is_success:
+            logger.info("[CALL_DIAG] recording_start sent call_control_id=%s", call_control_id)
+            return True
+        logger.warning(
+            "[CALL_DIAG] recording_start failed call_control_id=%s status=%s body=%s",
+            call_control_id,
+            resp.status_code,
+            (resp.text or "")[:240],
+        )
+    except Exception as e:
+        logger.warning("[CALL_DIAG] recording_start exception call_control_id=%s: %s", call_control_id, e)
+    return False
+
+
 def _insert_call_log(
     supabase,
     call_control_id: str,
@@ -187,9 +220,9 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
 
     supabase = create_service_role_client()
 
-    # call.hangup / call.call-ended: Telnyx sends these to the same voice webhook URL.
-    # Forward to CDR handler so call_logs get finalized and call history updates.
-    if event_type in ("call.hangup", "call.call-ended"):
+    # Telnyx can deliver CDR-domain events to the voice webhook URL depending on connection config.
+    # Forward those events so cost/finalization/recording updates are not dropped.
+    if event_type in ("call.hangup", "call.call-ended", "call.cost", "call.recording.saved"):
         logger.info("[CALL_DIAG] Forwarding %s to CDR handler", event_type)
         from telnyx.cdr_webhook import handle_cdr_webhook
         return await handle_cdr_webhook(raw_body, headers or {})
@@ -200,6 +233,8 @@ async def handle_voice_webhook(body: dict[str, Any], raw_body: bytes, headers: d
         stream_url = _pop_pending_stream(call_control_id)
         if stream_url:
             await _send_streaming_start(call_control_id, stream_url)
+        if settings.telnyx_enable_recording:
+            await _send_recording_start(call_control_id)
         return {"success": True}
 
     # streaming.started: update call_logs

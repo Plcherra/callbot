@@ -46,6 +46,19 @@ INCOMPLETE_PHRASE_ENDINGS = (
     " today at",
 )
 INCOMPLETE_SINGLE_WORDS = frozenset({"to", "for", "at", "on"})
+INTENT_HINTS = (
+    "book",
+    "appointment",
+    "availability",
+    "available",
+    "spot",
+    "tomorrow",
+    "today",
+    "reschedule",
+    "cancel",
+    "price",
+    "pricing",
+)
 
 
 def _normalize_for_whitelist(text: str) -> str:
@@ -296,6 +309,16 @@ def _is_whitelisted_short_utterance(text: str) -> bool:
     return collapsed in SHORT_UTTERANCE_WHITELIST
 
 
+def _contains_clear_intent(text: str) -> bool:
+    """True when transcript clearly expresses booking/help intent."""
+    norm = _normalize_for_whitelist(text)
+    if not norm:
+        return False
+    if "?" in (text or "") and any(h in norm for h in INTENT_HINTS):
+        return True
+    return any(h in norm for h in INTENT_HINTS)
+
+
 async def run_voice_pipeline(
     config: dict[str, Any],
     on_audio: Callable[[bytes], Awaitable[None]],
@@ -323,6 +346,8 @@ async def run_voice_pipeline(
     grok_task: Optional[asyncio.Task] = None
     turn_complete_transcript = ""
     turn_complete_confidence: Optional[float] = None
+    last_rich_transcript = ""
+    last_rich_transcript_ts = 0.0
     dg_ws: Any = None
     dg_task: Optional[asyncio.Task] = None
     tts_failure_logged: list[bool] = [False]
@@ -432,7 +457,7 @@ async def run_voice_pipeline(
 
     def _schedule_trigger(alts: list) -> None:
         """Schedule Grok after debounce. Only one response per user turn."""
-        nonlocal debounce_task, turn_complete_transcript, turn_complete_confidence
+        nonlocal debounce_task, turn_complete_transcript, turn_complete_confidence, grok_task
 
         if debounce_task and not debounce_task.done():
             debounce_task.cancel()
@@ -453,23 +478,58 @@ async def run_voice_pipeline(
             transcript_buffer.clear()
             return
 
-        if _is_incomplete_transcript(full_transcript):
+        if _is_incomplete_transcript(full_transcript) and not _contains_clear_intent(full_transcript):
             logger.info("[TURN_GUARD] incomplete_transcript_wait transcript=%s", full_transcript[:80])
             return
 
+        commit_reason = "default"
+        commit_text = full_transcript
+        is_short_whitelist = _is_whitelisted_short_utterance(full_transcript)
+        has_clear_intent = _contains_clear_intent(full_transcript)
+
+        # Prevent short trailing fragments ("hi", "hello") from overriding a richer
+        # caller turn that was captured moments earlier.
+        now_mono = time.monotonic()
+        if is_short_whitelist and last_rich_transcript and (now_mono - last_rich_transcript_ts) <= 8.0:
+            commit_text = last_rich_transcript
+            commit_reason = "reuse_recent_rich_transcript"
+        elif has_clear_intent:
+            commit_reason = "clear_intent_final"
+        elif is_short_whitelist:
+            commit_reason = "short_whitelist_final"
+
         transcript_buffer.clear()
-        turn_complete_transcript = full_transcript
+        turn_complete_transcript = commit_text
         turn_complete_confidence = confidence
 
-        words = full_transcript.lower().split()
+        logger.info(
+            "[TURN_GUARD] commit_candidate reason=%s transcript=%s",
+            commit_reason,
+            commit_text[:120],
+        )
+
+        words = commit_text.lower().split()
         word_count = len(words)
 
-        if _is_whitelisted_short_utterance(full_transcript):
-            debounce_ms = DEBOUNCE_MS
-            logger.info("[TURN_GUARD] short_utterance_allowed transcript=%s", full_transcript[:80])
-        elif word_count <= SHORT_PAUSE_MAX_WORDS:
+        # Fail-open policy: final short-whitelist or clear-intent utterances dispatch immediately.
+        if is_short_whitelist or has_clear_intent:
+            if not is_processing:
+                logger.info(
+                    "[TURN_GUARD] immediate_dispatch reason=%s transcript=%s",
+                    commit_reason,
+                    commit_text[:120],
+                )
+                grok_task = asyncio.create_task(process_user_input())
+            else:
+                logger.info(
+                    "[TURN_GUARD] immediate_dispatch_skipped_already_processing transcript=%s",
+                    commit_text[:120],
+                )
+            return
+
+        if word_count <= SHORT_PAUSE_MAX_WORDS:
             debounce_ms = DEBOUNCE_MS_FALLBACK
-            logger.info("[TURN_GUARD] short_utterance_fallback_trigger transcript=%s", full_transcript[:80])
+            logger.info("[TURN_GUARD] short_utterance_fallback_trigger transcript=%s", commit_text[:80])
         else:
             debounce_ms = DEBOUNCE_MS
 
@@ -490,7 +550,7 @@ async def run_voice_pipeline(
         )
 
     async def on_dg_message(msg: dict) -> None:
-        nonlocal transcript_buffer
+        nonlocal transcript_buffer, last_rich_transcript, last_rich_transcript_ts
 
         msg_type = msg.get("type", "Results")
 
@@ -530,6 +590,10 @@ async def run_voice_pipeline(
 
         if is_final and transcript:
             transcript_buffer.append(transcript)
+            # Save richer final transcripts so short trailing utterances do not erase intent.
+            if _contains_clear_intent(transcript) or len((transcript or "").split()) >= 5:
+                last_rich_transcript = transcript
+                last_rich_transcript_ts = time.monotonic()
             if not speech_final and _is_whitelisted_short_utterance(transcript):
                 logger.info(
                     "[TURN_GUARD] final_short_utterance_trigger transcript=%s",

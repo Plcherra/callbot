@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any, Callable, Awaitable, Optional
 
 from config import settings
@@ -71,6 +72,8 @@ def _normalize_for_whitelist(text: str) -> str:
     return s
 CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
 PRE_TOOL_FILLER_PHRASE = "One sec."
+FAST_ACK_AVAILABILITY = "Checking now."
+FAST_ACK_BOOKING = "Got it. Booking now."
 
 # Voice output: assistant must output only literal spoken words (no narration/actions)
 VOICE_OUTPUT_INSTRUCTIONS = (
@@ -165,6 +168,7 @@ def make_calendar_tool_exec(
     - calls the voice calendar API with normalized args
     """
     pre_tool_spoken_this_turn = False
+    skip_pre_tool_speech = bool(config.get("skip_pre_tool_speech"))
     tool_cache: dict[tuple[str, str], str] = {}
 
     base_url = config.get("voice_server_base_url")
@@ -175,6 +179,8 @@ def make_calendar_tool_exec(
 
     async def _maybe_pre_tool_speech(tool_name: str) -> None:
         nonlocal pre_tool_spoken_this_turn
+        if skip_pre_tool_speech:
+            return
         if pre_tool_spoken_this_turn:
             return
         if tool_name not in CALENDAR_TOOL_NAMES:
@@ -319,6 +325,101 @@ def _contains_clear_intent(text: str) -> bool:
     return any(h in norm for h in INTENT_HINTS)
 
 
+def _extract_date_text_hint(text: str) -> Optional[str]:
+    norm = _normalize_for_whitelist(text)
+    if "tomorrow" in norm:
+        return "tomorrow"
+    if "today" in norm:
+        return "today"
+    return None
+
+
+def _extract_time_hint(text: str) -> Optional[str]:
+    norm = _normalize_for_whitelist(text)
+    m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", norm, flags=re.IGNORECASE)
+    if m:
+        hh = m.group(1)
+        mm = m.group(2)
+        ampm = m.group(3).lower()
+        return f"{hh}:{mm} {ampm}" if mm else f"{hh} {ampm}"
+    words = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+        "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    }
+    m2 = re.search(r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)\b", norm)
+    if m2:
+        return f"{words[m2.group(1)]} {m2.group(2)}"
+    return None
+
+
+def _is_booking_confirmation_intent(text: str) -> bool:
+    norm = _normalize_for_whitelist(text)
+    if not norm:
+        return False
+    has_time = _extract_time_hint(text) is not None
+    wants_booking = any(k in norm for k in ("book", "please", "that works", "works", "schedule"))
+    return has_time and wants_booking
+
+
+def _is_availability_intent(text: str) -> bool:
+    norm = _normalize_for_whitelist(text)
+    return any(k in norm for k in ("availability", "available", "spot", "book", "tomorrow", "today"))
+
+
+def _to_spoken_slot(slot: str) -> str:
+    try:
+        dt = datetime.fromisoformat(slot.replace("Z", "+00:00"))
+        return dt.strftime("%-I:%M %p").lower()
+    except Exception:
+        return slot
+
+
+def _slots_sentence(slots: list[str]) -> str:
+    spoken = [_to_spoken_slot(s) for s in slots[:3]]
+    if not spoken:
+        return ""
+    if len(spoken) == 1:
+        return spoken[0]
+    if len(spoken) == 2:
+        return f"{spoken[0]} or {spoken[1]}"
+    return f"{spoken[0]}, {spoken[1]}, or {spoken[2]}"
+
+
+def _template_from_tool_result(
+    tool_name: str,
+    result_json: str,
+    requested_date: Optional[str],
+    requested_time: Optional[str],
+) -> Optional[str]:
+    try:
+        parsed = json.loads(result_json or "{}")
+    except Exception:
+        return None
+    if parsed.get("success") is not True:
+        if tool_name == "check_availability":
+            return "I couldn't fetch availability just now. Want me to try a different day?"
+        if tool_name == "create_appointment":
+            return "I couldn't complete that booking yet. Could you repeat the date and time?"
+        return None
+
+    if tool_name == "check_availability":
+        slots = parsed.get("exact_slots") or parsed.get("suggested_slots") or []
+        if slots:
+            day_text = requested_date or "that day"
+            return f"I found {_slots_sentence(slots)} for {day_text}. Which works best?"
+        return "I don't have open slots in that window. Want me to check another day?"
+
+    if tool_name == "create_appointment":
+        start = (parsed.get("start_time") or "").strip()
+        if start:
+            return f"You're all set for {_to_spoken_slot(start)}. I sent a confirmation text."
+        if requested_time:
+            date_part = requested_date or "that day"
+            return f"You're all set for {requested_time} {date_part}. I sent a confirmation text."
+        return "You're all set. I sent a confirmation text."
+    return None
+
+
 async def run_voice_pipeline(
     config: dict[str, Any],
     on_audio: Callable[[bytes], Awaitable[None]],
@@ -410,6 +511,49 @@ async def run_voice_pipeline(
             )
             if use_calendar:
                 last_availability_slots: dict[str, Any] = {}
+                fast_date = _extract_date_text_hint(user_text)
+                fast_time = _extract_time_hint(user_text)
+                fast_tool_name = None
+                fast_tool_args: dict[str, Any] = {}
+                if _is_booking_confirmation_intent(user_text):
+                    fast_tool_name = "create_appointment"
+                    date_and_time = " ".join(
+                        [p for p in [fast_date, ("at " + fast_time) if fast_time else None] if p]
+                    ).strip()
+                    if date_and_time:
+                        fast_tool_args["date_text"] = date_and_time
+                    if not fast_tool_args.get("date_text"):
+                        fast_tool_name = None
+                    else:
+                        fast_tool_args["summary"] = "Appointment"
+                        fast_tool_args["generic_appointment_requested"] = True
+                elif _is_availability_intent(user_text):
+                    fast_tool_name = "check_availability"
+                    fast_tool_args = {
+                        "date_text": fast_date or "tomorrow",
+                        "generic_appointment_requested": True,
+                    }
+
+                if fast_tool_name:
+                    logger.info(
+                        "[CALL_DIAG] fast_path_selected tool=%s transcript=%s args=%s",
+                        fast_tool_name,
+                        user_text[:120],
+                        json.dumps(fast_tool_args, separators=(",", ":"), sort_keys=True)[:220],
+                    )
+                    pre_ack = FAST_ACK_BOOKING if fast_tool_name == "create_appointment" else FAST_ACK_AVAILABILITY
+                    logger.info("[CALL_DIAG] pre_ack_sent text=%r", pre_ack)
+                    await generate_and_send_tts(
+                        pre_ack,
+                        config,
+                        on_audio,
+                        on_error,
+                        _tts_failure_logged=tts_failure_logged,
+                    )
+
+                prev_skip_pre_tool = bool(config.get("skip_pre_tool_speech"))
+                if fast_tool_name:
+                    config["skip_pre_tool_speech"] = True
                 tool_exec = make_calendar_tool_exec(
                     config=config,
                     on_audio=on_audio,
@@ -417,6 +561,46 @@ async def run_voice_pipeline(
                     tts_failure_logged=tts_failure_logged,
                     last_availability_slots=last_availability_slots,
                 )
+
+                if fast_tool_name:
+                    logger.info("[CALL_DIAG] tool_direct_dispatch tool=%s", fast_tool_name)
+                    fast_result = await tool_exec(fast_tool_name, fast_tool_args)
+                    templated = _template_from_tool_result(
+                        fast_tool_name,
+                        fast_result,
+                        requested_date=fast_date,
+                        requested_time=fast_time,
+                    )
+                    if templated:
+                        logger.info("[CALL_DIAG] template_response_used type=%s", fast_tool_name)
+                        history.append({"role": "assistant", "content": templated})
+                        logger.info("[turn] TTS started response_len=%d", len(templated))
+                        t_tts_start = time.perf_counter()
+                        logger.info(
+                            "[BOOKING_LATENCY] tts_start t=%.3f response_len=%d",
+                            t_tts_start,
+                            len(templated),
+                        )
+                        await generate_and_send_tts(
+                            templated,
+                            config,
+                            on_audio,
+                            on_error,
+                            _tts_failure_logged=tts_failure_logged,
+                        )
+                        config["skip_pre_tool_speech"] = prev_skip_pre_tool
+                        t_turn_end = time.perf_counter()
+                        logger.info(
+                            "[BOOKING_LATENCY] turn_end total_ms=%.0f tts_ms=%.0f fast_path=true",
+                            (t_turn_end - t_turn_start) * 1000,
+                            (t_turn_end - t_tts_start) * 1000,
+                        )
+                        return
+                    logger.info(
+                        "[CALL_DIAG] llm_fallback_used reason=template_unavailable tool=%s",
+                        fast_tool_name,
+                    )
+                    config["skip_pre_tool_speech"] = prev_skip_pre_tool
 
                 response = await chat_with_tools(
                     history,

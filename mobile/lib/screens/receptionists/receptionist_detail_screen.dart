@@ -34,6 +34,8 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
   List<Map<String, dynamic>> _upcomingAppointments = [];
   bool _loading = true;
   String? _error;
+  String? _callHistoryError;
+  String? _callHistoryDegradedReason;
 
   @override
   void initState() {
@@ -42,9 +44,12 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
+      _callHistoryError = null;
+      _callHistoryDegradedReason = null;
     });
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -62,6 +67,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
           .maybeSingle();
 
       if (recRes == null) {
+        if (!mounted) return;
         setState(() {
           _error = 'Not found';
           _loading = false;
@@ -71,8 +77,11 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
 
       List<Map<String, dynamic>> history = [];
       try {
-        history = await loadCallHistory(widget.receptionistId, limit: 20);
-      } catch (_) {
+        final result = await loadCallHistoryResult(widget.receptionistId, limit: 20);
+        history = result.calls;
+        _callHistoryDegradedReason = result.degraded ? result.degradedReason : null;
+      } on CallHistoryApiException catch (e) {
+        _callHistoryError = e.message;
         // Fallback: try call_usage if call_logs API fails
         try {
           final fallback = await supabase
@@ -81,9 +90,11 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
               .eq('receptionist_id', widget.receptionistId)
               .order('started_at', ascending: false)
               .limit(20);
-          final raw = fallback is List ? fallback : (fallback as dynamic).data;
+          final raw = fallback as List;
           history = List<Map<String, dynamic>>.from((raw as List?) ?? []);
         } catch (_) {}
+      } catch (_) {
+        _callHistoryError = 'Failed to load call history';
       }
 
       List<Map<String, dynamic>> upcoming = [];
@@ -111,13 +122,15 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
         });
       } catch (_) {}
 
+      if (!mounted) return;
       setState(() {
-        _receptionist = Receptionist.fromJson(recRes as Map<String, dynamic>);
+        _receptionist = Receptionist.fromJson(recRes);
         _callHistory = history;
         _upcomingAppointments = upcoming.take(5).toList();
         _loading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -265,6 +278,8 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
             _RecentCallsSection(
               calls: _callHistory.take(3).toList(),
               receptionistId: r.id,
+              errorText: _callHistoryError,
+              degradedText: _callHistoryDegradedReason,
               onViewAll: () => context.push(
                 '/receptionists/${r.id}/calls?name=${Uri.encodeComponent(r.name)}',
               ),
@@ -539,11 +554,15 @@ class _UpcomingAppointmentsSection extends StatelessWidget {
 class _RecentCallsSection extends StatelessWidget {
   final List<Map<String, dynamic>> calls;
   final String receptionistId;
+  final String? errorText;
+  final String? degradedText;
   final VoidCallback onViewAll;
 
   const _RecentCallsSection({
     required this.calls,
     required this.receptionistId,
+    this.errorText,
+    this.degradedText,
     required this.onViewAll,
   });
 
@@ -566,7 +585,29 @@ class _RecentCallsSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        if (calls.isEmpty)
+        if (errorText != null)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Call history unavailable: $errorText',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+              ),
+            ),
+          )
+        else if (degradedText != null)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Limited call data: $degradedText',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          )
+        else if (calls.isEmpty)
           Card(
             child: Padding(
               padding: const EdgeInsets.all(24),

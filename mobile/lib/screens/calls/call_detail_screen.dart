@@ -14,6 +14,8 @@ String _recordingStatusLabel(String? status) {
   switch (status) {
     case 'available':
       return 'Available';
+    case 'expired':
+      return 'Expired';
     case 'processing':
       return 'Processing';
     case 'not_recorded':
@@ -44,6 +46,7 @@ class CallDetailScreen extends StatefulWidget {
 class _CallDetailScreenState extends State<CallDetailScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isPlaying = false;
+  bool _recordingExpired = false;
 
   @override
   void dispose() {
@@ -82,7 +85,9 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
         : null;
     final recordingDuration = call['recording_duration_seconds'] as int?;
 
-    final hasRecording = recordingStatus == 'available' &&
+    final effectiveRecordingStatus = _recordingExpired ? 'expired' : recordingStatus;
+    final hasRecording = !_recordingExpired &&
+        recordingStatus == 'available' &&
         recordingUrl != null &&
         recordingUrl.isNotEmpty;
     final hasTranscript = transcript != null && transcript.isNotEmpty;
@@ -141,7 +146,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
             const SizedBox(height: 24),
             _buildRecordingAndTranscriptSection(
               context: context,
-              recordingStatus: recordingStatus,
+              recordingStatus: effectiveRecordingStatus,
               recordingUrl: recordingUrl,
               recordedAt: recordedAt,
               recordingDuration: recordingDuration,
@@ -286,6 +291,10 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
         statusExplanation =
             'Play or download. Link expires ~10 min after call ended.';
         break;
+      case 'expired':
+        statusExplanation =
+            'Recording link has expired. Request a fresh recording URL from backend storage.';
+        break;
       case 'processing':
         statusExplanation =
             'Recording is being processed. Check back in a few minutes.';
@@ -380,6 +389,10 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
       await _audioPlayer.onPlayerComplete.first;
     } catch (e) {
       if (mounted) {
+        final msg = e.toString().toLowerCase();
+        if (msg.contains("403") || msg.contains("404") || msg.contains("expired")) {
+          setState(() => _recordingExpired = true);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not play: ${e.toString()}')),
         );
@@ -399,6 +412,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     if (uri != null && await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else if (mounted) {
+      setState(() => _recordingExpired = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not open link')),
       );

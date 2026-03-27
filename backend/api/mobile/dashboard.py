@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from api.auth import get_user_from_request
+from api.mobile.call_logs_projection import fetch_call_logs_with_fallback
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -65,22 +66,17 @@ async def dashboard_summary(request: Request):
     total_minutes = round(total_seconds / 60.0, 2) if total_seconds else 0.0
 
     recent_calls = []
+    select_mode = "full"
     try:
-        recent = (
-            supabase.table("call_logs")
-            .select("id, call_control_id, receptionist_id, from_number, to_number, direction, status, started_at, ended_at, duration_seconds")
-            .in_("receptionist_id", rec_ids)
-            .eq("status", "completed")
-            .order("started_at", desc=True)
-            .limit(10)
-            .execute()
+        recent_calls, select_mode, degraded_reason = fetch_call_logs_with_fallback(
+            supabase=supabase,
+            receptionist_ids=rec_ids,
+            limit=10,
+            completed_only=True,
+            diag_tag="dashboard-summary",
         )
-        raw_recent = recent.data if recent and recent.data is not None else []
-        for r in (raw_recent or []):
-            safe = dict(r) if isinstance(r, dict) else {}
-            if safe.get("duration_seconds") is None:
-                safe["duration_seconds"] = 0
-            recent_calls.append(safe)
+        if degraded_reason:
+            logger.info("[CALL_DIAG] dashboard-summary recent_calls degraded reason=%s", degraded_reason)
     except Exception as e:
         logger.warning("[CALL_DIAG] dashboard-summary recent_calls failed: %s", e)
 
@@ -89,5 +85,6 @@ async def dashboard_summary(request: Request):
         "total_minutes": total_minutes,
         "recent_calls": recent_calls,
         "usage_minutes_realtime": usage_minutes_realtime,
+        "recent_calls_select_mode": select_mode,
     }
 

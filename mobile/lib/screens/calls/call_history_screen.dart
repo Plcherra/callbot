@@ -22,6 +22,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
   List<Map<String, dynamic>> _calls = [];
   bool _loading = true;
   String? _error;
+  String? _degradedReason;
   String? _outcomeFilter;
 
   @override
@@ -34,11 +35,13 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _degradedReason = null;
     });
     try {
-      final calls = await loadCallHistory(widget.receptionistId);
+      final result = await loadCallHistoryResult(widget.receptionistId);
       setState(() {
-        _calls = calls;
+        _calls = result.calls;
+        _degradedReason = result.degraded ? result.degradedReason : null;
         _loading = false;
       });
     } catch (e) {
@@ -72,6 +75,14 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_degradedReason != null)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                          child: Text(
+                            'Limited call data: $_degradedReason',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
                       _buildFilterChips(),
                       Expanded(
                         child: RefreshIndicator(

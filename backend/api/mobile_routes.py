@@ -37,27 +37,14 @@ from telnyx import provision as telnyx_provision
 from utils.phone import normalize_to_e164
 
 from api.mobile.dashboard import router as dashboard_router
+from api.mobile.call_logs_projection import (
+    fetch_call_logs_with_fallback,
+    is_missing_column_error,
+)
 from api.mobile.settings import router as settings_router
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mobile", tags=["mobile"])
-
-# call_logs: base columns (migration 016) vs optional (031, 032)
-CALL_LOGS_BASE_SELECT = (
-    "id, call_control_id, from_number, to_number, direction, status, "
-    "started_at, answered_at, ended_at, duration_seconds, cost_cents, transcript"
-)
-CALL_LOGS_OPTIONAL_COLUMNS = [
-    "outcome",
-    "recording_status",
-    "recording_url",
-    "recorded_at",
-    "recording_duration_seconds",
-]
-CALL_LOGS_FULL_SELECT = (
-    f"{CALL_LOGS_BASE_SELECT}, "
-    ", ".join(CALL_LOGS_OPTIONAL_COLUMNS)
-)
 
 # appointments: base columns (020, 023) vs optional from 030
 APPOINTMENTS_BASE_SELECT = (
@@ -342,10 +329,21 @@ async def billing_portal(request: Request):
 # --- Receptionists ---
 def _assert_receptionist_ownership(receptionist_id: str, user_id: str, supabase) -> str | None:
     """Return None if ok, else error string."""
-    r = supabase.table("receptionists").select("user_id").eq("id", receptionist_id).single().execute()
-    if not r.data:
+    try:
+        r = (
+            supabase.table("receptionists")
+            .select("id, user_id")
+            .eq("id", receptionist_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        logger.warning("[CALL_DIAG] receptionist ownership lookup failed receptionist_id=%s: %s", receptionist_id, e)
         return "Receptionist not found"
-    if r.data.get("user_id") != user_id:
+    rows = r.data if r and isinstance(r.data, list) else []
+    if not rows:
+        return "Receptionist not found"
+    if (rows[0] or {}).get("user_id") != user_id:
         return "Receptionist not found"
     return None
 
@@ -1059,8 +1057,7 @@ async def send_appointment_confirmation_route(request: Request, appointment_id: 
 
 def _is_missing_column_error(exc: BaseException) -> bool:
     """True if error indicates a missing column (schema not migrated)."""
-    msg = (str(exc) or "").lower()
-    return "does not exist" in msg or ("column" in msg and ("not found" in msg or "unknown" in msg))
+    return is_missing_column_error(exc)
 
 
 @router.get("/receptionists/{receptionist_id}/call-history")
@@ -1076,48 +1073,37 @@ async def get_call_history(request: Request, receptionist_id: str):
     limit = min(int(request.query_params.get("limit", 50)), 100)
     offset = max(0, int(request.query_params.get("offset", 0)))
 
-    calls = []
-    used_reduced_select = False
     try:
-        rows = (
-            supabase.table("call_logs")
-            .select(CALL_LOGS_FULL_SELECT)
-            .eq("receptionist_id", receptionist_id)
-            .order("started_at", desc=True)
-            .range(offset, offset + limit - 1)
-            .execute()
+        calls, select_mode, degraded_reason = fetch_call_logs_with_fallback(
+            supabase=supabase,
+            receptionist_ids=[receptionist_id],
+            limit=limit,
+            offset=offset,
+            completed_only=False,
+            diag_tag="receptionist-call-history",
         )
-        calls = rows.data if rows and rows.data is not None else []
+    except RuntimeError:
+        logger.error(
+            "[CALL_HISTORY_SCHEMA_FALLBACK] no_compatible_select receptionist_id=%s last_error=%s",
+            receptionist_id,
+            "schema mismatch",
+        )
+        return JSONResponse(
+            {
+                "error": "Call history unavailable due to schema mismatch",
+                "code": "call_history_schema_mismatch",
+                "degraded": True,
+            },
+            status_code=503,
+        )
     except Exception as e:
-        if _is_missing_column_error(e):
-            logger.warning(
-                "[CALL_HISTORY_SCHEMA_FALLBACK] missing_columns=optional "
-                "using_reduced_select=true error=%s",
-                str(e)[:200],
-            )
-            try:
-                rows = (
-                    supabase.table("call_logs")
-                    .select(CALL_LOGS_BASE_SELECT)
-                    .eq("receptionist_id", receptionist_id)
-                    .order("started_at", desc=True)
-                    .range(offset, offset + limit - 1)
-                    .execute()
-                )
-                calls = rows.data if rows and rows.data is not None else []
-                used_reduced_select = True
-            except Exception as retry_exc:
-                logger.exception("[CALL_DIAG] call-history reduced select failed: %s", retry_exc)
-                raise
-        else:
-            logger.exception("[CALL_DIAG] call-history failed: %s", e)
-            raise
-
-    if used_reduced_select:
-        logger.info(
-            "[CALL_HISTORY_SCHEMA_FALLBACK] using_reduced_select=true "
-            "receptionist_id=%s count=%s (apply migrations 031, 032 for full columns)",
-            receptionist_id, len(calls),
+        logger.exception("[CALL_DIAG] call-history failed receptionist_id=%s: %s", receptionist_id, e)
+        return JSONResponse(
+            {
+                "error": "Failed to load call history",
+                "code": "call_history_query_failed",
+            },
+            status_code=500,
         )
 
     # Resolve appointment_id for each call (appointments.call_log_id = call.id)
@@ -1139,19 +1125,23 @@ async def get_call_history(request: Request, receptionist_id: str):
             pass
     # Defensive: ensure each row has expected fields, coerce None duration
     safe_calls = []
-    for r in (calls or []):
-        safe = dict(r) if isinstance(r, dict) else {}
-        if safe.get("duration_seconds") is None:
-            safe["duration_seconds"] = 0
+    for safe in (calls or []):
         call_id = safe.get("id")
         if call_id and str(call_id) in appointment_by_call:
             safe["appointment_id"] = appointment_by_call[str(call_id)]
         safe_calls.append(safe)
     logger.info(
-        "[CALL_DIAG] call-history receptionist_id=%s count=%s offset=%s",
-        receptionist_id, len(safe_calls), offset,
+        "[CALL_DIAG] call-history receptionist_id=%s count=%s offset=%s select_mode=%s",
+        receptionist_id, len(safe_calls), offset, select_mode,
     )
-    return {"calls": safe_calls}
+    response = {"calls": safe_calls}
+    if select_mode != "full":
+        response["degraded"] = True
+        response["degraded_reason"] = (
+            "schema_fallback_active: optional call columns unavailable; apply migrations 031 and 032"
+        )
+        response["select_mode"] = select_mode
+    return response
 
 
 @router.get("/receptionists/{receptionist_id}/prompt-preview")

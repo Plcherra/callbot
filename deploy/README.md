@@ -7,18 +7,22 @@ Deployment configs and scripts for callbot on Hetzner VPS.
 ```
 deploy/
 ├── nginx/
-│   └── callbot.conf.template   # Nginx config for echodesk.us
-├── pm2/
-│   └── ecosystem.config.cjs    # PM2 config (alt: use root ecosystem.config.cjs)
+│   ├── callbot.conf.template      # Primary nginx config (echodesk.us pattern)
+│   ├── callbot-http-only.conf.template
+│   └── websocket-map.conf
 ├── env/
-│   ├── .env.example            # Full env template
-│   └── .env.production.example # Production overrides
+│   ├── .env.example               # Full env template
+│   └── .env.production.example   # Production overrides
 ├── scripts/
-│   ├── deploy.sh               # Manual backend + services deploy
-│   ├── deploy-landing.sh       # Deploy static marketing landing to nginx
-│   └── renew-cert.sh           # SSL cert renewal
+│   ├── deploy.sh                  # Manual backend + services deploy
+│   ├── deploy-landing.sh          # Static marketing landing → nginx docroot
+│   ├── renew-cert.sh              # SSL cert renewal
+│   ├── diagnose-call-flow.sh      # Voice path checks on VPS
+│   └── ...
 └── README.md
 ```
+
+**PM2:** use the repo-root **`ecosystem.config.cjs`** (`pm2 start ecosystem.config.cjs` from project root).
 
 ## Quick Deploy
 
@@ -60,4 +64,4 @@ The script syncs `landing/dist/` → `/var/www/echodesk-landing` via `rsync`, th
 
 ## Docs
 
-See `docs/` for architecture, deployment, environment, Telnyx, troubleshooting, and nginx-explained.
+Product and ops reference: **`docs/README.md`** (system overview, voice pipeline, SMS, env, runbook).

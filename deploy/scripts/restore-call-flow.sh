@@ -2,7 +2,7 @@
 # Restore call flow: restart voice backend, fix nginx, verify tunnel config.
 # Run on VPS from project root: ./deploy/scripts/restore-call-flow.sh
 #
-# See docs/CALL_FLOW_DIAGNOSTIC.md for full troubleshooting.
+# See docs/ops/RUNBOOK.md for voice/stream troubleshooting.
 
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

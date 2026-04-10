@@ -2,10 +2,16 @@
 
 Mobile-first AI phone receptionist: **Flutter app** (primary), **Python FastAPI backend** (voice + mobile API + Stripe + OAuth), **static landing page**. No Next.js.
 
+## Documentation rules
+
+- **Canonical docs** are exactly the Markdown files allowed by [`scripts/check-docs.sh`](scripts/check-docs.sh) (see [`docs/README.md`](docs/README.md)). Do not add new files under `docs/` unless you intentionally update that allowlist in the same change.
+- **Behavior changes** should include doc updates in the same PR when they affect operators or integration (voice, SMS, env, runbook).
+- **Source of truth:** `docs/core/VOICE_PIPELINE.md` and `docs/core/SMS_FLOW.md` describe intended behavior; if code disagrees, treat that as a bug unless you are deliberately changing the contract (then update the doc).
+
 ## Features
 
 - **Flutter mobile app**: Primary user interface; subscription, calendar, receptionists, call history
-- **Voice pipeline**: Telnyx webhook → Python → Deepgram STT → Grok LLM → TTS (ElevenLabs or Google Cloud) → Telnyx
+- **Voice pipeline**: Telnyx webhook → Python → Deepgram STT → Grok LLM → TTS (Google Cloud) → Telnyx
 - **Mobile API**: Push tokens, sync, Stripe Checkout/Billing Portal, Google OAuth, receptionists CRUD
 - **Static landing**: Hero, pricing, demo video, App Store / Play Store links
 - **Cron**: PAYG billing, usage reset
@@ -16,7 +22,7 @@ Mobile-first AI phone receptionist: **Flutter app** (primary), **Python FastAPI 
 - **Mobile**: Flutter
 - **Landing**: Static HTML (Tailwind CDN)
 - **Data**: Supabase (auth, users, receptionists, Stripe sync)
-- **Voice AI**: Deepgram, Grok, TTS (ElevenLabs or Google Cloud)
+- **Voice AI**: Deepgram, Grok, Google Cloud TTS
 - **Telnyx**: Phone provisioning, voice webhooks, CDR
 
 ## Quick Start
@@ -42,7 +48,7 @@ flutter run --dart-define=API_BASE_URL=http://localhost:8000
 
 ### Landing
 
-Open `landing/dist/index.html` in a browser, or serve via nginx (see [docs/deployment.md](docs/deployment.md)).
+Open `landing/dist/index.html` in a browser, or serve via nginx (`deploy/nginx/callbot.conf.template` and `deploy/README.md`).
 
 ## Project Structure
 
@@ -50,26 +56,15 @@ Open `landing/dist/index.html` in a browser, or serve via nginx (see [docs/deplo
 ├── backend/             # Python FastAPI (voice, mobile API, Stripe, OAuth, cron)
 ├── landing/             # Static landing (landing/dist/)
 ├── mobile/              # Flutter app
-├── deploy/              # Deploy scripts, nginx, env template
+├── deploy/              # Deploy scripts, nginx templates, env examples
 ├── scripts/             # validate-env.py
-└── docs/                # Documentation
+└── docs/                # MVP docs: README + core/ + ops/
 ```
 
 ## Environment Variables
 
-See `deploy/env/.env.example`. Key vars:
-
-- **Supabase**: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- **Telnyx**: `TELNYX_API_KEY`, `TELNYX_WEBHOOK_BASE_URL`, `TELNYX_CONNECTION_ID`
-- **Voice AI**: `DEEPGRAM_API_KEY`, `GROK_API_KEY`, `TTS_PROVIDER`, `ELEVENLABS_API_KEY` (if using ElevenLabs) or Google Cloud credentials (if `TTS_PROVIDER=google`)
-- **Stripe**: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_*`
-- **Google OAuth**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`
-- **App**: `APP_URL` (e.g. `https://echodesk.us`)
+See **`deploy/env/.env.example`** and **`docs/core/ENV.md`**. Key groups: Supabase, Telnyx, `DEEPGRAM_API_KEY`, `GROK_API_KEY`, Google TTS credentials, Stripe, OAuth.
 
 ## Docs
 
-- [FULL_PROJECT_OVERVIEW.md](docs/FULL_PROJECT_OVERVIEW.md) – Architecture, env, deploy, call flow
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) – Component diagram, data flow
-- [deployment.md](docs/deployment.md) – VPS deploy, nginx, PM2
-- [CALL_FLOW_DIAGNOSTIC.md](docs/CALL_FLOW_DIAGNOSTIC.md) – Call troubleshooting
-- [troubleshooting.md](docs/troubleshooting.md) – General troubleshooting
+Start with **[docs/README.md](docs/README.md)** — overview, voice pipeline, SMS, env, runbook.

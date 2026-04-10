@@ -3,76 +3,40 @@
 import asyncio
 import json
 import logging
-import re
 import time
 from collections import deque
-from datetime import datetime
 from typing import Any, Callable, Awaitable, Optional
 
 from config import settings
-from telnyx.sms_delivery_registry import get_delivery_status
+from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
+from voice.pipeline_templates import (
+    deterministic_post_booking_reply,
+    log_availability_guard,
+    template_from_tool_result,
+)
+from voice.pipeline_transcript import (
+    contains_clear_intent,
+    extract_date_text_hint,
+    extract_time_hint,
+    is_availability_intent,
+    is_booking_confirmation_intent,
+    is_incomplete_transcript,
+    is_whitelisted_short_utterance,
+    passes_transcript_guard,
+)
 from voice.slot_selection import is_new_availability_search_intent, resolve_slot_selection
 from voice.tts_facade import generate_and_send_tts
-from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
 
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY = 20
-FILLER_WORDS = frozenset({"um", "uh", "hmm", "eh", "er", "ah", "like", "well", "so"})
 DEBOUNCE_MS = 1200
 DEBOUNCE_MS_FALLBACK = 800
 SHORT_PAUSE_MAX_WORDS = 4
 MIN_CONFIDENCE = 0.35
 
-# Short utterances that should trigger processing immediately (normal debounce, no extended wait).
-# Normalized for matching: lowercase, strip punctuation, collapse spaces (e.g. "9 am" -> "9am").
-SHORT_UTTERANCE_WHITELIST = frozenset({
-    "hello", "hi", "hey", "yes", "yeah", "yup", "no", "okay", "ok",
-    "book", "booking", "pricing", "price", "tomorrow", "today",
-    "9am", "9 am", "10am", "10 am", "11am", "11 am", "8am", "8 am",
-    "can you hear me", "you there", "anybody there",
-})
-
-# Phrases that indicate the caller likely has more to say (incomplete turn)
-INCOMPLETE_PHRASE_ENDINGS = (
-    " to",
-    " for",
-    " at",
-    " on",
-    " i want",
-    " i wanna",
-    " i need",
-    " can you",
-    " could you",
-    " tomorrow at",
-    " today at",
-)
-INCOMPLETE_SINGLE_WORDS = frozenset({"to", "for", "at", "on"})
-INTENT_HINTS = (
-    "book",
-    "appointment",
-    "availability",
-    "available",
-    "spot",
-    "tomorrow",
-    "today",
-    "reschedule",
-    "cancel",
-    "price",
-    "pricing",
-)
-
-
-def _normalize_for_whitelist(text: str) -> str:
-    """Normalize transcript for whitelist matching: lowercase, strip punctuation, collapse spaces."""
-    if not text:
-        return ""
-    s = (text or "").strip().lower()
-    s = re.sub(r"[?!.,;:]+", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
 CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
 PRE_TOOL_FILLER_PHRASE = "One sec."
 FAST_ACK_AVAILABILITY = "Checking now."
@@ -84,53 +48,6 @@ VOICE_OUTPUT_INSTRUCTIONS = (
     "Never include emojis, emoticons (e.g. :)), stage directions, or action narration such as (smiles), [laughs], *pause*, or standalone words like 'Smile' or 'Smiles' used as action text. "
     "Keep content suitable for text-to-speech: no markup, no parenthetical asides that are not meant to be spoken."
 )
-
-
-def _extract_spoken_slots(text: str) -> list[str]:
-    """Best-effort extraction of time-like mentions from spoken response for guard logging."""
-    if not text or not text.strip():
-        return []
-    t = text.lower()
-    found: list[str] = []
-    for m in re.finditer(r"\b(\d{1,2})\s*(?::\d{2})?\s*(am|pm|a\.m\.|p\.m\.|o'?clock)?\b", t, re.IGNORECASE):
-        found.append(m.group(0).strip())
-    for period in ("morning", "afternoon", "evening"):
-        if period in t:
-            found.append(period)
-    return found
-
-
-def _log_availability_guard(response: str, tool_slots: dict[str, Any]) -> None:
-    """Log tool slots vs spoken slots; warn if response mentions times not in tool result."""
-    tool_exact = tool_slots.get("exact_slots") or []
-    tool_suggested = tool_slots.get("suggested_slots") or []
-    tool_periods = tool_slots.get("summary_periods") or []
-    slots_str = ",".join(tool_exact or tool_suggested)
-    logger.info("[AVAILABILITY_SPOKEN_GUARD] tool_slots=%s", slots_str or "(none)")
-    spoken = _extract_spoken_slots(response)
-    logger.info("[AVAILABILITY_SPOKEN_GUARD] spoken_slots=%s", ",".join(spoken) if spoken else "(none)")
-    if not spoken:
-        return
-    allowed = set(str(s) for s in (tool_exact or tool_suggested))
-    allowed_periods = set(p.lower() for p in tool_periods)
-    for s in spoken:
-        s_lower = s.lower()
-        if s_lower in allowed_periods:
-            continue
-        if any(s_lower in a or a in s_lower for a in allowed):
-            continue
-        if re.match(r"^\d", s) and not allowed:
-            logger.warning(
-                "[AVAILABILITY_SPOKEN_GUARD] spoken time %r may not be in tool result tool_slots=%s",
-                s,
-                slots_str,
-            )
-        elif re.match(r"^\d", s):
-            logger.warning(
-                "[AVAILABILITY_SPOKEN_GUARD] spoken time %r differs from tool slots=%s",
-                s,
-                slots_str,
-            )
 
 
 def normalize_tool_args(args: dict) -> dict:
@@ -193,6 +110,12 @@ def make_calendar_tool_exec(
         logger.info("[BOOKING_LATENCY] pre_tool_speech_start tool=%s t=%.3f", tool_name, t_pre)
         phrase = PRE_TOOL_FILLER_PHRASE
         logger.info("[CALL_DIAG] pre_tool_speech_sent tool=%s text=%r", tool_name, phrase)
+        ac = config.get("active_turn_commit_id")
+        logger.info(
+            "[turn] TTS started commit_id=%s response_len=%d (pre_tool_filler)",
+            ac,
+            len(phrase),
+        )
         await generate_and_send_tts(
             phrase,
             config,
@@ -297,214 +220,6 @@ def make_calendar_tool_exec(
     return tool_exec
 
 
-def _passes_transcript_guard(text: str) -> bool:
-    """Allow transcripts that are long enough, in whitelist, or substantive. Reject filler-only."""
-    s = (text or "").strip()
-    if len(s) < 2:
-        return False
-    norm = _normalize_for_whitelist(s)
-    if norm in SHORT_UTTERANCE_WHITELIST:
-        return True
-    if len(s) == 2 and norm not in SHORT_UTTERANCE_WHITELIST:
-        return False
-    words = s.lower().split()
-    if len(words) == 1 and words[0] in FILLER_WORDS:
-        return False
-    if len(words) <= 2 and all(w in FILLER_WORDS for w in words):
-        return False
-    return True
-
-
-def _is_incomplete_transcript(text: str) -> bool:
-    """Return True if transcript ends in a dangling phrase and caller likely has more to say."""
-    s = (text or "").strip().lower()
-    if not s:
-        return False
-    if s in INCOMPLETE_SINGLE_WORDS:
-        return True
-    return any(s.endswith(ending) or s == ending.strip() for ending in INCOMPLETE_PHRASE_ENDINGS)
-
-
-def _is_whitelisted_short_utterance(text: str) -> bool:
-    """Return True if transcript is a known short complete utterance that should trigger immediately."""
-    norm = _normalize_for_whitelist(text)
-    if not norm:
-        return False
-    if norm in SHORT_UTTERANCE_WHITELIST:
-        return True
-    # Also match "9 am" -> "9am" style (whitelist has both)
-    collapsed = norm.replace(" ", "")
-    return collapsed in SHORT_UTTERANCE_WHITELIST
-
-
-def _is_post_booking_followup_message(text: str) -> bool:
-    """Common follow-up after booking; should not sit in debounce limbo."""
-    norm = _normalize_for_whitelist(text)
-    if not norm:
-        return False
-    return any(
-        p in norm
-        for p in (
-            "anything else",
-            "any thing else",
-            "need to know",
-            "is that all",
-            "that all",
-            "something else",
-            "what else",
-            "one more thing",
-            "anything i should",
-        )
-    )
-
-
-def _contains_clear_intent(text: str) -> bool:
-    """True when transcript clearly expresses booking/help intent."""
-    norm = _normalize_for_whitelist(text)
-    if not norm:
-        return False
-    if _is_post_booking_followup_message(text):
-        return True
-    if "?" in (text or "") and any(h in norm for h in INTENT_HINTS):
-        return True
-    return any(h in norm for h in INTENT_HINTS)
-
-
-def _extract_date_text_hint(text: str) -> Optional[str]:
-    norm = _normalize_for_whitelist(text)
-    if "tomorrow" in norm:
-        return "tomorrow"
-    if "today" in norm:
-        return "today"
-    return None
-
-
-def _extract_time_hint(text: str) -> Optional[str]:
-    norm = _normalize_for_whitelist(text)
-    m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", norm, flags=re.IGNORECASE)
-    if m:
-        hh = m.group(1)
-        mm = m.group(2)
-        ampm = m.group(3).lower()
-        return f"{hh}:{mm} {ampm}" if mm else f"{hh} {ampm}"
-    words = {
-        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
-        "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
-    }
-    m2 = re.search(r"\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*(am|pm)\b", norm)
-    if m2:
-        return f"{words[m2.group(1)]} {m2.group(2)}"
-    return None
-
-
-def _is_booking_confirmation_intent(text: str) -> bool:
-    norm = _normalize_for_whitelist(text)
-    if not norm:
-        return False
-    has_time = _extract_time_hint(text) is not None
-    wants_booking = any(k in norm for k in ("book", "please", "that works", "works", "schedule"))
-    return has_time and wants_booking
-
-
-def _is_availability_intent(text: str) -> bool:
-    norm = _normalize_for_whitelist(text)
-    return any(k in norm for k in ("availability", "available", "spot", "book", "tomorrow", "today"))
-
-
-def _to_spoken_slot(slot: str) -> str:
-    try:
-        dt = datetime.fromisoformat(slot.replace("Z", "+00:00"))
-        return dt.strftime("%-I:%M %p").lower()
-    except Exception:
-        return slot
-
-
-def _slots_sentence(slots: list[str]) -> str:
-    spoken = [_to_spoken_slot(s) for s in slots[:3]]
-    if not spoken:
-        return ""
-    if len(spoken) == 1:
-        return spoken[0]
-    if len(spoken) == 2:
-        return f"{spoken[0]} or {spoken[1]}"
-    return f"{spoken[0]}, {spoken[1]}, or {spoken[2]}"
-
-
-def _truth_aware_sms_line(voice_session: dict[str, Any] | None) -> str:
-    """One short line about confirmation text; never claim delivered if API failed or delivery failed."""
-    vs = voice_session or {}
-    sms = vs.get("sms") if isinstance(vs.get("sms"), dict) else {}
-    if not sms.get("attempted"):
-        return ""
-    if not sms.get("api_accepted"):
-        return " I wasn't able to send a confirmation text—please save this time or call back if anything changes."
-    msg_id = (sms.get("telnyx_message_id") or "").strip()
-    delivery = get_delivery_status(msg_id) if msg_id else None
-    if delivery == "delivery_failed":
-        if sms.get("from_number_is_toll_free"):
-            return (
-                " A confirmation text didn't go through—if you're expecting SMS, toll-free numbers often need "
-                "verification with your carrier provider first."
-            )
-        return " A confirmation text didn't go through—please save this time or call us if you need to change it."
-    if delivery in ("delivered",):
-        return " You should get a confirmation text shortly."
-    return " I've sent a confirmation text—if it doesn't show up, you can call back anytime."
-
-
-def _template_from_tool_result(
-    tool_name: str,
-    result_json: str,
-    requested_date: Optional[str],
-    requested_time: Optional[str],
-    *,
-    voice_session: Optional[dict[str, Any]] = None,
-) -> Optional[str]:
-    try:
-        parsed = json.loads(result_json or "{}")
-    except Exception:
-        return None
-    if parsed.get("success") is not True:
-        if tool_name == "check_availability":
-            return "I couldn't fetch availability just now. Want me to try a different day?"
-        if tool_name == "create_appointment":
-            return "I couldn't complete that booking yet. Could you repeat the date and time?"
-        return None
-
-    if tool_name == "check_availability":
-        slots = parsed.get("exact_slots") or parsed.get("suggested_slots") or []
-        if slots:
-            day_text = requested_date or "that day"
-            return f"I found {_slots_sentence(slots)} for {day_text}. Which works best?"
-        return "I don't have open slots in that window. Want me to check another day?"
-
-    if tool_name == "create_appointment":
-        start = (parsed.get("start_time") or "").strip()
-        sms_line = _truth_aware_sms_line(voice_session)
-        if start:
-            base = f"You're all set for {_to_spoken_slot(start)}."
-            return base + sms_line if sms_line else base
-        if requested_time:
-            date_part = requested_date or "that day"
-            base = f"You're all set for {requested_time} {date_part}."
-            return base + sms_line if sms_line else base
-        base = "You're all set."
-        return base + sms_line if sms_line else base
-    return None
-
-
-def _deterministic_post_booking_reply(user_text: str, voice_session: dict[str, Any]) -> Optional[str]:
-    """One short truth-aware reply for common post-booking questions; no chains."""
-    if not voice_session.get("booking_completed"):
-        return None
-    if not _is_post_booking_followup_message(user_text):
-        return None
-    sms_line = _truth_aware_sms_line(voice_session).strip()
-    if sms_line:
-        return f"You're all set.{sms_line}"
-    return "You're all set. If anything changes, just call us back."
-
-
 async def run_voice_pipeline(
     config: dict[str, Any],
     on_audio: Callable[[bytes], Awaitable[None]],
@@ -577,14 +292,15 @@ async def run_voice_pipeline(
         dispatch_commit_id_holder["id"] = None
         logger.info("[TURN_GUARD] dispatch_started path=process commit_id=%s", cid)
 
+        config["active_turn_commit_id"] = cid
         is_processing = True
         grok_task = None
         try:
-            if not user_text or not _passes_transcript_guard(user_text):
+            if not user_text or not passes_transcript_guard(user_text):
                 logger.info("[TURN_GUARD] dispatch_skipped reason=guard_reject commit_id=%s", cid)
                 return
             if confidence is not None and confidence < MIN_CONFIDENCE:
-                if not _is_whitelisted_short_utterance(user_text):
+                if not is_whitelisted_short_utterance(user_text):
                     logger.info("[TURN_GUARD] dispatch_skipped reason=low_confidence commit_id=%s", cid)
                     return
                 logger.info(
@@ -594,11 +310,15 @@ async def run_voice_pipeline(
                 )
 
             vs = config.get("voice_session") or {}
-            dpb = _deterministic_post_booking_reply(user_text, vs if isinstance(vs, dict) else {})
+            dpb = deterministic_post_booking_reply(user_text, vs if isinstance(vs, dict) else {})
             if dpb:
                 history.append({"role": "user", "content": user_text})
                 history.append({"role": "assistant", "content": dpb})
-                logger.info("[turn] TTS started response_len=%d (post_booking_deterministic)", len(dpb))
+                logger.info(
+                    "[turn] TTS started commit_id=%s response_len=%d (post_booking_deterministic)",
+                    cid,
+                    len(dpb),
+                )
                 await generate_and_send_tts(
                     dpb,
                     config,
@@ -622,8 +342,8 @@ async def run_voice_pipeline(
                 and config.get("voice_server_base_url")
             )
             if use_calendar:
-                fast_date = _extract_date_text_hint(user_text)
-                fast_time = _extract_time_hint(user_text)
+                fast_date = extract_date_text_hint(user_text)
+                fast_time = extract_time_hint(user_text)
                 fast_tool_name = None
                 fast_tool_args: dict[str, Any] = {}
 
@@ -656,7 +376,7 @@ async def run_voice_pipeline(
                     else:
                         logger.debug("[CALL_DIAG] slot_selection_no_match transcript=%s", user_text[:80])
 
-                if not slot_fast and _is_booking_confirmation_intent(user_text):
+                if not slot_fast and is_booking_confirmation_intent(user_text):
                     fast_tool_name = "create_appointment"
                     date_and_time = " ".join(
                         [p for p in [fast_date, ("at " + fast_time) if fast_time else None] if p]
@@ -668,7 +388,7 @@ async def run_voice_pipeline(
                     else:
                         fast_tool_args["summary"] = "Appointment"
                         fast_tool_args["generic_appointment_requested"] = True
-                elif not slot_fast and _is_availability_intent(user_text):
+                elif not slot_fast and is_availability_intent(user_text):
                     fast_tool_name = "check_availability"
                     fast_tool_args = {
                         "date_text": fast_date or "tomorrow",
@@ -684,6 +404,11 @@ async def run_voice_pipeline(
                     )
                     pre_ack = FAST_ACK_BOOKING if fast_tool_name == "create_appointment" else FAST_ACK_AVAILABILITY
                     logger.info("[CALL_DIAG] pre_ack_sent text=%r", pre_ack)
+                    logger.info(
+                        "[turn] TTS started commit_id=%s response_len=%d (pre_ack)",
+                        cid,
+                        len(pre_ack),
+                    )
                     await generate_and_send_tts(
                         pre_ack,
                         config,
@@ -706,7 +431,7 @@ async def run_voice_pipeline(
                 if fast_tool_name:
                     logger.info("[CALL_DIAG] tool_direct_dispatch tool=%s", fast_tool_name)
                     fast_result = await tool_exec(fast_tool_name, fast_tool_args)
-                    templated = _template_from_tool_result(
+                    templated = template_from_tool_result(
                         fast_tool_name,
                         fast_result,
                         requested_date=fast_date,
@@ -716,7 +441,11 @@ async def run_voice_pipeline(
                     if templated:
                         logger.info("[CALL_DIAG] template_response_used type=%s", fast_tool_name)
                         history.append({"role": "assistant", "content": templated})
-                        logger.info("[turn] TTS started response_len=%d", len(templated))
+                        logger.info(
+                            "[turn] TTS started commit_id=%s response_len=%d",
+                            cid,
+                            len(templated),
+                        )
                         t_tts_start = time.perf_counter()
                         logger.info(
                             "[BOOKING_LATENCY] tts_start t=%.3f response_len=%d",
@@ -755,8 +484,12 @@ async def run_voice_pipeline(
 
             history.append({"role": "assistant", "content": response})
             if use_calendar and offered_slots_state:
-                _log_availability_guard(response, offered_slots_state)
-            logger.info("[turn] TTS started response_len=%d", len(response))
+                log_availability_guard(response, offered_slots_state)
+            logger.info(
+                "[turn] TTS started commit_id=%s response_len=%d",
+                cid,
+                len(response),
+            )
             t_tts_start = time.perf_counter()
             logger.info("[BOOKING_LATENCY] tts_start t=%.3f response_len=%d", t_tts_start, len(response))
             await generate_and_send_tts(
@@ -771,14 +504,21 @@ async def run_voice_pipeline(
         except Exception as err:
             if on_error:
                 on_error(err)
+            apology = "I'm sorry, I didn't catch that. Could you repeat that?"
+            logger.info(
+                "[turn] TTS started commit_id=%s response_len=%d (error_apology)",
+                cid,
+                len(apology),
+            )
             await generate_and_send_tts(
-                "I'm sorry, I didn't catch that. Could you repeat that?",
+                apology,
                 config,
                 on_audio,
                 on_error,
                 _tts_failure_logged=tts_failure_logged,
             )
         finally:
+            config.pop("active_turn_commit_id", None)
             is_processing = False
             if pending_turn_queue:
                 t2, c2, cid2 = pending_turn_queue.popleft()
@@ -811,14 +551,14 @@ async def run_voice_pipeline(
             transcript_buffer.clear()
             return
 
-        if _is_incomplete_transcript(full_transcript) and not _contains_clear_intent(full_transcript):
+        if is_incomplete_transcript(full_transcript) and not contains_clear_intent(full_transcript):
             logger.info("[TURN_GUARD] incomplete_transcript_wait transcript=%s", full_transcript[:80])
             return
 
         commit_reason = "default"
         commit_text = full_transcript
-        is_short_whitelist = _is_whitelisted_short_utterance(full_transcript)
-        has_clear_intent = _contains_clear_intent(full_transcript)
+        is_short_whitelist = is_whitelisted_short_utterance(full_transcript)
+        has_clear_intent = contains_clear_intent(full_transcript)
 
         # Prevent short trailing fragments ("hi", "hello") from overriding a richer
         # caller turn that was captured moments earlier.
@@ -948,10 +688,10 @@ async def run_voice_pipeline(
         if is_final and transcript:
             transcript_buffer.append(transcript)
             # Save richer final transcripts so short trailing utterances do not erase intent.
-            if _contains_clear_intent(transcript) or len((transcript or "").split()) >= 5:
+            if contains_clear_intent(transcript) or len((transcript or "").split()) >= 5:
                 last_rich_transcript = transcript
                 last_rich_transcript_ts = time.monotonic()
-            if not speech_final and _is_whitelisted_short_utterance(transcript):
+            if not speech_final and is_whitelisted_short_utterance(transcript):
                 logger.info(
                     "[TURN_GUARD] final_short_utterance_trigger transcript=%s",
                     transcript[:80],

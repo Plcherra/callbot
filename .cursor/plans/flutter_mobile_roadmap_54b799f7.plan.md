@@ -77,7 +77,7 @@ flowchart TB
 
 
 
-The mobile app calls the same endpoints documented in `[docs/FLUTTER_REFERENCE.md](docs/FLUTTER_REFERENCE.md)`. No backend migration needed.
+The mobile app uses the FastAPI routes under `/api/mobile` (see `backend/api/mobile_routes.py` and `docs/core/SYSTEM_OVERVIEW.md`). No backend migration needed for this roadmap item.
 
 ---
 

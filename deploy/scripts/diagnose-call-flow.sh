@@ -2,7 +2,7 @@
 # Call flow diagnostics for echodesk.us.
 # Run on VPS from project root: ./deploy/scripts/diagnose-call-flow.sh
 #
-# See docs/CALL_FLOW_DIAGNOSTIC.md for full audit and fixes.
+# See docs/ops/RUNBOOK.md for production debugging (voice path, webhooks, SMS).
 
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -115,6 +115,6 @@ echo ""
 # 7. Voice logs hint
 echo "--- 7. Next steps ---"
 echo "Check voice logs: pm2 logs callbot-voice --lines 50"
-echo "Full audit: docs/CALL_FLOW_DIAGNOSTIC.md"
+echo "Ops reference: docs/ops/RUNBOOK.md"
 echo ""
 echo "=== Done ==="

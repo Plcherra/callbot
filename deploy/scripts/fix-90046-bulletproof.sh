@@ -2,8 +2,8 @@
 # Bulletproof 90046 fix: check and fix every known cause.
 # Run on VPS from project root: ./deploy/scripts/fix-90046-bulletproof.sh
 #
-# Goal: Call answered → WebSocket connected → full pipeline (Deepgram → Grok → ElevenLabs).
-# See docs/90046-BULLETPROOF-FIX.md for full reference.
+# Goal: Call answered → WebSocket connected → full pipeline (Deepgram → Grok → TTS).
+# See docs/core/SYSTEM_OVERVIEW.md and docs/ops/RUNBOOK.md for call/stream debugging.
 
 set -e
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -208,5 +208,5 @@ echo "  3. Look for: [asgi] WebSocket scope received"
 echo "  4. Look for: [voice/stream] Accepting WebSocket"
 echo "  5. Look for: Stream started for <id>"
 echo ""
-echo "Full reference: docs/90046-BULLETPROOF-FIX.md"
+echo "Docs: docs/README.md → core (overview) + ops (runbook)"
 echo ""

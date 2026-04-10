@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
@@ -23,7 +24,9 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
         calls["tts"] += 1
         spoken.append(text)
 
-    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+    async def fake_call_calendar_tool(
+        base_url: str, api_key: str, rec_id: str, name: str, args: dict, **_kwargs: Any
+    ) -> str:
         calls["calendar"] += 1
         calendar_args.append({"name": name, "args": args})
         return json.dumps({"success": True})
@@ -49,7 +52,7 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
         on_audio=on_audio,
         on_error=None,
         tts_failure_logged=[False],
-        last_availability_slots={},
+        offered_slots_state={},
     )
 
     # Simulate the model calling the same tool twice with slightly different arg types.
@@ -65,9 +68,12 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
 @pytest.mark.asyncio
 async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
     """When create_appointment returns success with followup fields, they are stripped before LLM sees result."""
-    result_holder: list[str] = []
+    async def fake_tts(*_a: Any, **_k: Any) -> None:
+        return None
 
-    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+    async def fake_call_calendar_tool(
+        base_url: str, api_key: str, rec_id: str, name: str, args: dict, **_kwargs: Any
+    ) -> str:
         if name == "create_appointment":
             return json.dumps({
                 "success": True,
@@ -80,6 +86,7 @@ async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
             })
         return json.dumps({"success": True})
 
+    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
     monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
@@ -92,7 +99,7 @@ async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
-        last_availability_slots={},
+        offered_slots_state={},
     )
 
     result = await tool_exec("create_appointment", {
@@ -111,7 +118,12 @@ async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
 @pytest.mark.asyncio
 async def test_check_availability_blocked_when_services_exist_and_no_service_selected(monkeypatch):
     """When backend returns service_selection_required, tool_exec passes it through to LLM."""
-    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+    async def fake_tts(*_a: Any, **_k: Any) -> None:
+        return None
+
+    async def fake_call_calendar_tool(
+        base_url: str, api_key: str, rec_id: str, name: str, args: dict, **_kwargs: Any
+    ) -> str:
         if name == "check_availability" and not args.get("service_id") and not args.get("service_name") and not args.get("generic_appointment_requested"):
             return json.dumps({
                 "success": False,
@@ -120,6 +132,7 @@ async def test_check_availability_blocked_when_services_exist_and_no_service_sel
             })
         return json.dumps({"success": True, "suggested_slots": []})
 
+    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
     monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
@@ -132,7 +145,7 @@ async def test_check_availability_blocked_when_services_exist_and_no_service_sel
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
-        last_availability_slots={},
+        offered_slots_state={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow"})
@@ -157,7 +170,12 @@ def test_check_availability_tool_schema_has_service_params():
 @pytest.mark.asyncio
 async def test_check_availability_proceeds_when_service_name_passed(monkeypatch):
     """When model passes service_name, backend proceeds (no service_selection_required)."""
-    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+    async def fake_tts(*_a: Any, **_k: Any) -> None:
+        return None
+
+    async def fake_call_calendar_tool(
+        base_url: str, api_key: str, rec_id: str, name: str, args: dict, **_kwargs: Any
+    ) -> str:
         if name == "check_availability" and not args.get("service_id") and not args.get("service_name") and not args.get("generic_appointment_requested"):
             return json.dumps({
                 "success": False,
@@ -166,6 +184,7 @@ async def test_check_availability_proceeds_when_service_name_passed(monkeypatch)
             })
         return json.dumps({"success": True, "suggested_slots": ["2026-03-21T10:00:00", "2026-03-21T11:00:00"]})
 
+    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
     monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
@@ -178,7 +197,7 @@ async def test_check_availability_proceeds_when_service_name_passed(monkeypatch)
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
-        last_availability_slots={},
+        offered_slots_state={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow", "service_name": "Business consulting"})
@@ -190,7 +209,12 @@ async def test_check_availability_proceeds_when_service_name_passed(monkeypatch)
 @pytest.mark.asyncio
 async def test_check_availability_proceeds_when_generic_appointment_requested(monkeypatch):
     """When model passes generic_appointment_requested=true, backend proceeds."""
-    async def fake_call_calendar_tool(base_url: str, api_key: str, rec_id: str, name: str, args: dict) -> str:
+    async def fake_tts(*_a: Any, **_k: Any) -> None:
+        return None
+
+    async def fake_call_calendar_tool(
+        base_url: str, api_key: str, rec_id: str, name: str, args: dict, **_kwargs: Any
+    ) -> str:
         if name == "check_availability" and not args.get("service_id") and not args.get("service_name") and args.get("generic_appointment_requested") is not True:
             return json.dumps({
                 "success": False,
@@ -199,6 +223,7 @@ async def test_check_availability_proceeds_when_generic_appointment_requested(mo
             })
         return json.dumps({"success": True, "suggested_slots": []})
 
+    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
     monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
@@ -211,7 +236,7 @@ async def test_check_availability_proceeds_when_generic_appointment_requested(mo
         on_audio=lambda _: None,
         on_error=None,
         tts_failure_logged=[False],
-        last_availability_slots={},
+        offered_slots_state={},
     )
 
     result = await tool_exec("check_availability", {"date_text": "tomorrow", "generic_appointment_requested": True})

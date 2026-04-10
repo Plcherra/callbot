@@ -1,0 +1,64 @@
+"""Unit tests for extracted pipeline transcript/template helpers (behavior lock for refactors)."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from voice import pipeline_templates, pipeline_transcript
+
+
+def test_passes_transcript_guard_whitelist_and_filler():
+    assert pipeline_transcript.passes_transcript_guard("hello") is True
+    assert pipeline_transcript.passes_transcript_guard("um") is False
+    assert pipeline_transcript.passes_transcript_guard("book something tomorrow") is True
+
+
+def test_is_booking_confirmation_requires_time_and_booking_phrase():
+    assert pipeline_transcript.is_booking_confirmation_intent("book me at 3pm") is True
+    assert pipeline_transcript.is_booking_confirmation_intent("book me") is False
+
+
+def test_contains_clear_intent_post_booking_phrase():
+    assert pipeline_transcript.contains_clear_intent("is there anything else I should know") is True
+
+
+def test_template_create_appointment_success_includes_spoken_time():
+    payload = json.dumps({"success": True, "start_time": "2026-03-17T15:00:00+00:00"})
+    out = pipeline_templates.template_from_tool_result(
+        "create_appointment",
+        payload,
+        requested_date="tomorrow",
+        requested_time=None,
+        voice_session={},
+    )
+    assert out and "all set" in out.lower()
+
+
+def test_template_check_availability_failure_fixed_copy():
+    payload = json.dumps({"success": False})
+    out = pipeline_templates.template_from_tool_result(
+        "check_availability",
+        payload,
+        requested_date=None,
+        requested_time=None,
+        voice_session=None,
+    )
+    assert out and "couldn't fetch availability" in out.lower()
+
+
+@pytest.mark.parametrize(
+    "sms,expected_substr",
+    [
+        ({}, ""),
+        ({"attempted": True, "api_accepted": False}, "wasn't able to send"),
+        ({"attempted": True, "api_accepted": True, "telnyx_message_id": ""}, "sent a confirmation"),
+    ],
+)
+def test_truth_aware_sms_line_api_layer(sms: dict, expected_substr: str):
+    line = pipeline_templates.truth_aware_sms_line({"sms": sms})
+    if not expected_substr:
+        assert line == ""
+    else:
+        assert expected_substr in line.lower()

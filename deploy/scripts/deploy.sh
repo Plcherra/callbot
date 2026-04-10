@@ -13,6 +13,8 @@ ROOT="$(pwd)"
 echo "=== Callbot deploy ==="
 echo "Root: $ROOT"
 
+bash scripts/check-docs.sh || { echo "ERROR: Docs allowlist check failed"; exit 1; }
+
 # Backend deps
 [ -d venv ] || python3 -m venv venv
 ./venv/bin/pip install -r backend/requirements.txt

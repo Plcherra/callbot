@@ -1,4 +1,4 @@
-"""Deterministic spoken responses from tool results, SMS truth lines, availability guard logging."""
+"""Deterministic spoken responses (response templates) from tool results, SMS lines, availability guard."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from telnyx.sms_delivery_registry import get_delivery_status
-from voice.pipeline_transcript import is_post_booking_followup_message
+from voice.pipeline_transcript import is_post_booking_followup_message, normalize_for_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +94,62 @@ def _openings_line_from_summary_periods(periods: list[str]) -> str:
     return f"I have {ordered[0]}, {ordered[1]}, and {ordered[2]} openings"
 
 
+# Align with calendar_api._availability._PERIOD_HOURS (local hour buckets)
+_SLOT_PERIOD_HOURS = (
+    ("morning", 6, 12),
+    ("afternoon", 12, 17),
+    ("evening", 17, 21),
+)
+
+
+def _infer_summary_periods_from_slots(slots: list[str]) -> list[str]:
+    """Derive morning/afternoon/evening labels when API omitted summary_periods."""
+    seen: set[str] = set()
+    for s in slots:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            h = dt.hour
+            for name, lo, hi in _SLOT_PERIOD_HOURS:
+                if lo <= h < hi:
+                    seen.add(name)
+                    break
+        except (ValueError, TypeError):
+            continue
+    order = ("morning", "afternoon", "evening")
+    return [p for p in order if p in seen]
+
+
+def _compact_range_spoken(slots: list[str]) -> str:
+    """Min–max spoken range for offered slots (same-day business hours)."""
+    dts: list[datetime] = []
+    for s in slots:
+        try:
+            dts.append(datetime.fromisoformat(s.replace("Z", "+00:00")))
+        except (ValueError, TypeError):
+            continue
+    if not dts:
+        return ""
+    dts.sort()
+    a, b = dts[0], dts[-1]
+    if a == b:
+        return to_spoken_slot(a.isoformat())
+    return f"{to_spoken_slot(a.isoformat())} to {to_spoken_slot(b.isoformat())}"
+
+
+def _availability_reply_bucket_first(day_text: str, slots: list[str], periods_norm: list[str]) -> str:
+    """Step 1: bucket summary; ask preference before listing every slot (reduces cognitive load)."""
+    if len(periods_norm) >= 2:
+        bucket = _openings_line_from_summary_periods(periods_norm)
+        return f"I checked {day_text}—{bucket}. What works best for you?"
+    if len(periods_norm) == 1:
+        p = periods_norm[0]
+        span = _compact_range_spoken(slots)
+        if span:
+            return f"I only have {p} openings {day_text}, around {span}. Which time works best for you?"
+        return f"I only have {p} openings {day_text}. Which time works best for you?"
+    return f"I found {slots_sentence(slots)} for {day_text}. Which works best?"
+
+
 def truth_aware_sms_line(voice_session: dict[str, Any] | None) -> str:
     """One short line about confirmation text; never claim delivered if API failed or delivery failed."""
     vs = voice_session or {}
@@ -113,7 +169,27 @@ def truth_aware_sms_line(voice_session: dict[str, Any] | None) -> str:
         return " A confirmation text didn't go through—please save this time or call us if you need to change it."
     if delivery in ("delivered",):
         return " You should get a confirmation text shortly."
-    return " I've sent a confirmation text—if it doesn't show up, you can call back anytime."
+    return (
+        " I'll also send a confirmation text if messaging delivery goes through—if you don't see it, "
+        "your appointment is still booked."
+    )
+
+
+def deterministic_farewell_reply(user_text: str) -> str:
+    """Short spoken reply for courtesy goodbyes; caller already matched is_farewell_courtesy_intent."""
+    norm = normalize_for_whitelist(user_text)
+    if "have a great" in norm or "have a good" in norm:
+        if "night" in norm or "evening" in norm:
+            return "Of course. Have a great night."
+        if "day" in norm or "weekend" in norm:
+            return "Of course. Have a great day."
+    if ("thank" in norm or "thanks" in norm) and ("night" in norm or "evening" in norm):
+        return "Of course. Have a great night."
+    if ("thank" in norm or "thanks" in norm) and "day" in norm:
+        return "Of course. Have a great day."
+    if "appreciate" in norm:
+        return "You're welcome. Take care."
+    return "You too. Goodbye."
 
 
 def template_from_tool_result(
@@ -140,11 +216,10 @@ def template_from_tool_result(
         if slots:
             day_text = requested_date or "that day"
             periods = parsed.get("summary_periods") if isinstance(parsed.get("summary_periods"), list) else []
-            if periods:
-                bucket = _openings_line_from_summary_periods(periods)
-                times = slots_sentence(slots)
-                return f"I checked {day_text}—{bucket}. Specific times that work are {times}. Which do you prefer?"
-            return f"I found {slots_sentence(slots)} for {day_text}. Which works best?"
+            periods_norm = [p.lower() for p in periods if isinstance(p, str)]
+            if not periods_norm:
+                periods_norm = _infer_summary_periods_from_slots(slots)
+            return _availability_reply_bucket_first(day_text, slots, periods_norm)
         return "I don't have open slots in that window. Want me to check another day?"
 
     if tool_name == "create_appointment":

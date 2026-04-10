@@ -1,27 +1,40 @@
-"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (Google Cloud)."""
+"""Voice pipeline: Deepgram STT -> Grok LLM -> TTS (Google Cloud).
+
+Orchestrates turn-taking, debounce, and delegates calendar fast-path to intent_router
+and tool execution to tool_dispatch.
+"""
 
 import asyncio
-import json
 import logging
 import time
 from collections import deque
 from typing import Any, Callable, Awaitable, Optional
 
 from config import settings
-from voice.calendar_tools import CALENDAR_TOOLS, call_calendar_tool
+from voice.calendar_tools import CALENDAR_TOOLS
+from voice.conversation_state import new_offered_slots_state, new_voice_session
 from voice.deepgram_client import create_deepgram_live
 from voice.grok_client import chat, chat_with_tools
+from voice.intent_router import resolve_calendar_fast_path
+from voice.pipeline_constants import (
+    DEBOUNCE_MS,
+    DEBOUNCE_MS_FALLBACK,
+    FAST_ACK_AVAILABILITY,
+    FAST_ACK_BOOKING,
+    MAX_HISTORY,
+    MIN_CONFIDENCE,
+    SHORT_PAUSE_MAX_WORDS,
+    VOICE_OUTPUT_INSTRUCTIONS,
+)
 from voice.pipeline_templates import (
+    deterministic_farewell_reply,
     deterministic_post_booking_reply,
     log_availability_guard,
     template_from_tool_result,
 )
 from voice.pipeline_transcript import (
     contains_clear_intent,
-    extract_date_text_hint,
-    extract_time_hint,
-    is_availability_intent,
-    is_booking_confirmation_intent,
+    is_farewell_courtesy_intent,
     is_incomplete_transcript,
     is_whitelisted_short_utterance,
     passes_transcript_guard,
@@ -31,197 +44,23 @@ from voice.slot_selection import (
     recent_offered_slots_present,
     resolve_slot_selection,
 )
+from voice.tool_dispatch import (
+    CALENDAR_TOOL_NAMES,
+    PRE_TOOL_FILLER_PHRASE,
+    make_calendar_tool_exec,
+    normalize_tool_args,
+)
 from voice.tts_facade import generate_and_send_tts
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY = 20
-DEBOUNCE_MS = 1200
-DEBOUNCE_MS_FALLBACK = 800
-SHORT_PAUSE_MAX_WORDS = 4
-MIN_CONFIDENCE = 0.35
-
-CALENDAR_TOOL_NAMES = ("check_availability", "create_appointment", "reschedule_appointment")
-PRE_TOOL_FILLER_PHRASE = "One sec."
-FAST_ACK_AVAILABILITY = "Checking now."
-FAST_ACK_BOOKING = "Got it. Booking now."
-
-# Voice output: assistant must output only literal spoken words (no narration/actions)
-VOICE_OUTPUT_INSTRUCTIONS = (
-    "\n\nVoice output rules: Your replies are spoken aloud. Output ONLY the literal words to be spoken. "
-    "Never include emojis, emoticons (e.g. :)), stage directions, or action narration such as (smiles), [laughs], *pause*, or standalone words like 'Smile' or 'Smiles' used as action text. "
-    "Keep content suitable for text-to-speech: no markup, no parenthetical asides that are not meant to be spoken."
-)
-
-
-def normalize_tool_args(args: dict) -> dict:
-    """Normalize tool args for stable caching/logging keys."""
-    normalized: dict = {}
-    for k, v in (args or {}).items():
-        if v is None:
-            continue
-        if k == "duration_minutes" and isinstance(v, str):
-            try:
-                normalized[k] = int(v) or 30
-            except (ValueError, TypeError):
-                normalized[k] = 30
-        elif k == "price_cents" and v is not None:
-            try:
-                normalized[k] = int(v)
-            except (TypeError, ValueError):
-                continue
-        elif k == "attendees" and isinstance(v, list):
-            normalized[k] = [x for x in v if isinstance(x, str)]
-        else:
-            normalized[k] = v
-    return normalized
-
-
-def make_calendar_tool_exec(
-    *,
-    config: dict[str, Any],
-    on_audio: Callable[[bytes], Awaitable[None]],
-    on_error: Optional[Callable[[Exception], None]],
-    tts_failure_logged: list[bool],
-    offered_slots_state: dict[str, Any],
-) -> Callable[[str, dict], Awaitable[str]]:
-    """
-    Create a per-turn tool_exec coroutine that:
-    - speaks a short filler phrase once per turn before first calendar tool call
-    - dedupes identical calendar tool calls within the turn (tool name + normalized args)
-    - calls the voice calendar API with normalized args
-    """
-    pre_tool_spoken_this_turn = False
-    skip_pre_tool_speech = bool(config.get("skip_pre_tool_speech"))
-    tool_cache: dict[tuple[str, str], str] = {}
-
-    base_url = config.get("voice_server_base_url")
-    api_key = config.get("voice_server_api_key")
-    rec_id = config.get("receptionist_id")
-    caller_phone = (config.get("caller_phone") or "").strip() or None
-    call_control_id = (config.get("call_control_id") or "").strip() or None
-
-    async def _maybe_pre_tool_speech(tool_name: str) -> None:
-        nonlocal pre_tool_spoken_this_turn
-        if skip_pre_tool_speech:
-            return
-        if pre_tool_spoken_this_turn:
-            return
-        if tool_name not in CALENDAR_TOOL_NAMES:
-            return
-        pre_tool_spoken_this_turn = True
-        t_pre = time.perf_counter()
-        logger.info("[BOOKING_LATENCY] pre_tool_speech_start tool=%s t=%.3f", tool_name, t_pre)
-        phrase = PRE_TOOL_FILLER_PHRASE
-        logger.info("[CALL_DIAG] pre_tool_speech_sent tool=%s text=%r", tool_name, phrase)
-        ac = config.get("active_turn_commit_id")
-        logger.info(
-            "[turn] TTS started commit_id=%s response_len=%d (pre_tool_filler)",
-            ac,
-            len(phrase),
-        )
-        await generate_and_send_tts(
-            phrase,
-            config,
-            on_audio,
-            on_error,
-            _tts_failure_logged=tts_failure_logged,
-        )
-
-    async def tool_exec(name: str, args: dict) -> str:
-        if name in CALENDAR_TOOL_NAMES:
-            normalized = normalize_tool_args(args)
-            if name == "create_appointment" and caller_phone and not normalized.get("caller_phone"):
-                normalized["caller_phone"] = caller_phone
-            key = (name, json.dumps(normalized, sort_keys=True, separators=(",", ":")))
-            if key in tool_cache:
-                logger.info(
-                    "[CALL_DIAG] tool_exec_dedupe_hit tool=%s key=%s",
-                    name,
-                    key[1][:200],
-                )
-                return tool_cache[key]
-
-            await _maybe_pre_tool_speech(name)
-
-            if name == "create_appointment":
-                has_start = bool(normalized.get("start_time") or normalized.get("date_text"))
-                has_duration = bool(normalized.get("duration_minutes"))
-                has_summary = bool((normalized.get("summary") or "").strip())
-                missing = []
-                if not has_start:
-                    missing.append("start_time/date_text")
-                if not has_duration:
-                    missing.append("duration_minutes")
-                if not has_summary:
-                    missing.append("summary")
-                logger.info(
-                    "[CALL_DIAG] tool_exec_call tool=create_appointment has_start=%s has_duration=%s has_summary=%s missing=%s",
-                    has_start,
-                    has_duration,
-                    has_summary,
-                    ",".join(missing) if missing else "",
-                )
-            else:
-                logger.info(
-                    "[CALL_DIAG] tool_exec_call tool=%s args=%s",
-                    name,
-                    key[1][:250],
-                )
-
-            if not (base_url and api_key and rec_id):
-                result = '{"success": false, "error": "calendar_not_configured"}'
-                tool_cache[key] = result
-                return result
-
-            t_tool_start = time.perf_counter()
-            logger.info("[BOOKING_LATENCY] calendar_tool_start tool=%s t=%.3f", name, t_tool_start)
-            result = await call_calendar_tool(base_url, api_key, rec_id, name, normalized, call_control_id=call_control_id)
-            t_tool_end = time.perf_counter()
-            logger.info("[BOOKING_LATENCY] calendar_tool_end tool=%s duration_ms=%.0f", name, (t_tool_end - t_tool_start) * 1000)
-            if name == "check_availability" and result:
-                try:
-                    parsed = json.loads(result)
-                    if parsed.get("success") is True:
-                        offered_slots_state["exact_slots"] = parsed.get("exact_slots") or []
-                        offered_slots_state["suggested_slots"] = parsed.get("suggested_slots") or []
-                        offered_slots_state["summary_periods"] = parsed.get("summary_periods") or []
-                        dt = (normalized.get("date_text") or "").strip()
-                        if dt:
-                            offered_slots_state["last_date_text"] = dt
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            if name == "create_appointment" and result:
-                try:
-                    parsed = json.loads(result)
-                    if parsed.get("success") is True:
-                        sms = parsed.get("sms_followup")
-                        vs = config.get("voice_session")
-                        if sms and isinstance(vs, dict):
-                            vs["sms"] = sms
-                        for f in (
-                            "followup_message_resolved",
-                            "payment_link",
-                            "meeting_instructions",
-                            "owner_selected_platform",
-                            "sms_followup",
-                        ):
-                            parsed.pop(f, None)
-                        result = json.dumps(parsed)
-                        offered_slots_state["exact_slots"] = []
-                        offered_slots_state["suggested_slots"] = []
-                        offered_slots_state["summary_periods"] = []
-                        vs = config.get("voice_session")
-                        if isinstance(vs, dict):
-                            vs["booking_completed"] = True
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            tool_cache[key] = result
-            return result
-
-        return '{"success": false, "error": "Unknown tool: ' + name + '"}'
-
-    return tool_exec
+__all__ = [
+    "run_voice_pipeline",
+    "normalize_tool_args",
+    "make_calendar_tool_exec",
+    "PRE_TOOL_FILLER_PHRASE",
+    "CALENDAR_TOOL_NAMES",
+]
 
 
 async def run_voice_pipeline(
@@ -260,8 +99,8 @@ async def run_voice_pipeline(
     config["tts_state"] = tts_state
     config.setdefault("tts_provider", (settings.tts_provider or "google").strip().lower())
 
-    offered_slots_state: dict[str, Any] = {}
-    voice_session: dict[str, Any] = {}
+    offered_slots_state = new_offered_slots_state()
+    voice_session = new_voice_session()
     config["voice_session"] = voice_session
     pending_turn_queue: deque[tuple[str, Optional[float], int]] = deque()
     dispatch_commit_id_holder: dict[str, Optional[int]] = {"id": None}
@@ -300,6 +139,24 @@ async def run_voice_pipeline(
         is_processing = True
         grok_task = None
         try:
+            if user_text and is_farewell_courtesy_intent(user_text):
+                fr = deterministic_farewell_reply(user_text)
+                history.append({"role": "user", "content": user_text})
+                history.append({"role": "assistant", "content": fr})
+                logger.info(
+                    "[turn] TTS started commit_id=%s response_len=%d (farewell)",
+                    cid,
+                    len(fr),
+                )
+                await generate_and_send_tts(
+                    fr,
+                    config,
+                    on_audio,
+                    on_error,
+                    _tts_failure_logged=tts_failure_logged,
+                )
+                return
+
             use_calendar = bool(
                 config.get("receptionist_id")
                 and config.get("voice_server_api_key")
@@ -394,82 +251,18 @@ async def run_voice_pipeline(
                 history[2 : 2 + len(history) - MAX_HISTORY - 2] = []
 
             if use_calendar:
-                fast_date = extract_date_text_hint(user_text)
-                fast_time = extract_time_hint(user_text)
-                fast_tool_name = None
-                fast_tool_args: dict[str, Any] = {}
-
-                slot_fast = False
-                sr_pre = last_slot_resolution
-                if slot_pre_attempted and sr_pre and sr_pre.ok and sr_pre.slot_iso:
-                    slot_fast = True
-                    fast_tool_name = "create_appointment"
-                    fast_tool_args = {
-                        "start_time": sr_pre.slot_iso,
-                        "duration_minutes": 30,
-                        "summary": "Appointment",
-                        "generic_appointment_requested": True,
-                    }
-                    fast_date = (offered_slots_state.get("last_date_text") or "").strip() or fast_date
-                    fast_time = None
-                    logger.info(
-                        "[CALL_DIAG] slot_selection_fast_path_selected transcript=%s",
-                        user_text[:120],
-                    )
-                elif not slot_pre_attempted and not is_new_availability_search_intent(user_text):
-                    sr2 = resolve_slot_selection(user_text, offered_slots_state)
-                    if sr2.ok and sr2.slot_iso:
-                        slot_fast = True
-                        fast_tool_name = "create_appointment"
-                        fast_tool_args = {
-                            "start_time": sr2.slot_iso,
-                            "duration_minutes": 30,
-                            "summary": "Appointment",
-                            "generic_appointment_requested": True,
-                        }
-                        fast_date = (offered_slots_state.get("last_date_text") or "").strip() or fast_date
-                        fast_time = None
-                        logger.info(
-                            "[CALL_DIAG] slot_selection_fast_path_selected transcript=%s",
-                            user_text[:120],
-                        )
-                        logger.info(
-                            "[CALL_DIAG] slot_selection_resolved slot=%s source=%s",
-                            sr2.slot_iso[:48],
-                            sr2.source,
-                        )
-                    elif sr2.ambiguous:
-                        logger.info("[CALL_DIAG] slot_selection_ambiguous transcript=%s", user_text[:120])
-                        logger.info("[CALL_DIAG] slot_selection_fallback_to_llm reason=ambiguous")
-                    else:
-                        logger.debug("[CALL_DIAG] slot_selection_no_match transcript=%s", user_text[:80])
-
-                if not slot_fast and is_booking_confirmation_intent(user_text):
-                    fast_tool_name = "create_appointment"
-                    date_and_time = " ".join(
-                        [p for p in [fast_date, ("at " + fast_time) if fast_time else None] if p]
-                    ).strip()
-                    if date_and_time:
-                        fast_tool_args["date_text"] = date_and_time
-                    if not fast_tool_args.get("date_text"):
-                        fast_tool_name = None
-                    else:
-                        fast_tool_args["summary"] = "Appointment"
-                        fast_tool_args["generic_appointment_requested"] = True
-                elif not slot_fast and is_availability_intent(user_text):
-                    fast_tool_name = "check_availability"
-                    fast_tool_args = {
-                        "date_text": fast_date or "tomorrow",
-                        "generic_appointment_requested": True,
-                    }
+                fp = resolve_calendar_fast_path(
+                    user_text,
+                    offered_slots_state,
+                    slot_pre_attempted=slot_pre_attempted,
+                    last_slot_resolution=last_slot_resolution,
+                )
+                fast_tool_name = fp.fast_tool_name
+                fast_tool_args = fp.fast_tool_args
+                fast_date = fp.fast_date
+                fast_time = fp.fast_time
 
                 if fast_tool_name:
-                    logger.info(
-                        "[CALL_DIAG] fast_path_selected tool=%s transcript=%s args=%s",
-                        fast_tool_name,
-                        user_text[:120],
-                        json.dumps(fast_tool_args, separators=(",", ":"), sort_keys=True)[:220],
-                    )
                     pre_ack = FAST_ACK_BOOKING if fast_tool_name == "create_appointment" else FAST_ACK_AVAILABILITY
                     logger.info("[CALL_DIAG] pre_ack_sent text=%r", pre_ack)
                     logger.info(
@@ -627,6 +420,7 @@ async def run_voice_pipeline(
         commit_text = full_transcript
         is_short_whitelist = is_whitelisted_short_utterance(full_transcript)
         has_clear_intent = contains_clear_intent(full_transcript)
+        has_farewell = is_farewell_courtesy_intent(full_transcript)
 
         # Prevent short trailing fragments ("hi", "hello") from overriding a richer
         # caller turn that was captured moments earlier.
@@ -636,6 +430,8 @@ async def run_voice_pipeline(
             commit_reason = "reuse_recent_rich_transcript"
         elif has_clear_intent:
             commit_reason = "clear_intent_final"
+        elif has_farewell:
+            commit_reason = "farewell_courtesy"
         elif is_short_whitelist:
             commit_reason = "short_whitelist_final"
 
@@ -653,8 +449,8 @@ async def run_voice_pipeline(
         words = commit_text.lower().split()
         word_count = len(words)
 
-        # Fail-open policy: final short-whitelist or clear-intent utterances dispatch immediately.
-        if is_short_whitelist or has_clear_intent:
+        # Fail-open policy: final short-whitelist, clear-intent, or farewell dispatch immediately.
+        if is_short_whitelist or has_clear_intent or has_farewell:
             turn_complete_transcript = commit_text
             turn_complete_confidence = confidence
             if not is_processing:
@@ -820,7 +616,7 @@ async def run_voice_pipeline(
             debounce_task.cancel()
         if grok_task and not grok_task.done():
             grok_task.cancel()
-        if dg_task and not dg_task.done():
+        if dg_task and not grok_task.done():
             dg_task.cancel()
         if dg_ws:
             asyncio.create_task(dg_ws.close())

@@ -24,6 +24,12 @@ def test_contains_clear_intent_post_booking_phrase():
     assert pipeline_transcript.contains_clear_intent("is there anything else I should know") is True
 
 
+def test_is_farewell_courtesy_intent():
+    assert pipeline_transcript.is_farewell_courtesy_intent("Thank you. Have a great night.") is True
+    assert pipeline_transcript.is_farewell_courtesy_intent("good morning") is False
+    assert pipeline_transcript.is_farewell_courtesy_intent("bye") is True
+
+
 def test_template_create_appointment_success_includes_spoken_time():
     payload = json.dumps({"success": True, "start_time": "2026-03-17T15:00:00+00:00"})
     out = pipeline_templates.template_from_tool_result(
@@ -69,7 +75,7 @@ def test_template_check_availability_success_bucket_then_times():
     )
     assert out
     assert "afternoon openings" in out.lower()
-    assert "specific times" in out.lower()
+    assert "which time works best" in out.lower()
 
 
 @pytest.mark.parametrize(
@@ -77,7 +83,7 @@ def test_template_check_availability_success_bucket_then_times():
     [
         ({}, ""),
         ({"attempted": True, "api_accepted": False}, "wasn't able to send"),
-        ({"attempted": True, "api_accepted": True, "telnyx_message_id": ""}, "sent a confirmation"),
+        ({"attempted": True, "api_accepted": True, "telnyx_message_id": ""}, "messaging delivery"),
     ],
 )
 def test_truth_aware_sms_line_api_layer(sms: dict, expected_substr: str):

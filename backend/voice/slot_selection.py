@@ -21,6 +21,13 @@ class SlotResolution:
     ambiguous: bool = False
 
 
+# Local hour buckets — keep aligned with calendar_api._availability._PERIOD_HOURS
+_DAYPART_RANGES = (
+    ("morning", 6, 12),
+    ("afternoon", 12, 17),
+    ("evening", 17, 21),
+)
+
 _WORD_TO_NUM = {
     "one": 1,
     "two": 2,
@@ -114,6 +121,17 @@ def _hour_minute(dt: datetime) -> tuple[int, int]:
     return dt.hour, dt.minute
 
 
+def _daypart_booking_intent(norm: str, daypart: str) -> bool:
+    """True when user is choosing a daypart to book, not e.g. 'good morning'."""
+    if any(k in norm for k in ("book", "schedule", "appointment", "reserve")):
+        return True
+    if f"for the {daypart}" in norm or f"in the {daypart}" in norm:
+        return True
+    if re.search(rf"\b{re.escape(daypart)}\s+(slot|time|opening|appointment)\b", norm):
+        return True
+    return False
+
+
 def resolve_slot_selection(
     text: str,
     offered_slots_state: dict[str, Any],
@@ -131,6 +149,18 @@ def resolve_slot_selection(
         return SlotResolution(False, None, "none", ambiguous=False)
 
     norm = _normalize(text)
+
+    # Daypart: "book me for the morning" → first offered slot in that window (chronological)
+    for name, lo, hi in _DAYPART_RANGES:
+        if not re.search(rf"\b{re.escape(name)}\b", norm):
+            continue
+        if not _daypart_booking_intent(norm, name):
+            continue
+        in_bucket = [(s, dt) for s, dt in parsed_slots if lo <= dt.hour < hi]
+        in_bucket.sort(key=lambda x: x[1])
+        if len(in_bucket) >= 1:
+            return SlotResolution(True, in_bucket[0][0], "daypart_bucket", ambiguous=False)
+        return SlotResolution(False, None, "none", ambiguous=False)
 
     # Single slot + affirmation
     if len(parsed_slots) == 1:

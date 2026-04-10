@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from voice import pipeline
+from voice import tool_dispatch
 from voice.calendar_tools import CALENDAR_TOOLS
 
 
@@ -31,8 +31,8 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
         calendar_args.append({"name": name, "args": args})
         return json.dumps({"success": True})
 
-    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
-    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+    monkeypatch.setattr(tool_dispatch, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(tool_dispatch, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
         "system_prompt": "sys",
@@ -47,7 +47,7 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
     async def on_audio(_chunk: bytes):
         return None
 
-    tool_exec = pipeline.make_calendar_tool_exec(
+    tool_exec = tool_dispatch.make_calendar_tool_exec(
         config=config,
         on_audio=on_audio,
         on_error=None,
@@ -62,7 +62,7 @@ async def test_pre_tool_filler_and_dedupe_once_per_turn(monkeypatch):
     # Our fake_chat_with_tools ran tool_exec twice; dedupe should mean only 1 calendar call.
     assert calls["calendar"] == 1
     # Filler phrase should have been spoken once (before tool call).
-    assert spoken.count(pipeline.PRE_TOOL_FILLER_PHRASE) == 1
+    assert spoken.count(tool_dispatch.PRE_TOOL_FILLER_PHRASE) == 1
 
 
 @pytest.mark.asyncio
@@ -86,15 +86,15 @@ async def test_create_appointment_sanitizes_followup_fields(monkeypatch):
             })
         return json.dumps({"success": True})
 
-    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
-    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+    monkeypatch.setattr(tool_dispatch, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(tool_dispatch, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
         "voice_server_base_url": "https://example.com",
         "voice_server_api_key": "k",
         "receptionist_id": "rec-1",
     }
-    tool_exec = pipeline.make_calendar_tool_exec(
+    tool_exec = tool_dispatch.make_calendar_tool_exec(
         config=config,
         on_audio=lambda _: None,
         on_error=None,
@@ -132,15 +132,15 @@ async def test_check_availability_blocked_when_services_exist_and_no_service_sel
             })
         return json.dumps({"success": True, "suggested_slots": []})
 
-    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
-    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+    monkeypatch.setattr(tool_dispatch, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(tool_dispatch, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
         "voice_server_base_url": "https://example.com",
         "voice_server_api_key": "k",
         "receptionist_id": "rec-1",
     }
-    tool_exec = pipeline.make_calendar_tool_exec(
+    tool_exec = tool_dispatch.make_calendar_tool_exec(
         config=config,
         on_audio=lambda _: None,
         on_error=None,
@@ -184,15 +184,15 @@ async def test_check_availability_proceeds_when_service_name_passed(monkeypatch)
             })
         return json.dumps({"success": True, "suggested_slots": ["2026-03-21T10:00:00", "2026-03-21T11:00:00"]})
 
-    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
-    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+    monkeypatch.setattr(tool_dispatch, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(tool_dispatch, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
         "voice_server_base_url": "https://example.com",
         "voice_server_api_key": "k",
         "receptionist_id": "rec-1",
     }
-    tool_exec = pipeline.make_calendar_tool_exec(
+    tool_exec = tool_dispatch.make_calendar_tool_exec(
         config=config,
         on_audio=lambda _: None,
         on_error=None,
@@ -223,15 +223,15 @@ async def test_check_availability_proceeds_when_generic_appointment_requested(mo
             })
         return json.dumps({"success": True, "suggested_slots": []})
 
-    monkeypatch.setattr(pipeline, "generate_and_send_tts", fake_tts)
-    monkeypatch.setattr(pipeline, "call_calendar_tool", fake_call_calendar_tool)
+    monkeypatch.setattr(tool_dispatch, "generate_and_send_tts", fake_tts)
+    monkeypatch.setattr(tool_dispatch, "call_calendar_tool", fake_call_calendar_tool)
 
     config = {
         "voice_server_base_url": "https://example.com",
         "voice_server_api_key": "k",
         "receptionist_id": "rec-1",
     }
-    tool_exec = pipeline.make_calendar_tool_exec(
+    tool_exec = tool_dispatch.make_calendar_tool_exec(
         config=config,
         on_audio=lambda _: None,
         on_error=None,

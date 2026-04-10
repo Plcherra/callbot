@@ -7,6 +7,32 @@ from voice.slot_selection import (
 )
 
 
+def test_resolve_daypart_morning_first_in_bucket():
+    state = {
+        "exact_slots": [
+            "2026-04-11T09:00:00-04:00",
+            "2026-04-11T10:00:00-04:00",
+        ],
+        "suggested_slots": [],
+    }
+    r = resolve_slot_selection("can you book me for the morning", state)
+    assert r.ok
+    assert r.source == "daypart_bucket"
+    assert "09:00:00" in (r.slot_iso or "")
+
+
+def test_resolve_daypart_no_morning_slots():
+    state = {
+        "exact_slots": [
+            "2026-04-11T13:00:00-04:00",
+            "2026-04-11T14:00:00-04:00",
+        ],
+        "suggested_slots": [],
+    }
+    r = resolve_slot_selection("book me for the morning please", state)
+    assert not r.ok
+
+
 def test_resolve_time_against_offered_slots():
     state = {
         "exact_slots": ["2026-03-28T15:00:00-04:00", "2026-03-28T14:00:00-04:00"],

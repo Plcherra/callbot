@@ -104,6 +104,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Compliance pages (exact paths; avoid SPA try_files fallback to index.html)
+    location = /privacy {
+        alias {{LANDING_ROOT}}/privacy.html;
+    }
+    location = /terms {
+        alias {{LANDING_ROOT}}/terms.html;
+    }
+
     # Main landing/static site.
     # No redirect here; Cloudflare Tunnel sends HTTP to origin and handles HTTPS externally.
     # {{LANDING_ROOT}} must be replaced before deployment.
@@ -189,6 +197,14 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Compliance pages (exact paths; avoid SPA try_files fallback to index.html)
+    location = /privacy {
+        alias {{LANDING_ROOT}}/privacy.html;
+    }
+    location = /terms {
+        alias {{LANDING_ROOT}}/terms.html;
     }
 
     # Static landing (served by nginx)

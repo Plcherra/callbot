@@ -96,6 +96,37 @@ def is_whitelisted_short_utterance(text: str) -> bool:
     return collapsed in SHORT_UTTERANCE_WHITELIST
 
 
+def is_farewell_courtesy_intent(text: str) -> bool:
+    """Terminal courtesy / goodbye — should dispatch immediately, not sit behind debounce."""
+    norm = normalize_for_whitelist(text)
+    if not norm:
+        return False
+    # Avoid matching "good morning" as a booking daypart
+    if norm in ("good morning", "morning"):
+        return False
+    if any(
+        p in norm
+        for p in (
+            "goodbye",
+            "bye bye",
+            "talk to you later",
+            "see you later",
+            "take care",
+            "have a good one",
+        )
+    ):
+        return True
+    if re.search(r"\bbye\b", norm) and len(norm.split()) <= 12:
+        return True
+    if ("thank" in norm or "thanks" in norm) and any(
+        x in norm for x in ("night", "day", "bye", "great", "appreciate")
+    ):
+        return True
+    if "have a great" in norm or "have a good" in norm:
+        return True
+    return False
+
+
 def is_post_booking_followup_message(text: str) -> bool:
     """Common follow-up after booking; should not sit in debounce limbo."""
     norm = normalize_for_whitelist(text)

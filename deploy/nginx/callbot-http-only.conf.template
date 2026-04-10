@@ -64,6 +64,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # Compliance pages (exact paths; avoid SPA try_files fallback to index.html)
+    location = /privacy {
+        alias {{LANDING_ROOT}}/privacy.html;
+    }
+    location = /terms {
+        alias {{LANDING_ROOT}}/terms.html;
+    }
+
     # Static landing (served by nginx)
     location / {
         root {{LANDING_ROOT}};

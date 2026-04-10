@@ -26,7 +26,11 @@ from voice.pipeline_transcript import (
     is_whitelisted_short_utterance,
     passes_transcript_guard,
 )
-from voice.slot_selection import is_new_availability_search_intent, resolve_slot_selection
+from voice.slot_selection import (
+    is_new_availability_search_intent,
+    recent_offered_slots_present,
+    resolve_slot_selection,
+)
 from voice.tts_facade import generate_and_send_tts
 
 logger = logging.getLogger(__name__)
@@ -296,18 +300,71 @@ async def run_voice_pipeline(
         is_processing = True
         grok_task = None
         try:
-            if not user_text or not passes_transcript_guard(user_text):
-                logger.info("[TURN_GUARD] dispatch_skipped reason=guard_reject commit_id=%s", cid)
-                return
-            if confidence is not None and confidence < MIN_CONFIDENCE:
-                if not is_whitelisted_short_utterance(user_text):
-                    logger.info("[TURN_GUARD] dispatch_skipped reason=low_confidence commit_id=%s", cid)
-                    return
+            use_calendar = bool(
+                config.get("receptionist_id")
+                and config.get("voice_server_api_key")
+                and config.get("voice_server_base_url")
+            )
+
+            slot_pre_attempted = False
+            last_slot_resolution = None
+            if (
+                user_text
+                and recent_offered_slots_present(offered_slots_state)
+                and not is_new_availability_search_intent(user_text)
+            ):
+                slot_pre_attempted = True
                 logger.info(
-                    "[TURN_GUARD] low_confidence_whitelist_bypass transcript=%s confidence=%.2f",
-                    user_text[:80],
-                    confidence,
+                    "[CALL_DIAG] slot_selection_attempted commit_id=%s transcript=%s recent_slots_present=true",
+                    cid,
+                    user_text[:120],
                 )
+                last_slot_resolution = resolve_slot_selection(user_text, offered_slots_state)
+                if last_slot_resolution.ok and last_slot_resolution.slot_iso:
+                    logger.info(
+                        "[CALL_DIAG] slot_selection_resolved commit_id=%s selected_start=%s source=%s",
+                        cid,
+                        last_slot_resolution.slot_iso[:64],
+                        last_slot_resolution.source,
+                    )
+                elif last_slot_resolution.ambiguous:
+                    logger.info(
+                        "[CALL_DIAG] slot_selection_rejected commit_id=%s reason=ambiguous recent_slots_present=true",
+                        cid,
+                    )
+                else:
+                    logger.info(
+                        "[CALL_DIAG] slot_selection_rejected commit_id=%s reason=no_match recent_slots_present=true",
+                        cid,
+                    )
+
+            slot_booking_bypass_guard = bool(
+                last_slot_resolution
+                and last_slot_resolution.ok
+                and last_slot_resolution.slot_iso
+                and use_calendar
+            )
+
+            if not slot_booking_bypass_guard:
+                if not user_text or not passes_transcript_guard(user_text):
+                    detail = "empty_transcript" if not user_text else "failed_transcript_guard"
+                    preview = repr((user_text or "")[:80])
+                    logger.info(
+                        "[TURN_GUARD] dispatch_skipped reason=guard_reject commit_id=%s detail=%s preview=%s",
+                        cid,
+                        detail,
+                        preview,
+                    )
+                    return
+                if confidence is not None and confidence < MIN_CONFIDENCE:
+                    if not is_whitelisted_short_utterance(user_text):
+                        logger.info("[TURN_GUARD] dispatch_skipped reason=low_confidence commit_id=%s", cid)
+                        return
+                    logger.info(
+                        "[TURN_GUARD] low_confidence_whitelist_bypass transcript=%s confidence=%.2f",
+                        user_text[:80],
+                        confidence,
+                    )
 
             vs = config.get("voice_session") or {}
             dpb = deterministic_post_booking_reply(user_text, vs if isinstance(vs, dict) else {})
@@ -336,11 +393,6 @@ async def run_voice_pipeline(
             if len(history) > MAX_HISTORY + 2:
                 history[2 : 2 + len(history) - MAX_HISTORY - 2] = []
 
-            use_calendar = (
-                config.get("receptionist_id")
-                and config.get("voice_server_api_key")
-                and config.get("voice_server_base_url")
-            )
             if use_calendar:
                 fast_date = extract_date_text_hint(user_text)
                 fast_time = extract_time_hint(user_text)
@@ -348,13 +400,29 @@ async def run_voice_pipeline(
                 fast_tool_args: dict[str, Any] = {}
 
                 slot_fast = False
-                if not is_new_availability_search_intent(user_text):
-                    sr = resolve_slot_selection(user_text, offered_slots_state)
-                    if sr.ok and sr.slot_iso:
+                sr_pre = last_slot_resolution
+                if slot_pre_attempted and sr_pre and sr_pre.ok and sr_pre.slot_iso:
+                    slot_fast = True
+                    fast_tool_name = "create_appointment"
+                    fast_tool_args = {
+                        "start_time": sr_pre.slot_iso,
+                        "duration_minutes": 30,
+                        "summary": "Appointment",
+                        "generic_appointment_requested": True,
+                    }
+                    fast_date = (offered_slots_state.get("last_date_text") or "").strip() or fast_date
+                    fast_time = None
+                    logger.info(
+                        "[CALL_DIAG] slot_selection_fast_path_selected transcript=%s",
+                        user_text[:120],
+                    )
+                elif not slot_pre_attempted and not is_new_availability_search_intent(user_text):
+                    sr2 = resolve_slot_selection(user_text, offered_slots_state)
+                    if sr2.ok and sr2.slot_iso:
                         slot_fast = True
                         fast_tool_name = "create_appointment"
                         fast_tool_args = {
-                            "start_time": sr.slot_iso,
+                            "start_time": sr2.slot_iso,
                             "duration_minutes": 30,
                             "summary": "Appointment",
                             "generic_appointment_requested": True,
@@ -367,10 +435,10 @@ async def run_voice_pipeline(
                         )
                         logger.info(
                             "[CALL_DIAG] slot_selection_resolved slot=%s source=%s",
-                            sr.slot_iso[:48],
-                            sr.source,
+                            sr2.slot_iso[:48],
+                            sr2.source,
                         )
-                    elif sr.ambiguous:
+                    elif sr2.ambiguous:
                         logger.info("[CALL_DIAG] slot_selection_ambiguous transcript=%s", user_text[:120])
                         logger.info("[CALL_DIAG] slot_selection_fallback_to_llm reason=ambiguous")
                     else:

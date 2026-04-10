@@ -1,6 +1,10 @@
 """Deterministic slot selection against last offered slots only."""
 
-from voice.slot_selection import is_new_availability_search_intent, resolve_slot_selection
+from voice.slot_selection import (
+    is_new_availability_search_intent,
+    recent_offered_slots_present,
+    resolve_slot_selection,
+)
 
 
 def test_resolve_time_against_offered_slots():
@@ -25,6 +29,13 @@ def test_resolve_ordinal_second():
     r = resolve_slot_selection("the second one", state)
     assert r.ok
     assert "15:00:00" in (r.slot_iso or "")
+
+
+def test_recent_offered_slots_present():
+    assert recent_offered_slots_present({"exact_slots": ["2026-03-28T15:00:00-04:00"], "suggested_slots": []})
+    assert recent_offered_slots_present({"exact_slots": [], "suggested_slots": ["2026-03-28T15:00:00-04:00"]})
+    assert not recent_offered_slots_present({"exact_slots": [], "suggested_slots": []})
+    assert not recent_offered_slots_present({})
 
 
 def test_new_search_skips_slot_resolution():

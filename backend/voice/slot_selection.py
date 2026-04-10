@@ -105,6 +105,11 @@ def _offered_list(state: dict[str, Any]) -> list[str]:
     return [str(x) for x in (exact or sug) if x]
 
 
+def recent_offered_slots_present(offered_slots_state: dict[str, Any]) -> bool:
+    """True when the pipeline has last-offered exact or suggested slots to resolve against."""
+    return bool(_offered_list(offered_slots_state))
+
+
 def _hour_minute(dt: datetime) -> tuple[int, int]:
     return dt.hour, dt.minute
 

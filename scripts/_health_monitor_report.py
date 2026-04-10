@@ -22,6 +22,11 @@ RE_PIPELINE_ERR = re.compile(r"Pipeline error|\[voice/stream\] Pipeline error", 
 
 def main() -> None:
     p = argparse.ArgumentParser()
+    p.add_argument(
+        "--log-sources",
+        default="",
+        help="Semicolon-separated log file paths actually read (stdin is still their concatenated content).",
+    )
     p.add_argument("--booking-warn-ms", type=int, default=8000)
     p.add_argument("--booking-fast-warn-ms", type=int, default=3000)
     args = p.parse_args()
@@ -137,8 +142,14 @@ def main() -> None:
     healthy.append(f"TTS with commit_id seen: {len(had_tts)}")
     healthy.append(f"call.recording.saved (log hits): {recording_saved}")
 
+    src = (args.log_sources or "").strip()
+    if src:
+        src_display = src.replace(";", " + ")
+    else:
+        src_display = "(paths unknown — pipe stdin only)"
     print("EchoDesk Health Report")
-    print(f"Source: stdin ({len(lines)} lines)")
+    print(f"Log files: {src_display}")
+    print(f"Lines parsed: {len(lines)}")
     print()
     print("Critical")
     if critical:

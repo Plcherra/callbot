@@ -57,7 +57,7 @@ Run through this before shipping to production. If any **must-pass** item fails,
 
 ## Health monitoring
 
-**Script:** from repo root, `./scripts/health-monitor.sh` (uses **`TAIL_LINES`**, **`PM2_OUT_LOG`**, **`PM2_ERR_LOG`**; defaults: last ~12k lines of `~/.pm2/logs/callbot-voice-out.log` and `-error.log`).
+**Script:** from repo root, `./scripts/health-monitor.sh` (uses **`TAIL_LINES`**, **`PM2_LOG_DIR`**, **`PM2_OUT_LOG`**, **`PM2_ERR_LOG`**; auto-picks `callbot-voice-out-0.log` / `callbot-voice-error-0.log` when present, else unsuffixed or newest `callbot-voice-out*.log` / `callbot-voice-error*.log`, then tails ~12k lines of each).
 
 **Cron example (every 30 minutes):**
 

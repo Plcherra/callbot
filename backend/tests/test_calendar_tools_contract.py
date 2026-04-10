@@ -16,10 +16,13 @@ class _FreebusyQuery:
 
 
 class _Freebusy:
-    def __init__(self, result: dict):
+    def __init__(self, result: dict, capture: dict | None = None):
         self._result = result
+        self._capture = capture
 
     def query(self, body: dict) -> _FreebusyQuery:
+        if self._capture is not None:
+            self._capture.setdefault("freebusy_queries", []).append(body)
         return _FreebusyQuery(self._result)
 
 
@@ -50,7 +53,7 @@ class _Service:
         self._capture = capture
 
     def freebusy(self) -> _Freebusy:
-        return _Freebusy(self._freebusy_result)
+        return _Freebusy(self._freebusy_result, capture=self._capture)
 
     def events(self) -> _Events:
         return _Events(self._event, capture=self._capture)
@@ -238,6 +241,51 @@ def test_create_appointment_success_returns_event_fields(monkeypatch):
     assert out["success"] is True
     assert out["event_id"] == "evt-123"
     assert out["summary"] == "Test"
+
+
+def test_create_appointment_naive_iso_freebusy_includes_tz_offset():
+    """Naive slot ISO from the voice fast path must use an offset for Google freeBusy (RFC3339)."""
+    capture: dict = {}
+    freebusy = {"calendars": {"primary": {"busy": []}}}
+    event = {"id": "evt-naive", "summary": "Appt"}
+    service = _Service(freebusy_result=freebusy, event=event, capture=capture)
+
+    class _Tbl:
+        def insert(self, row: dict):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class _SB:
+        def table(self, name: str):
+            assert name == "appointments"
+            return _Tbl()
+
+    out = calendar_handler._handle_create_appointment(
+        service,
+        "primary",
+        params={
+            "summary": "Test",
+            "start_time": "2026-04-11T14:00:00",
+            "duration_minutes": 30,
+            "timezone": "America/New_York",
+        },
+        receptionist_id="rec-1",
+        supabase=_SB(),
+    )
+    assert out["success"] is True
+    queries = capture.get("freebusy_queries") or []
+    assert len(queries) >= 1
+    time_min = queries[0]["timeMin"]
+    assert time_min != "2026-04-11T14:00:00"
+    assert datetime.fromisoformat(time_min.replace("Z", "+00:00")).tzinfo is not None
+
+    insert_body = capture.get("last_insert_body") or {}
+    start_raw = (insert_body.get("start") or {}).get("dateTime") or ""
+    assert start_raw
+    assert start_raw != "2026-04-11T14:00:00"
+    assert datetime.fromisoformat(start_raw.replace("Z", "+00:00")).tzinfo is not None
 
 
 def test_create_appointment_service_duration_overrides_tool_duration_and_persists(monkeypatch):

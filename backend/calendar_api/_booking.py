@@ -3,12 +3,21 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from ._parsing import get_free_slots, parse_iso_datetime_or_natural
 from telnyx import sms as telnyx_sms
 from telnyx.sms_delivery_registry import is_us_toll_free_e164
 
 logger = logging.getLogger(__name__)
+
+
+def _ensure_aware_wall_time(dt: datetime, timezone: str) -> datetime:
+    """Attach IANA zone to naive datetimes so Google Calendar freeBusy gets RFC3339 offsets."""
+    if dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=ZoneInfo(timezone))
+
 
 _SERVICE_SELECT_FIELDS = (
     "id, name, duration_minutes, price_cents, requires_location, default_location_type, "
@@ -465,6 +474,10 @@ def handle_create_appointment(
         start_d = parse_iso_datetime_or_natural(start_time, timezone=timezone)
         if not start_d:
             return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
+        try:
+            start_d = _ensure_aware_wall_time(start_d, timezone)
+        except Exception:
+            return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
         end_d = start_d + timedelta(minutes=duration_minutes)
     except (ValueError, TypeError):
         return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the date/time. What day and time works for you?"}
@@ -816,6 +829,10 @@ def handle_reschedule(
         logger.info("[CAL_DATE] reschedule input=%r timezone=%s", new_start, timezone)
         start_d = parse_iso_datetime_or_natural(new_start, timezone=timezone)
         if not start_d:
+            return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}
+        try:
+            start_d = _ensure_aware_wall_time(start_d, timezone)
+        except Exception:
             return {"success": False, "error": "date_parse_failed", "message": "I couldn't understand the new date/time. What day and time should I move it to?"}
         end_d = start_d + timedelta(minutes=duration_minutes)
     except (ValueError, TypeError):

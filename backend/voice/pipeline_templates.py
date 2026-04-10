@@ -80,6 +80,20 @@ def slots_sentence(slots: list[str]) -> str:
     return f"{spoken[0]}, {spoken[1]}, or {spoken[2]}"
 
 
+def _openings_line_from_summary_periods(periods: list[str]) -> str:
+    """Spoken bucket summary (morning / afternoon / evening) from tool `summary_periods`."""
+    order = ("morning", "afternoon", "evening")
+    seen = {p.lower() for p in periods if isinstance(p, str)}
+    ordered = [p for p in order if p in seen]
+    if not ordered:
+        return "I have some openings"
+    if len(ordered) == 1:
+        return f"I have {ordered[0]} openings"
+    if len(ordered) == 2:
+        return f"I have {ordered[0]} and {ordered[1]} openings"
+    return f"I have {ordered[0]}, {ordered[1]}, and {ordered[2]} openings"
+
+
 def truth_aware_sms_line(voice_session: dict[str, Any] | None) -> str:
     """One short line about confirmation text; never claim delivered if API failed or delivery failed."""
     vs = voice_session or {}
@@ -125,6 +139,11 @@ def template_from_tool_result(
         slots = parsed.get("exact_slots") or parsed.get("suggested_slots") or []
         if slots:
             day_text = requested_date or "that day"
+            periods = parsed.get("summary_periods") if isinstance(parsed.get("summary_periods"), list) else []
+            if periods:
+                bucket = _openings_line_from_summary_periods(periods)
+                times = slots_sentence(slots)
+                return f"I checked {day_text}—{bucket}. Specific times that work are {times}. Which do you prefer?"
             return f"I found {slots_sentence(slots)} for {day_text}. Which works best?"
         return "I don't have open slots in that window. Want me to check another day?"
 

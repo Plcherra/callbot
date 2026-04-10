@@ -48,6 +48,30 @@ def test_template_check_availability_failure_fixed_copy():
     assert out and "couldn't fetch availability" in out.lower()
 
 
+def test_template_check_availability_success_bucket_then_times():
+    payload = json.dumps(
+        {
+            "success": True,
+            "suggested_slots": [
+                "2026-04-11T13:00:00-04:00",
+                "2026-04-11T14:00:00-04:00",
+                "2026-04-11T15:00:00-04:00",
+            ],
+            "summary_periods": ["afternoon"],
+        }
+    )
+    out = pipeline_templates.template_from_tool_result(
+        "check_availability",
+        payload,
+        requested_date="tomorrow",
+        requested_time=None,
+        voice_session=None,
+    )
+    assert out
+    assert "afternoon openings" in out.lower()
+    assert "specific times" in out.lower()
+
+
 @pytest.mark.parametrize(
     "sms,expected_substr",
     [

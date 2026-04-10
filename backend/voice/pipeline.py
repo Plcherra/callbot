@@ -684,7 +684,7 @@ async def run_voice_pipeline(
         snap_text, snap_conf, snap_id = commit_text, confidence, commit_id
 
         def _on_debounce_done(t: asyncio.Task) -> None:
-            nonlocal debounce_task, grok_task
+            nonlocal debounce_task, grok_task, turn_complete_transcript, turn_complete_confidence
             debounce_task = None
             active_debounce_commit_id[0] = None
             if t.cancelled():

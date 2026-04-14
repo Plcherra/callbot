@@ -36,6 +36,7 @@ from supabase_client import create_service_role_client
 from telnyx import provision as telnyx_provision
 from utils.phone import normalize_to_e164
 
+from api.mobile.agenda import router as agenda_router
 from api.mobile.dashboard import router as dashboard_router
 from api.mobile.call_logs_projection import (
     fetch_call_logs_with_fallback,
@@ -60,6 +61,7 @@ APPOINTMENTS_FULL_SELECT = f"{APPOINTMENTS_BASE_SELECT}, {APPOINTMENTS_OPTIONAL_
 
 router.include_router(dashboard_router)
 router.include_router(settings_router)
+router.include_router(agenda_router)
 
 
 def _require_auth(request: Request) -> tuple[dict | None, Any]:

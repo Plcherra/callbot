@@ -18,6 +18,7 @@ import 'screens/help/help_screen.dart';
 import 'screens/call/active_call_screen.dart';
 import 'screens/calls/call_history_screen.dart';
 import 'screens/calls/call_detail_screen.dart';
+import 'screens/appointments/agenda_screen.dart';
 import 'screens/appointments/appointments_screen.dart';
 import 'screens/appointments/appointment_detail_screen.dart';
 import 'widgets/main_shell.dart';
@@ -194,6 +195,27 @@ GoRouter createAppRouter() {
                   receptionistId: state.uri.queryParameters['receptionist_id'],
                 ),
                 routes: [
+                  GoRoute(
+                    path: 'agenda',
+                    builder: (context, state) {
+                      final rid = state.uri.queryParameters['receptionist_id'] ?? '';
+                      if (rid.isEmpty) {
+                        return Scaffold(
+                          appBar: AppBar(title: const Text('Agenda')),
+                          body: const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Text(
+                                'Open agenda from an assistant or add ?receptionist_id= to the URL.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      return AgendaScreen(receptionistId: rid);
+                    },
+                  ),
                   GoRoute(
                     path: ':id',
                     builder: (context, state) => AppointmentDetailScreen(

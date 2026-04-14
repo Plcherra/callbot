@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import Any
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -13,9 +11,8 @@ from googleapiclient.discovery import build
 from config import settings
 from google_oauth_scopes import SCOPES
 from supabase_client import create_service_role_client
-from calendar_api._availability import handle_check_availability
-from calendar_api._booking import handle_create_appointment, handle_reschedule
 from calendar_api._parsing import parse_datetime_range
+from scheduling import check_availability, create_booking, reschedule_booking
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +106,7 @@ async def handle_calendar_request(body: dict) -> dict:
             return _handle_check_availability(service, calendar_id, params)
         if action == "create_appointment":
             return _handle_create_appointment(service, calendar_id, params, receptionist_id, supabase, call_control_id=call_control_id)
-        return _handle_reschedule(service, calendar_id, params)
+        return _handle_reschedule(service, calendar_id, params, receptionist_id, supabase)
     except Exception as e:
         msg = str(e)
         if "invalid_grant" in msg or "Token has been expired" in msg:
@@ -152,7 +149,7 @@ def _check_service_first_guard(supabase, receptionist_id: str, params: dict) -> 
 
 
 def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
-    return handle_check_availability(
+    return check_availability(
         service,
         calendar_id,
         params,
@@ -162,6 +159,7 @@ def _handle_check_availability(service, calendar_id: str, params: dict) -> dict:
         business_day_start_hour=BUSINESS_DAY_START_HOUR,
         business_day_end_hour=BUSINESS_DAY_END_HOUR,
         suggested_slots_max=SUGGESTED_SLOTS_MAX,
+        staff_id=params.get("staff_id"),
     )
 
 
@@ -174,24 +172,34 @@ def _handle_create_appointment(
     *,
     call_control_id: str | None = None,
 ) -> dict:
-    return handle_create_appointment(
+    return create_booking(
         service,
         calendar_id,
         params,
-        receptionist_id=receptionist_id,
-        supabase=supabase,
+        receptionist_id,
+        supabase,
         default_timezone=DEFAULT_TIMEZONE,
         default_slot_minutes=DEFAULT_SLOT_MINUTES,
         call_control_id=call_control_id,
+        staff_id=params.get("staff_id"),
     )
 
 
-def _handle_reschedule(service, calendar_id: str, params: dict) -> dict:
-    return handle_reschedule(
+def _handle_reschedule(
+    service,
+    calendar_id: str,
+    params: dict,
+    receptionist_id: str,
+    supabase,
+) -> dict:
+    return reschedule_booking(
         service,
         calendar_id,
         params,
         default_timezone=DEFAULT_TIMEZONE,
         default_slot_minutes=DEFAULT_SLOT_MINUTES,
         parse_datetime_range_fn=_parse_datetime_range,
+        receptionist_id=receptionist_id,
+        supabase=supabase,
+        staff_id=params.get("staff_id"),
     )

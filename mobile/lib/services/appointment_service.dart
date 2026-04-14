@@ -29,6 +29,29 @@ Future<Map<String, dynamic>> loadAppointments({
   return {'appointments': <Map<String, dynamic>>[], 'receptionists': <String, String>{}};
 }
 
+/// Today's agenda for one receptionist (local calendar day via [date] + [offsetMinutes]).
+Future<Map<String, dynamic>> loadAgendaToday({
+  required String receptionistId,
+  String? date,
+  int? offsetMinutes,
+}) async {
+  final queryParams = <String, String>{
+    'receptionist_id': receptionistId,
+  };
+  if (date != null && date.isNotEmpty) {
+    queryParams['date'] = date;
+  }
+  if (offsetMinutes != null) {
+    queryParams['offset_minutes'] = offsetMinutes.toString();
+  }
+  final qs = queryParams.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
+  final res = await ApiClient.get('/api/mobile/agenda/today?$qs');
+  if (res.statusCode >= 200 && res.statusCode < 300 && res.body.isNotEmpty) {
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+  return {'appointments': <Map<String, dynamic>>[]};
+}
+
 /// Load single appointment by id.
 Future<Map<String, dynamic>?> loadAppointment(String id) async {
   final res = await ApiClient.get('/api/mobile/appointments/$id');

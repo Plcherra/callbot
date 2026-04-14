@@ -32,6 +32,33 @@ String truncatePreview(String? text, {int maxLength = 80}) {
   return '${t.substring(0, maxLength).trim()}…';
 }
 
+/// Short status line for agenda / day view (plain language, not raw enum values).
+String formatAgendaStatusLabel(String? status) {
+  switch (status) {
+    case 'confirmed':
+      return '\u2705 Confirmed';
+    case 'needs_review':
+      return '\u23F3 Needs review';
+    case 'cancelled':
+      return '\u274C Cancelled';
+    case 'completed':
+      return '\u2713 Completed';
+    default:
+      return '\u23F3 Needs review';
+  }
+}
+
+/// Time only for grouping (local), e.g. "2:30 PM".
+String formatAgendaTime(DateTime? dt) {
+  if (dt == null) return '—';
+  final local = dt.toLocal();
+  final hour = local.hour;
+  final minute = local.minute;
+  final am = hour < 12;
+  final h = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour);
+  return '$h:${minute.toString().padLeft(2, '0')} ${am ? 'AM' : 'PM'}';
+}
+
 /// Mask phone number for display.
 String maskPhone(String? s) {
   if (s == null || s.trim().isEmpty) return '—';

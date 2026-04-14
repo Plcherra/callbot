@@ -273,6 +273,9 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
               onViewAppointments: () => context.push(
                 '/appointments?receptionist_id=${r.id}',
               ),
+              onViewAgenda: () => context.push(
+                '/appointments/agenda?receptionist_id=${r.id}',
+              ),
             ),
             const SizedBox(height: 24),
             _RecentCallsSection(
@@ -363,6 +366,7 @@ class _OverviewCard extends StatelessWidget {
   final VoidCallback onManageSettings;
   final VoidCallback onViewCallHistory;
   final VoidCallback onViewAppointments;
+  final VoidCallback onViewAgenda;
 
   const _OverviewCard({
     required this.receptionist,
@@ -372,6 +376,7 @@ class _OverviewCard extends StatelessWidget {
     required this.onManageSettings,
     required this.onViewCallHistory,
     required this.onViewAppointments,
+    required this.onViewAgenda,
   });
 
   @override
@@ -430,6 +435,11 @@ class _OverviewCard extends StatelessWidget {
                   onPressed: onViewAppointments,
                   icon: const Icon(Icons.event, size: 16),
                   label: const Text('Appointments'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: onViewAgenda,
+                  icon: const Icon(Icons.today, size: 16),
+                  label: const Text('Today'),
                 ),
               ],
             ),

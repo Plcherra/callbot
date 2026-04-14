@@ -57,6 +57,15 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Appointments'),
+        actions: [
+          if (widget.receptionistId != null && widget.receptionistId!.isNotEmpty)
+            TextButton(
+              onPressed: () => context.push(
+                '/appointments/agenda?receptionist_id=${widget.receptionistId}',
+              ),
+              child: const Text('Today'),
+            ),
+        ],
       ),
       body: constrainedScaffoldBody(
         child: _loading

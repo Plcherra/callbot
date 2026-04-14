@@ -809,6 +809,8 @@ def handle_reschedule(
     default_timezone: str,
     default_slot_minutes: int,
     parse_datetime_range_fn,
+    receptionist_id: str | None = None,
+    supabase=None,
 ) -> dict:
     event_id = params.get("event_id")
     timezone = (params.get("timezone") or default_timezone).strip() or default_timezone
@@ -848,6 +850,41 @@ def handle_reschedule(
             },
             sendUpdates="none",
         ).execute()
+
+        if supabase and receptionist_id:
+            start_iso = start_d.isoformat()
+            end_iso = end_d.isoformat()
+            now_iso = datetime.utcnow().isoformat() + "Z"
+            try:
+                up_res = (
+                    supabase.table("appointments")
+                    .update(
+                        {
+                            "start_time": start_iso,
+                            "end_time": end_iso,
+                            "duration_minutes": duration_minutes,
+                            "updated_at": now_iso,
+                        }
+                    )
+                    .eq("receptionist_id", receptionist_id)
+                    .eq("event_id", event_id)
+                    .execute()
+                )
+                rows = getattr(up_res, "data", None) or []
+                if not rows:
+                    logger.warning(
+                        "[CAL_BOOK] reschedule_no_appointment_row receptionist_id=%s event_id=%s",
+                        receptionist_id,
+                        event_id,
+                    )
+            except Exception as ex:
+                logger.warning(
+                    "[CAL_BOOK] reschedule_appointments_update_failed receptionist_id=%s event_id=%s error=%s",
+                    receptionist_id,
+                    event_id,
+                    ex,
+                )
+
         return {
             "success": True,
             "event_id": event.get("id"),

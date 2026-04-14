@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/call_history_service.dart';
 import '../../utils/call_formatters.dart';
 import '../../widgets/constrained_scaffold_body.dart';
 
@@ -47,6 +48,7 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isPlaying = false;
   bool _recordingExpired = false;
+  bool _recordingActionBusy = false;
 
   @override
   void dispose() {
@@ -79,17 +81,14 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     final outcome = callOutcomeLabel(call);
 
     final recordingStatus = call['recording_status'] as String?;
-    final recordingUrl = (call['recording_url'] as String?)?.trim();
     final recordedAt = call['recorded_at'] != null
         ? DateTime.tryParse(call['recorded_at'] as String)
         : null;
     final recordingDuration = call['recording_duration_seconds'] as int?;
 
     final effectiveRecordingStatus = _recordingExpired ? 'expired' : recordingStatus;
-    final hasRecording = !_recordingExpired &&
-        recordingStatus == 'available' &&
-        recordingUrl != null &&
-        recordingUrl.isNotEmpty;
+    final hasRecording =
+        !_recordingExpired && recordingStatus == 'available';
     final hasTranscript = transcript != null && transcript.isNotEmpty;
     final appointmentId = call['appointment_id'] as String?;
     final isPhoneDevice = !kIsWeb &&
@@ -147,7 +146,6 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
             _buildRecordingAndTranscriptSection(
               context: context,
               recordingStatus: effectiveRecordingStatus,
-              recordingUrl: recordingUrl,
               recordedAt: recordedAt,
               startedAt: start,
               recordingDuration: recordingDuration,
@@ -209,7 +207,6 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
   Widget _buildRecordingAndTranscriptSection({
     required BuildContext context,
     required String? recordingStatus,
-    required String? recordingUrl,
     required DateTime? recordedAt,
     required DateTime? startedAt,
     required int? recordingDuration,
@@ -220,7 +217,6 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     final recordingCard = _buildRecordingCard(
       context: context,
       recordingStatus: recordingStatus,
-      recordingUrl: recordingUrl,
       recordedAt: recordedAt,
       startedAt: startedAt,
       recordingDuration: recordingDuration,
@@ -282,7 +278,6 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
   Widget _buildRecordingCard({
     required BuildContext context,
     required String? recordingStatus,
-    required String? recordingUrl,
     required DateTime? recordedAt,
     required DateTime? startedAt,
     required int? recordingDuration,
@@ -293,11 +288,11 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     switch (recordingStatus) {
       case 'available':
         statusExplanation =
-            'Play or download. Link expires ~10 min after call ended.';
+            'Play, download, or copy — each action requests a new short-lived link from your provider.';
         break;
       case 'expired':
         statusExplanation =
-            'Recording link has expired. Request a fresh recording URL from backend storage.';
+            'This recording link is no longer valid. Try Play again to fetch a fresh link.';
         break;
       case 'processing':
         final ageMinutes = startedAt == null
@@ -370,17 +365,19 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
                   runSpacing: 8,
                   children: [
                     FilledButton.icon(
-                      onPressed: _isPlaying ? _stopPlaying : () => _playRecording(recordingUrl!),
+                      onPressed: _recordingActionBusy
+                          ? null
+                          : (_isPlaying ? _stopPlaying : _playRecording),
                       icon: Icon(_isPlaying ? Icons.stop : Icons.play_arrow, size: 18),
                       label: Text(_isPlaying ? 'Stop' : 'Play'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => _openUrl(recordingUrl!),
+                      onPressed: _recordingActionBusy ? null : _downloadRecording,
                       icon: const Icon(Icons.download, size: 18),
                       label: const Text('Download'),
                     ),
                     OutlinedButton.icon(
-                      onPressed: () => _copyAndNotify(context, recordingUrl!),
+                      onPressed: _recordingActionBusy ? null : _copyRecordingLink,
                       icon: const Icon(Icons.link, size: 18),
                       label: const Text('Copy link'),
                     ),
@@ -394,7 +391,50 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     );
   }
 
-  Future<void> _playRecording(String url) async {
+  Future<String?> _fetchFreshRecordingUrl() async {
+    setState(() => _recordingActionBusy = true);
+    try {
+      final url = await fetchCallRecordingUrl(
+        receptionistId: widget.receptionistId,
+        callId: widget.callId,
+      );
+      if (mounted) {
+        setState(() => _recordingExpired = false);
+      }
+      return url;
+    } on CallHistoryApiException catch (e) {
+      if (mounted) {
+        final msg = e.message.toLowerCase();
+        if (e.statusCode == 409 ||
+            e.statusCode == 502 ||
+            msg.contains('expired') ||
+            msg.contains('403')) {
+          setState(() => _recordingExpired = true);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+      return null;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not get recording link: $e')),
+        );
+      }
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() => _recordingActionBusy = false);
+      }
+    }
+  }
+
+  Future<void> _playRecording() async {
+    final url = await _fetchFreshRecordingUrl();
+    if (url == null || !mounted) {
+      return;
+    }
     try {
       setState(() => _isPlaying = true);
       await _audioPlayer.play(UrlSource(url));
@@ -402,16 +442,40 @@ class _CallDetailScreenState extends State<CallDetailScreen> {
     } catch (e) {
       if (mounted) {
         final msg = e.toString().toLowerCase();
-        if (msg.contains("403") || msg.contains("404") || msg.contains("expired")) {
+        if (msg.contains('403') || msg.contains('404') || msg.contains('expired')) {
           setState(() => _recordingExpired = true);
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not play: ${e.toString()}')),
+          SnackBar(
+            content: Text('Could not play: $e'),
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: () => _playRecording(),
+            ),
+          ),
         );
       }
     } finally {
-      if (mounted) setState(() => _isPlaying = false);
+      if (mounted) {
+        setState(() => _isPlaying = false);
+      }
     }
+  }
+
+  Future<void> _downloadRecording() async {
+    final url = await _fetchFreshRecordingUrl();
+    if (url == null || !mounted) {
+      return;
+    }
+    await _openUrl(url);
+  }
+
+  Future<void> _copyRecordingLink() async {
+    final url = await _fetchFreshRecordingUrl();
+    if (url == null || !mounted) {
+      return;
+    }
+    _copyAndNotify(context, url);
   }
 
   Future<void> _stopPlaying() async {

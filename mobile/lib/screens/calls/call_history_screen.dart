@@ -299,8 +299,7 @@ class _CallRow extends StatelessWidget {
 
   bool _hasRecording(Map<String, dynamic> call) {
     final status = call['recording_status'] as String?;
-    final url = (call['recording_url'] as String?)?.trim();
-    return status == 'available' && url != null && url.isNotEmpty;
+    return status == 'available';
   }
 
 }

@@ -15,6 +15,7 @@ from billing.ledger import append_usage_ledger
 from billing.subscriptions import get_active_subscription
 from config import settings
 from supabase_client import create_service_role_client
+from api.mobile.call_logs_projection import is_missing_column_error
 from telnyx.payload_utils import extract_call_control_id, extract_call_party_numbers
 from telnyx.receptionist_lookup import get_receptionist_by_did_or_match
 
@@ -216,16 +217,27 @@ async def handle_cdr_webhook(raw_body: bytes, headers: dict[str, str]) -> dict[s
             if isinstance(recording_urls, dict)
             else ""
         )
+        telnyx_recording_id = (payload.get("recording_id") or payload.get("id") or "").strip() or None
         recorded_at_str = payload.get("recorded_at") or payload.get("recording_ended_at") or payload.get("occurred_at")
         duration_ms = payload.get("duration_millis") or payload.get("duration_ms") or 0
         recording_duration = int(duration_ms / 1000) if duration_ms else None
         try:
-            supabase.table("call_logs").update({
+            update_payload: dict[str, Any] = {
                 "recording_status": "available" if recording_url else "failed",
                 "recording_url": recording_url.strip() or None,
                 "recorded_at": recorded_at_str,
                 "recording_duration_seconds": recording_duration,
-            }).eq("call_control_id", call_control_id).execute()
+            }
+            if telnyx_recording_id:
+                update_payload["telnyx_recording_id"] = telnyx_recording_id
+            try:
+                supabase.table("call_logs").update(update_payload).eq("call_control_id", call_control_id).execute()
+            except Exception as e:
+                if telnyx_recording_id and is_missing_column_error(e):
+                    update_payload.pop("telnyx_recording_id", None)
+                    supabase.table("call_logs").update(update_payload).eq("call_control_id", call_control_id).execute()
+                else:
+                    raise
             logger.info(
                 "[CALL_DIAG] call.recording.saved call_control_id=%s recording_url=%s",
                 call_control_id,

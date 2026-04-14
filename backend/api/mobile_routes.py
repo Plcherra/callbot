@@ -34,6 +34,7 @@ from quota import check_outbound_quota
 from stripe_plans import get_price_id_for_plan_id, plan_from_subscription
 from supabase_client import create_service_role_client
 from telnyx import provision as telnyx_provision
+from telnyx.recording_download import fetch_fresh_recording_mp3_url
 from utils.phone import normalize_to_e164
 
 from api.mobile.agenda import router as agenda_router
@@ -1144,6 +1145,72 @@ async def get_call_history(request: Request, receptionist_id: str):
         )
         response["select_mode"] = select_mode
     return response
+
+
+@router.get("/receptionists/{receptionist_id}/calls/{call_id}/recording-url")
+async def get_call_recording_url(request: Request, receptionist_id: str, call_id: str):
+    """Return a freshly minted Telnyx recording download URL (short-lived; do not cache)."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    err = _assert_receptionist_ownership(receptionist_id, user["id"], supabase)
+    if err:
+        return JSONResponse({"error": err}, status_code=404)
+
+    row: dict | None = None
+    select_full = "id, receptionist_id, call_control_id, recording_status, telnyx_recording_id"
+    select_base = "id, receptionist_id, call_control_id, recording_status"
+    for sel in (select_full, select_base):
+        try:
+            r = (
+                supabase.table("call_logs")
+                .select(sel)
+                .eq("id", call_id)
+                .eq("receptionist_id", receptionist_id)
+                .limit(1)
+                .execute()
+            )
+            rows = r.data if r and isinstance(r.data, list) else []
+            if not rows:
+                return JSONResponse({"error": "Call not found"}, status_code=404)
+            row = rows[0]
+            break
+        except Exception as e:
+            if sel == select_full and _is_missing_column_error(e):
+                logger.warning(
+                    "[recording-url] telnyx_recording_id unavailable (migration 033?): %s",
+                    str(e)[:180],
+                )
+                continue
+            logger.exception("[recording-url] call_logs query failed receptionist_id=%s call_id=%s", receptionist_id, call_id)
+            return JSONResponse({"error": "Failed to load call"}, status_code=500)
+
+    if not row:
+        return JSONResponse({"error": "Call not found"}, status_code=404)
+
+    status = (row.get("recording_status") or "").strip().lower()
+    if status != "available":
+        return JSONResponse(
+            {
+                "error": "Recording not available for this call",
+                "recording_status": status or "unknown",
+            },
+            status_code=409,
+        )
+
+    api_key = (settings.telnyx_api_key or "").strip()
+    url = await fetch_fresh_recording_mp3_url(
+        api_key=api_key,
+        telnyx_recording_id=row.get("telnyx_recording_id"),
+        call_control_id=row.get("call_control_id"),
+    )
+    if not url:
+        return JSONResponse(
+            {"error": "Could not retrieve a fresh recording link. Try again later."},
+            status_code=502,
+        )
+    return {"url": url}
 
 
 @router.get("/receptionists/{receptionist_id}/prompt-preview")

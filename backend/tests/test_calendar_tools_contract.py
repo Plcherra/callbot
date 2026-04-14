@@ -121,8 +121,13 @@ class _SB:
         if name == "receptionists":
             # Best-effort: allow tests to supply receptionist-level config via capture.
             tmpl = self._capture.get("generic_followup_message_template")
+            users = self._capture.get("receptionist_users")
+            if users is None and self._capture.get("account_business_name"):
+                users = {"business_name": self._capture.get("account_business_name")}
             row = {
                 "id": "rec-1",
+                "name": self._capture.get("receptionist_name", "Test Receptionist"),
+                "users": users,
                 "generic_followup_message_template": tmpl,
                 "telnyx_phone_number": self._capture.get("telnyx_phone_number"),
                 "inbound_phone_number": self._capture.get("inbound_phone_number"),

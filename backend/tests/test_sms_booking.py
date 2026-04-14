@@ -19,6 +19,69 @@ def test_confirm_and_reject():
     assert sb._is_reject_message("no")
     assert sb._is_reject_message("NOPE")
     assert not sb._is_reject_message("nothing")
+    assert not sb._is_reject_message("stop")
+
+
+def test_global_help_and_stop(monkeypatch):
+    sent: list[str] = []
+
+    class _Q:
+        def select(self, *a, **k):
+            return self
+
+        def eq(self, *a, **k):
+            return self
+
+        def limit(self, *a, **k):
+            return self
+
+        def insert(self, *a, **k):
+            return self
+
+        def upsert(self, *a, **k):
+            return self
+
+        def execute(self):
+            return type("R", (), {"data": []})()
+
+    class _SB:
+        def table(self, name):
+            return _Q()
+
+    monkeypatch.setattr("telnyx.sms_booking.create_service_role_client", lambda: _SB())
+
+    monkeypatch.setattr(
+        "telnyx.sms_booking.fetch_customer_sms_display_name",
+        lambda supabase, rid: "Mike's Barbershop",
+    )
+
+    def _capture_send(*, to_number, from_number, text, supabase):
+        sent.append(text)
+
+    monkeypatch.setattr("telnyx.sms_booking._send_reply", _capture_send)
+
+    sb.handle_incoming_message(
+        customer_phone="+15550001111",
+        message_text="HELP",
+        receptionist_id="rec-1",
+        business_did="+15550002222",
+        telnyx_event_id=None,
+    )
+    assert len(sent) == 1
+    assert "Mike's Barbershop" in sent[0]
+    assert "Reply STOP" in sent[0]
+
+    sent.clear()
+    sb.handle_incoming_message(
+        customer_phone="+15550001111",
+        message_text="STOP",
+        receptionist_id="rec-1",
+        business_did="+15550002222",
+        telnyx_event_id=None,
+    )
+    assert len(sent) == 1
+    assert "unsubscribed" in sent[0].lower()
+    assert "Mike's Barbershop" in sent[0]
 
 
 def test_sms_params_always_generic():

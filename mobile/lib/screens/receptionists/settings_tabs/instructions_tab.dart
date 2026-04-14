@@ -364,14 +364,21 @@ class _ReceptionistInstructionsTabState
         ),
         const SizedBox(height: 16),
         const Text(
-          'Generic booking follow-up message (no services) — spoken after booking when no service is selected.',
+          'Generic booking follow-up message (no services) — sent by SMS after booking when no service is selected.',
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Use {business_name} for your business or assistant name (from Settings → Business name, else receptionist name).',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
         ),
         const SizedBox(height: 8),
         TextField(
           controller: _genericFollowupController,
           decoration: const InputDecoration(
             hintText:
-                'e.g. Your appointment is under review and we will text you the details shortly.',
+                'e.g. Your appointment with {business_name} is under review; we will text you shortly.',
             border: OutlineInputBorder(),
             alignLabelWithHint: true,
           ),

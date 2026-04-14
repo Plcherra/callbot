@@ -19,10 +19,21 @@ from calendar_api.calendar_handler import (
 from scheduling import check_availability, create_booking
 from supabase_client import create_service_role_client
 from telnyx import sms as telnyx_sms
+from telnyx.sms_customer_identity import apply_sms_template_vars, fetch_customer_sms_display_name
 from telnyx.sms_webhook import store_sms_sent
 from utils.phone import normalize_to_e164
 
 logger = logging.getLogger(__name__)
+
+_SMS_HELP_TEMPLATE = (
+    "{business_name}: Message frequency varies. For help, contact the business directly. "
+    "Message and data rates may apply. Reply STOP to opt out."
+)
+_SMS_STOP_CONFIRM_TEMPLATE = (
+    "You have unsubscribed from messages from {business_name}. "
+    "You will not receive further texts unless you contact the business again."
+)
+_GLOBAL_STOP_TOKENS = frozenset({"stop", "stopall", "unsubscribe", "end", "quit"})
 
 _STATE_IDLE = "idle"
 _STATE_PENDING = "pending_confirm"
@@ -42,7 +53,7 @@ _CONFIRM_TOKENS = frozenset(
         "yes please",
     }
 )
-_REJECT_TOKENS = frozenset({"no", "n", "nope", "cancel", "stop", "nah"})
+_REJECT_TOKENS = frozenset({"no", "n", "nope", "cancel", "nah"})
 
 
 def _friendly_time_label(iso_str: str, tz_name: str) -> str:
@@ -84,6 +95,16 @@ def _is_reject_message(text: str) -> bool:
     if not t or len(t) > 24:
         return False
     return t in _REJECT_TOKENS
+
+
+def _is_global_help(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return t in ("help", "info")
+
+
+def _is_global_stop(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return t in _GLOBAL_STOP_TOKENS
 
 
 def _sms_params_base(*, date_text: str) -> dict:
@@ -195,12 +216,34 @@ def handle_incoming_message(
         except Exception as e:
             logger.warning("[SMS_BOOK] idempotency failed (continuing): %s", e)
 
+    supabase_early = create_service_role_client()
+    display_name = fetch_customer_sms_display_name(supabase_early, receptionist_id)
+
+    if _is_global_help(msg):
+        _send_reply(
+            to_number=customer_e164,
+            from_number=business_did,
+            text=apply_sms_template_vars(_SMS_HELP_TEMPLATE, display_name) or "",
+            supabase=supabase_early,
+        )
+        return
+
+    if _is_global_stop(msg):
+        _reset_session_idle(supabase_early, receptionist_id, customer_e164)
+        _send_reply(
+            to_number=customer_e164,
+            from_number=business_did,
+            text=apply_sms_template_vars(_SMS_STOP_CONFIRM_TEMPLATE, display_name) or "",
+            supabase=supabase_early,
+        )
+        return
+
     ctx = load_scheduling_context_for_receptionist(receptionist_id)
     if not ctx.get("ok"):
         _send_reply(
             to_number=customer_e164,
             from_number=business_did,
-            text="Sorry — I can't reach the calendar right now. Try again soon or give us a call.",
+            text=f"{display_name}: Sorry — I can't reach the calendar right now. Try again soon or give us a call.",
             supabase=create_service_role_client(),
         )
         return
@@ -250,7 +293,7 @@ def handle_incoming_message(
                 _send_reply(
                     to_number=customer_e164,
                     from_number=business_did,
-                    text=f"You're all set for {when} \N{THUMBS UP SIGN}",
+                    text=f"You're all set for {when} with {display_name} \N{THUMBS UP SIGN}",
                     supabase=supabase,
                 )
             else:
@@ -343,7 +386,7 @@ def handle_incoming_message(
         _send_reply(
             to_number=customer_e164,
             from_number=business_did,
-            text=f"I got you at {when}. Want me to lock it in?",
+            text=f"I got you at {when} with {display_name}. Want me to lock it in?",
             supabase=supabase,
         )
         return
@@ -362,7 +405,7 @@ def handle_incoming_message(
         _send_reply(
             to_number=customer_e164,
             from_number=business_did,
-            text=f"That time's taken — I can do {when_a} instead. Want me to lock it in?",
+            text=f"That time's taken — I can do {when_a} for {display_name} instead. Want me to lock it in?",
             supabase=supabase,
         )
         return

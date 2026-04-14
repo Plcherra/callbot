@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from telnyx import sms as telnyx_sms
+from telnyx.sms_customer_identity import apply_sms_template_vars, fetch_customer_sms_display_name
 
 logger = logging.getLogger(__name__)
 
 _SMS_OPTOUT_SUFFIX = "Reply STOP to opt out."
+_DEFAULT_CONFIRM = "Your appointment with {business_name} is confirmed."
 _E164_RE = re.compile(r"^\+\d{10,15}$")
 
 
@@ -65,6 +67,8 @@ def send_appointment_confirmation(
     if not from_number:
         return {"success": False, "error": "No SMS number configured for receptionist"}
 
+    display_name = fetch_customer_sms_display_name(supabase, str(receptionist_id))
+
     if message is None or (isinstance(message, str) and not message.strip()):
         parts = []
         base = (appointment.get("followup_message_resolved") or "").strip()
@@ -79,7 +83,11 @@ def send_appointment_confirmation(
         location = (appointment.get("customer_address") or appointment.get("location_text") or "").strip()
         if location:
             parts.append(f"Location: {location}")
-        message = "\n\n".join(parts) if parts else "Your appointment is confirmed."
+        message = "\n\n".join(parts) if parts else _DEFAULT_CONFIRM
+    else:
+        message = message.strip()
+
+    message = apply_sms_template_vars(message, display_name) or message
 
     text = f"{message.strip()}\n\n{_SMS_OPTOUT_SUFFIX}"
 

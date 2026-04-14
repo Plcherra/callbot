@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from ._parsing import get_free_slots, parse_iso_datetime_or_natural
 from telnyx import sms as telnyx_sms
+from telnyx.sms_customer_identity import apply_sms_template_vars, fetch_customer_sms_display_name
 from telnyx.sms_delivery_registry import is_us_toll_free_e164
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,10 @@ _SERVICE_SELECT_FIELDS = (
 _RECEPTIONIST_SELECT_FIELDS = "id, generic_followup_message_template"
 
 _DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE = (
-    "Your appointment is under review and additional information will be provided soon."
+    "Your appointment with {business_name} is under review and additional information will be provided soon."
+)
+_DEFAULT_PAYMENT_FOLLOWUP_MESSAGE = (
+    "We'll text you a payment link shortly to confirm your appointment with {business_name}."
 )
 
 _SMS_OPTOUT_SUFFIX = "Reply STOP to opt out."
@@ -173,6 +177,8 @@ def _resolve_followup_for_booking(
     - booking_mode, followup_mode, followup_message_resolved, payment_link,
       meeting_instructions, owner_selected_platform, internal_followup_notes
     """
+    display_name = fetch_customer_sms_display_name(supabase, receptionist_id)
+
     if service_based and isinstance(resolved_service, dict):
         booking_mode = "service_based"
         followup_mode = (resolved_service.get("followup_mode") or "").strip() or "under_review"
@@ -185,13 +191,16 @@ def _resolve_followup_for_booking(
         if followup_mode == "send_custom_message":
             msg = template
         elif followup_mode == "send_payment_link":
-            msg = template or "We’ll text you a payment link shortly to confirm your appointment."
+            msg = template or _DEFAULT_PAYMENT_FOLLOWUP_MESSAGE
         elif followup_mode == "under_review":
             msg = template or _DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE
         else:
             # none or unknown -> treat as none
             followup_mode = "none"
             msg = None
+
+        if msg:
+            msg = apply_sms_template_vars(msg, display_name)
 
         return {
             "booking_mode": booking_mode,
@@ -208,6 +217,8 @@ def _resolve_followup_for_booking(
     booking_mode = "generic"
     tmpl = _resolve_generic_followup_template(supabase=supabase, receptionist_id=receptionist_id)
     msg = tmpl or _DEFAULT_GENERIC_UNDER_REVIEW_MESSAGE
+    if msg:
+        msg = apply_sms_template_vars(msg, display_name)
     return {
         "booking_mode": booking_mode,
         "followup_mode": "under_review",

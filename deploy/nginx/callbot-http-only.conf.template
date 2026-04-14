@@ -66,10 +66,14 @@ server {
 
     # Compliance pages (exact paths; avoid SPA try_files fallback to index.html)
     location = /privacy {
-        alias {{LANDING_ROOT}}/privacy.html;
+        root {{LANDING_ROOT}};
+        charset utf-8;
+        try_files /privacy.html =404;
     }
     location = /terms {
-        alias {{LANDING_ROOT}}/terms.html;
+        root {{LANDING_ROOT}};
+        charset utf-8;
+        try_files /terms.html =404;
     }
 
     # Static landing (served by nginx)

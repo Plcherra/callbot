@@ -15,10 +15,29 @@ NGINX_SITE="/etc/nginx/sites-available/callbot"
 
 echo "=== Syncing nginx config ==="
 
-LANDING_ROOT="$ROOT/landing/dist"
-if [ ! -d "$LANDING_ROOT" ]; then
-  echo "WARNING: $LANDING_ROOT not found. Create landing/dist before deploy."
+# Match deploy-landing.sh: production docroot is /var/www/echodesk-landing. Prefer it when
+# present so nginx and rsync target stay aligned; otherwise use repo landing/dist (local/dev).
+PROD_LANDING="/var/www/echodesk-landing"
+if [ -d "$PROD_LANDING" ]; then
+  LANDING_ROOT="$PROD_LANDING"
+  echo "LANDING_ROOT=$LANDING_ROOT (production docroot)"
+else
+  LANDING_ROOT="$ROOT/landing/dist"
+  echo "LANDING_ROOT=$LANDING_ROOT (repo fallback; run deploy-landing.sh on VPS for production path)"
 fi
+
+if [ ! -d "$LANDING_ROOT" ]; then
+  echo "ERROR: LANDING_ROOT is not a directory: $LANDING_ROOT"
+  exit 1
+fi
+for f in privacy.html terms.html; do
+  if [ ! -f "$LANDING_ROOT/$f" ]; then
+    echo "ERROR: Required legal page missing: $LANDING_ROOT/$f"
+    echo "Ensure landing/dist contains it, then run: bash deploy/scripts/deploy-landing.sh"
+    exit 1
+  fi
+done
+echo "OK: $LANDING_ROOT/privacy.html and terms.html present"
 
 # Use sudo so cert check works when run by deploy/user (letsencrypt dir may restrict access)
 if [ -f "$SSL_CERT" ] || sudo test -f "$SSL_CERT" 2>/dev/null; then

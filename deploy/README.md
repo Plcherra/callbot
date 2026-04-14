@@ -54,6 +54,51 @@ chmod +x deploy/scripts/deploy-landing.sh && ./deploy/scripts/deploy-landing.sh
 
 The script syncs `landing/dist/` → `/var/www/echodesk-landing` via `rsync`, then sets ownership and permissions for the nginx user.
 
+### Legal pages (`/privacy`, `/terms`)
+
+Nginx serves clean URLs from static files **`privacy.html`** and **`terms.html`** in the effective `LANDING_ROOT` (prefer `/var/www/echodesk-landing` when that directory exists—see `deploy/scripts/sync-nginx-config.sh`). `sync-nginx-config.sh` **refuses to install** nginx config if either file is missing from the chosen root.
+
+**After deploy**, confirm files on disk (production):
+
+```bash
+test -f /var/www/echodesk-landing/privacy.html && test -f /var/www/echodesk-landing/terms.html && echo "OK: legal HTML files present"
+```
+
+**Success is verified with HTTP headers**, not only the browser:
+
+```bash
+curl -sI https://echodesk.us/privacy
+curl -sI https://echodesk.us/terms
+```
+
+Expected:
+
+- HTTP **200**
+- `content-type:` **`text/html`** (optionally with `charset=utf-8`)
+- **No** `content-disposition` header (this check should print nothing):
+
+```bash
+curl -sI https://echodesk.us/privacy | grep -i content-disposition || true
+curl -sI https://echodesk.us/terms | grep -i content-disposition || true
+```
+
+Sanity-check body starts with HTML:
+
+```bash
+curl -sL https://echodesk.us/privacy | head -n 3
+curl -sL https://echodesk.us/terms | head -n 3
+```
+
+**On the VPS** after syncing nginx:
+
+```bash
+bash deploy/scripts/sync-nginx-config.sh
+```
+
+(`sync-nginx-config.sh` runs `nginx -t` and reloads nginx. To only test or reload: `sudo nginx -t && sudo systemctl reload nginx`.)
+
+If users still see stale behavior after an origin fix, purge Cloudflare cache once for those two URLs.
+
 ### Landing deploy troubleshooting
 
 - **Permission denied** when running `./deploy/scripts/deploy-landing.sh`  

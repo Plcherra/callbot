@@ -14,6 +14,7 @@ for key, val in [
     ("GROK_API_KEY", "test-grok-key"),
     ("NEXT_PUBLIC_SUPABASE_URL", "https://test.supabase.co"),
     ("SUPABASE_SERVICE_ROLE_KEY", "test-supabase-key"),
+    ("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon-key"),
     ("TELNYX_API_KEY", "test-telnyx-key"),
 ]:
     os.environ.setdefault(key, val)

@@ -313,7 +313,7 @@ async def telnyx_cdr(request: Request):
 
 @app.post("/api/telnyx/sms")
 async def telnyx_sms_webhook(request: Request):
-    """Telnyx messaging webhook: message.sent, message.finalized for delivery tracking."""
+    """Telnyx messaging: message.received (inbound SMS booking), message.sent / message.finalized (delivery)."""
     raw = await request.body()
     headers = {k: v for k, v in request.headers.items()}
     client_ip = get_client_ip(headers, request.client.host if request.client else None)

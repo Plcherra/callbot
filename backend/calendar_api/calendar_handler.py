@@ -203,3 +203,58 @@ def _handle_reschedule(
         supabase=supabase,
         staff_id=params.get("staff_id"),
     )
+
+
+def load_scheduling_context_for_receptionist(receptionist_id: str) -> dict:
+    """
+    Sync load: Supabase row + Google Calendar service for scheduling engine calls.
+    Used by SMS inbound (no voice_server_api_key).
+
+    Returns:
+        {"ok": True, "service": svc, "calendar_id": str, "supabase": sb, "receptionist": rec}
+        or {"ok": False, "error": str, "message": str}
+    """
+    supabase = create_service_role_client()
+    rec_res = (
+        supabase.table("receptionists")
+        .select("id, user_id, calendar_id, status, active")
+        .eq("id", receptionist_id)
+        .execute()
+    )
+    if not rec_res.data:
+        return {"ok": False, "error": "receptionist_not_found", "message": "Receptionist not found."}
+    rec = rec_res.data[0]
+    if rec.get("status") != "active" or rec.get("active") is False:
+        return {"ok": False, "error": "receptionist_inactive", "message": "Receptionist not available."}
+
+    user_res = supabase.table("users").select("calendar_refresh_token").eq("id", rec["user_id"]).execute()
+    if not user_res.data or not user_res.data[0].get("calendar_refresh_token"):
+        return {
+            "ok": False,
+            "error": "calendar_not_connected",
+            "message": "Calendar is not connected for this business.",
+        }
+
+    calendar_id = (rec.get("calendar_id") or "primary").strip() or "primary"
+    refresh_token = user_res.data[0]["calendar_refresh_token"]
+
+    try:
+        service = _get_calendar_service(refresh_token)
+    except Exception as e:
+        msg = str(e)
+        if "invalid_grant" in msg or "Token has been expired" in msg:
+            return {
+                "ok": False,
+                "error": "calendar_token_expired",
+                "message": "Calendar access expired. Please reconnect Google Calendar.",
+            }
+        logger.exception("Calendar auth failed (SMS scheduling context)")
+        return {"ok": False, "error": "calendar_error", "message": "Calendar request failed."}
+
+    return {
+        "ok": True,
+        "service": service,
+        "calendar_id": calendar_id,
+        "supabase": supabase,
+        "receptionist": rec,
+    }

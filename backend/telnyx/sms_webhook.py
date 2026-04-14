@@ -58,6 +58,15 @@ def handle_sms_webhook(raw_body: bytes) -> dict:
     event_type = data.get("event_type")
     payload = data.get("payload") or data
 
+    if event_type == "message.received":
+        try:
+            from telnyx.sms_booking import handle_inbound_telnyx_message
+
+            handle_inbound_telnyx_message(data=data)
+        except Exception as e:
+            logger.exception("[SMS_WEBHOOK] message.received handler failed: %s", e)
+        return {"received": True}
+
     if event_type not in ("message.sent", "message.finalized"):
         return {"received": True}
 

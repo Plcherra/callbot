@@ -115,6 +115,11 @@ server {
         charset utf-8;
         try_files /terms.html =404;
     }
+    location = /opt-in {
+        root {{LANDING_ROOT}};
+        charset utf-8;
+        try_files /opt-in.html =404;
+    }
 
     # Main landing/static site.
     # No redirect here; Cloudflare Tunnel sends HTTP to origin and handles HTTPS externally.
@@ -213,6 +218,11 @@ server {
         root {{LANDING_ROOT}};
         charset utf-8;
         try_files /terms.html =404;
+    }
+    location = /opt-in {
+        root {{LANDING_ROOT}};
+        charset utf-8;
+        try_files /opt-in.html =404;
     }
 
     # Static landing (served by nginx)

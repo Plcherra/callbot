@@ -54,14 +54,14 @@ chmod +x deploy/scripts/deploy-landing.sh && ./deploy/scripts/deploy-landing.sh
 
 The script syncs `landing/dist/` → `/var/www/echodesk-landing` via `rsync`, then sets ownership and permissions for the nginx user.
 
-### Legal pages (`/privacy`, `/terms`)
+### Legal and SMS opt-in pages (`/privacy`, `/terms`, `/opt-in`)
 
-Nginx serves clean URLs from static files **`privacy.html`** and **`terms.html`** in the effective `LANDING_ROOT` (prefer `/var/www/echodesk-landing` when that directory exists—see `deploy/scripts/sync-nginx-config.sh`). `sync-nginx-config.sh` **refuses to install** nginx config if either file is missing from the chosen root.
+Nginx serves clean URLs from static files **`privacy.html`**, **`terms.html`**, and **`opt-in.html`** in the effective `LANDING_ROOT` (prefer `/var/www/echodesk-landing` when that directory exists—see `deploy/scripts/sync-nginx-config.sh`). `sync-nginx-config.sh` **refuses to install** nginx config if any of those files are missing from the chosen root.
 
 **After deploy**, confirm files on disk (production):
 
 ```bash
-test -f /var/www/echodesk-landing/privacy.html && test -f /var/www/echodesk-landing/terms.html && echo "OK: legal HTML files present"
+test -f /var/www/echodesk-landing/privacy.html && test -f /var/www/echodesk-landing/terms.html && test -f /var/www/echodesk-landing/opt-in.html && echo "OK: landing HTML files present"
 ```
 
 **Success is verified with HTTP headers**, not only the browser:
@@ -69,6 +69,7 @@ test -f /var/www/echodesk-landing/privacy.html && test -f /var/www/echodesk-land
 ```bash
 curl -sI https://echodesk.us/privacy
 curl -sI https://echodesk.us/terms
+curl -sI https://echodesk.us/opt-in
 ```
 
 Expected:
@@ -80,6 +81,7 @@ Expected:
 ```bash
 curl -sI https://echodesk.us/privacy | grep -i content-disposition || true
 curl -sI https://echodesk.us/terms | grep -i content-disposition || true
+curl -sI https://echodesk.us/opt-in | grep -i content-disposition || true
 ```
 
 Sanity-check body starts with HTML:
@@ -87,6 +89,7 @@ Sanity-check body starts with HTML:
 ```bash
 curl -sL https://echodesk.us/privacy | head -n 3
 curl -sL https://echodesk.us/terms | head -n 3
+curl -sL https://echodesk.us/opt-in | head -n 10
 ```
 
 **On the VPS** after syncing nginx:
@@ -97,7 +100,7 @@ bash deploy/scripts/sync-nginx-config.sh
 
 (`sync-nginx-config.sh` runs `nginx -t` and reloads nginx. To only test or reload: `sudo nginx -t && sudo systemctl reload nginx`.)
 
-If users still see stale behavior after an origin fix, purge Cloudflare cache once for those two URLs.
+If users still see stale behavior after an origin fix, purge Cloudflare cache once for those URLs.
 
 ### Landing deploy troubleshooting
 

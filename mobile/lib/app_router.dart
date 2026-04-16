@@ -13,6 +13,7 @@ import 'screens/receptionists/receptionist_settings_screen.dart';
 import 'screens/receptionists/create_receptionist_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/settings/edit_business_screen.dart';
+import 'screens/settings/communication_setup_screen.dart';
 import 'screens/checkout/checkout_screen.dart';
 import 'screens/help/help_screen.dart';
 import 'screens/call/active_call_screen.dart';
@@ -228,6 +229,10 @@ GoRouter createAppRouter() {
                   GoRoute(
                     path: 'business-edit',
                     builder: (context, state) => const EditBusinessScreen(),
+                  ),
+                  GoRoute(
+                    path: 'communication-setup',
+                    builder: (context, state) => const CommunicationSetupScreen(),
                   ),
                 ],
               ),

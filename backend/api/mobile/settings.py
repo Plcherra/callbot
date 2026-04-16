@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from api.auth import get_user_from_request
+from communication.ensure import get_default_business_for_owner
 
 router = APIRouter()
 
@@ -31,11 +32,20 @@ async def settings_business(request: Request):
     business_name = (body.get("business_name") or "").strip() or None
     business_address = (body.get("business_address") or "").strip() or None
 
+    now = datetime.utcnow().isoformat() + "Z"
     supabase.table("users").update({
         "business_name": business_name,
         "business_address": business_address,
-        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "updated_at": now,
     }).eq("id", user["id"]).execute()
+
+    if business_name is not None:
+        default_biz = get_default_business_for_owner(supabase, user["id"])
+        if default_biz:
+            supabase.table("businesses").update({"name": business_name, "updated_at": now}).eq(
+                "id", default_biz["id"]
+            ).execute()
+
     return {"success": True}
 
 

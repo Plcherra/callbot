@@ -35,7 +35,15 @@ from stripe_plans import get_price_id_for_plan_id, plan_from_subscription
 from supabase_client import create_service_role_client
 from telnyx import provision as telnyx_provision
 from telnyx.recording_download import fetch_fresh_recording_mp3_url
-from utils.phone import normalize_to_e164
+from utils.phone import normalize_to_e164, phones_match
+from communication.ensure import (
+    ensure_business_communication,
+    ensure_communication_for_user_after_receptionist_change,
+    list_active_receptionists_for_business,
+    refresh_business_after_primary_receptionist_removed,
+    resolve_target_business_for_new_receptionist,
+    upsert_canonical_business_phone,
+)
 
 from api.mobile.agenda import router as agenda_router
 from api.mobile.dashboard import router as dashboard_router
@@ -44,6 +52,8 @@ from api.mobile.call_logs_projection import (
     is_missing_column_error,
 )
 from api.mobile.settings import router as settings_router
+from api.mobile.communication import router as communication_router
+from api.mobile.businesses import router as businesses_router
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mobile", tags=["mobile"])
@@ -62,6 +72,8 @@ APPOINTMENTS_FULL_SELECT = f"{APPOINTMENTS_BASE_SELECT}, {APPOINTMENTS_OPTIONAL_
 
 router.include_router(dashboard_router)
 router.include_router(settings_router)
+router.include_router(communication_router)
+router.include_router(businesses_router)
 router.include_router(agenda_router)
 
 
@@ -373,9 +385,83 @@ async def create_receptionist(request: Request):
     if not webhook_base or "localhost" in webhook_base or "placeholder" in webhook_base.lower():
         return JSONResponse({"error": "TELNYX_WEBHOOK_BASE_URL must be set before provisioning."}, status_code=400)
 
-    # Wizard or legacy
+    body_business_id = (body.get("business_id") or "").strip() or None
+    try:
+        target_business = resolve_target_business_for_new_receptionist(
+            supabase, user["id"], body_business_id
+        )
+    except ValueError:
+        return JSONResponse({"error": "Invalid business."}, status_code=400)
+    except RuntimeError:
+        return JSONResponse({"error": "Could not create business record."}, status_code=500)
+
+    target_business_id = str(target_business["id"])
+    existing_for_business = list_active_receptionists_for_business(supabase, target_business_id)
+    is_additional = len(existing_for_business) > 0
+
+    # Wizard or legacy — only the first assistant for this business may provision a new Telnyx number.
     phone_strategy = body.get("phone_strategy")
-    if phone_strategy == "own":
+    provisioned_new_number = False
+    telnyx_id: str | None = None
+    inbound_number: str | None = None
+    telnyx_phone: str | None = None
+
+    if is_additional:
+        primary = existing_for_business[0]
+        primary_tid = (primary.get("telnyx_phone_number_id") or "").strip() or None
+        primary_inb = (
+            primary.get("inbound_phone_number")
+            or primary.get("telnyx_phone_number")
+            or primary.get("phone_number")
+            or ""
+        ).strip()
+        primary_tel = (primary.get("telnyx_phone_number") or "").strip() or primary_inb
+        if not primary_tid:
+            return JSONResponse(
+                {
+                    "error": (
+                        "The first assistant for this business must finish phone setup before you add another. "
+                        "Assistants under the same business share one phone line."
+                    )
+                },
+                status_code=400,
+            )
+        if phone_strategy == "own":
+            own_phone = (body.get("own_phone") or "").strip()
+            if not own_phone:
+                return JSONResponse({"error": "Phone number is required."}, status_code=400)
+            e164 = normalize_to_e164(own_phone)
+            if not e164:
+                return JSONResponse({"error": "Enter phone in E.164 format (e.g. +15551234567)."}, status_code=400)
+            if not phones_match(own_phone, primary_inb) and not phones_match(own_phone, primary_tel):
+                return JSONResponse(
+                    {
+                        "error": (
+                            "Additional assistants must use the same phone line as the first assistant "
+                            "for this business."
+                        )
+                    },
+                    status_code=400,
+                )
+            provider_sid = (body.get("provider_sid") or "").strip()
+            if provider_sid and provider_sid != primary_tid:
+                return JSONResponse(
+                    {"error": "Provider phone ID must match your account line; leave blank to reuse the existing line."},
+                    status_code=400,
+                )
+            telnyx_id = primary_tid
+            inbound_number = e164
+            telnyx_phone = primary_tel or e164
+            if provider_sid:
+                try:
+                    telnyx_provision.configure_voice_url(provider_sid, f"{webhook_base}/api/telnyx/voice")
+                except Exception as ex:
+                    return JSONResponse({"error": f"Could not configure Telnyx: {ex}"}, status_code=400)
+        else:
+            telnyx_id = primary_tid
+            inbound_number = primary_inb or primary_tel
+            telnyx_phone = primary_tel or primary_inb
+    elif phone_strategy == "own":
         own_phone = (body.get("own_phone") or "").strip()
         if not own_phone:
             return JSONResponse({"error": "Phone number is required."}, status_code=400)
@@ -396,11 +482,22 @@ async def create_receptionist(request: Request):
         if area_code == "other":
             area_code = "212"
         try:
-            telnyx_id, telnyx_phone = telnyx_provision.provision_number(area_code)
+            tid, tphone = telnyx_provision.provision_number(area_code)
+            telnyx_id = tid
+            telnyx_phone = tphone
             telnyx_provision.configure_voice_url(telnyx_id, f"{webhook_base}/api/telnyx/voice")
+            provisioned_new_number = True
         except Exception as ex:
             return JSONResponse({"error": str(ex)}, status_code=400)
         inbound_number = telnyx_phone
+
+    # Canonical line on the business; receptionist row below mirrors these for Telnyx voice routing.
+    upsert_canonical_business_phone(
+        supabase,
+        target_business_id,
+        phone_number_e164=inbound_number or telnyx_phone,
+        telnyx_number_id=telnyx_id,
+    )
 
     name = (body.get("name") or "").strip()
     calendar_id = (body.get("calendar_id") or "").strip()
@@ -440,7 +537,9 @@ async def create_receptionist(request: Request):
 
     insert_data = {
         "user_id": user["id"],
+        "business_id": target_business_id,
         "name": name,
+        # Compatibility mirror only — source of truth is business_phone_numbers (see upsert_canonical_business_phone).
         "phone_number": inbound_number,
         "inbound_phone_number": inbound_number,
         "telnyx_phone_number_id": telnyx_id,
@@ -484,7 +583,7 @@ async def create_receptionist(request: Request):
             rec_id,
         )
         if not rec_id:
-            if telnyx_id and phone_strategy != "own":
+            if provisioned_new_number and telnyx_id:
                 try:
                     telnyx_provision.release_number(telnyx_id)
                 except Exception:
@@ -549,13 +648,18 @@ async def create_receptionist(request: Request):
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }).eq("id", user["id"]).is_("onboarding_completed_at", "null").execute()
 
+        try:
+            ensure_business_communication(supabase, target_business_id)
+        except Exception as comm_ex:
+            logger.warning("[receptionists/create] communication ensure failed: %s", comm_ex)
+
         logger.info(
             "[receptionists/create] success rec_id=%s staff_ran=%s services_ran=%s promos_ran=%s",
             rec_id, staff_done, services_done, promos_done,
         )
         return {"success": True, "id": rec_id, "phoneNumber": inbound_number}
     except Exception as e:
-        if telnyx_id and phone_strategy != "own":
+        if provisioned_new_number and telnyx_id:
             try:
                 telnyx_provision.release_number(telnyx_id)
             except Exception:
@@ -706,20 +810,37 @@ async def delete_receptionist(request: Request, receptionist_id: str):
 
     rec = (
         supabase.table("receptionists")
-        .select("telnyx_phone_number_id, inbound_phone_number, status, deleted_at, active")
+        .select(
+            "telnyx_phone_number_id, inbound_phone_number, status, deleted_at, active, user_id, business_id"
+        )
         .eq("id", receptionist_id)
         .single()
         .execute()
     )
     data = rec.data or {}
+    owner_id = str(data.get("user_id") or user["id"])
+    business_id_for_refresh = data.get("business_id")
 
-    # Release Telnyx number if provisioned
+    # Release Telnyx number only if no other active assistant still uses it (shared line).
     telnyx_id = data.get("telnyx_phone_number_id")
     if telnyx_id:
-        try:
-            telnyx_provision.release_number(telnyx_id)
-        except Exception as ex:
-            logger.warning("[delete] Failed to release Telnyx number: %s", ex)
+        others = (
+            supabase.table("receptionists")
+            .select("id")
+            .eq("user_id", owner_id)
+            .neq("id", receptionist_id)
+            .eq("telnyx_phone_number_id", telnyx_id)
+            .eq("status", "active")
+            .eq("active", True)
+            .is_("deleted_at", "null")
+            .limit(1)
+            .execute()
+        )
+        if not (others.data or []):
+            try:
+                telnyx_provision.release_number(telnyx_id)
+            except Exception as ex:
+                logger.warning("[delete] Failed to release Telnyx number: %s", ex)
 
     # Soft delete receptionist: keep history, hide from UI/routing
     now_iso = datetime.utcnow().isoformat() + "Z"
@@ -730,6 +851,14 @@ async def delete_receptionist(request: Request, receptionist_id: str):
         "updated_at": now_iso,
     }
     supabase.table("receptionists").update(updates).eq("id", receptionist_id).execute()
+
+    try:
+        if business_id_for_refresh:
+            refresh_business_after_primary_receptionist_removed(supabase, str(business_id_for_refresh))
+        else:
+            ensure_communication_for_user_after_receptionist_change(supabase, owner_id)
+    except Exception as ex:
+        logger.warning("[delete] communication refresh failed: %s", ex)
 
     return {
         "success": True,

@@ -19,6 +19,8 @@ def get_receptionist_by_did(supabase, our_did: str, direction: str = "inbound") 
     """
     Look up active receptionist by DID.
     Checks telnyx_phone_number, inbound_phone_number, phone_number using canonical digit normalization.
+    Those columns are a compatibility mirror of business_phone_numbers; keep them in sync via
+    communication.ensure.mirror_business_phone_to_receptionists.
     Returns None if no match.
     Logs matched_via=telnyx_phone_number|inbound_phone_number|phone_number when a match is found.
     """

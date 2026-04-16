@@ -67,6 +67,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right, size: 20),
             onTap: () => context.push('/settings/business-edit'),
           ),
+          ListTile(
+            title: const Text('Communication setup'),
+            subtitle: const Text('Voice line, SMS approval, WhatsApp'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () => context.push('/settings/communication-setup'),
+          ),
           const SizedBox(height: 16),
           _SectionHeader(title: 'Booking & follow-up'),
           const SizedBox(height: 4),

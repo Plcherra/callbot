@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     telnyx_allowed_ips: str = ""  # Optional comma-separated IPs when TELNYX_SKIP_VERIFY; empty = no allowlist
     telnyx_allow_receptionist_fallback: bool = False  # If True, use first active receptionist when DID unmatched (dangerous; keep False for verification so bad DID matches are not masked)
     telnyx_enable_recording: bool = True  # Attempt recording_start on call.answered
+    # 10DLC / SMS: number must use a messaging profile before campaign link (Mission Control or API).
+    telnyx_messaging_profile_id: str = ""
+    telnyx_10dlc_use_mock: bool = False  # Telnyx mock brand/campaign (sandbox testing)
+    telnyx_10dlc_default_usecase: str = "CUSTOMER_CARE"
+    telnyx_10dlc_default_vertical: str = "RETAIL"
+    # WhatsApp: portal handoff when Telnyx does not return an API signup session.
+    telnyx_whatsapp_portal_url: str = ""  # e.g. https://portal.telnyx.com
 
     # Voice AI
     deepgram_api_key: str = ""

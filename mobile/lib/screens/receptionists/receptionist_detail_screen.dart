@@ -321,7 +321,7 @@ class _ReceptionistDetailScreenState extends State<ReceptionistDetailScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete receptionist?'),
         content: Text(
-          'This will delete "${r.name}" and its phone number. This cannot be undone.',
+          'This will remove "${r.name}" as an assistant. Your business phone line stays with the business unless you release it in Telnyx. This cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -396,7 +396,16 @@ class _OverviewCard extends StatelessWidget {
               style: Theme.of(context).textTheme.titleSmall,
             ),
             const SizedBox(height: 10),
-            _OverviewRow('Business number', r.displayPhone),
+            _OverviewRow('Uses business line', r.displayPhone),
+            Padding(
+              padding: const EdgeInsets.only(left: 100, bottom: 8),
+              child: Text(
+                'Shared business number — this assistant answers calls on your business line.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ),
             _OverviewRow('Calendar', calendarLabel),
             _OverviewRow('Voice', voiceLabel),
             if (todayCount != null) _OverviewRow('Calls today', '$todayCount'),

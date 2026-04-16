@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from api.auth import get_user_from_request
 from communication.ensure import resolve_business_for_communication
 from communication.setup_summary import build_setup_summary
-from communication.sms_onboarding import activate_sms, retry_sms, submit_sms_registration
+from communication.sms_onboarding import activate_sms, merge_registration_profile, retry_sms, submit_sms_registration
 from communication.whatsapp_onboarding import connect_whatsapp, continue_whatsapp_setup, retry_whatsapp
 
 router = APIRouter()
@@ -89,6 +89,31 @@ async def post_activate_sms(request: Request):
     return {"success": True, "status": st}
 
 
+@router.patch("/communication/sms/registration")
+async def patch_sms_registration(request: Request):
+    """Merge fields into sms_campaigns.registration_profile (PII/compliance)."""
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    biz, _ = _resolve_business(request, supabase, user["id"])
+    if not biz:
+        return JSONResponse({"error": "No business record"}, status_code=404)
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    patch = body.get("registration") if isinstance(body.get("registration"), dict) else body
+    if not isinstance(patch, dict):
+        return JSONResponse({"error": "Expected JSON object or { \"registration\": { ... } }"}, status_code=400)
+
+    ok, err = merge_registration_profile(supabase, biz["id"], patch)
+    if not ok:
+        return JSONResponse({"error": err or "Failed"}, status_code=400)
+    return {"success": True}
+
+
 @router.post("/communication/sms/submit")
 async def post_submit_sms(request: Request):
     user, supabase = _require_auth(request)
@@ -99,7 +124,18 @@ async def post_submit_sms(request: Request):
     if not biz:
         return JSONResponse({"error": "No business record"}, status_code=404)
 
-    ok, err, st = submit_sms_registration(supabase, biz["id"])
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    profile_patch = None
+    if isinstance(body, dict):
+        if isinstance(body.get("registration"), dict):
+            profile_patch = body["registration"]
+        elif isinstance(body.get("profile_patch"), dict):
+            profile_patch = body["profile_patch"]
+
+    ok, err, st = submit_sms_registration(supabase, biz["id"], profile_patch=profile_patch)
     if not ok:
         return JSONResponse({"error": err or "Failed"}, status_code=400)
     return {"success": True, "status": st}

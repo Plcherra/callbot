@@ -87,6 +87,13 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
               'Call from ${r.name}',
               style: Theme.of(context).textTheme.titleMedium,
             ),
+            const SizedBox(height: 4),
+            Text(
+              'Uses your business line as caller ID.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
             const SizedBox(height: 16),
             TextField(
               controller: controller,
@@ -187,7 +194,20 @@ class _ReceptionistsScreenState extends State<ReceptionistsScreen> {
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: ListTile(
                                   title: Text(r.name),
-                                  subtitle: Text(r.displayPhone),
+                                  subtitle: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Uses business line',
+                                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                      Text(r.displayPhone),
+                                    ],
+                                  ),
+                                  isThreeLine: true,
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: () =>
                                       context.push('/receptionists/${r.id}'),

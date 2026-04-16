@@ -409,12 +409,12 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('How do you want to connect this receptionist to phone calls?'),
+        const Text('How do you want to set up your business phone line?'),
         const SizedBox(height: 16),
         RadioListTile<String>(
-          title: const Text('Give me a new phone number'),
+          title: const Text('Get a new business number'),
           subtitle: const Text(
-            "We'll provision a fresh US number through Telnyx (~\$1–2/month).",
+            "We'll provision a US line for your business through Telnyx (~\$1–2/month). Assistants use this shared line.",
           ),
           value: 'new',
           groupValue: _formData.phoneStrategy,
@@ -436,9 +436,9 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
             ),
           ),
         RadioListTile<String>(
-          title: const Text('Bring my own number'),
+          title: const Text('Use a number I already own'),
           subtitle: const Text(
-            'Use a number you already own (Telnyx, Verizon, AT&T, etc.).',
+            'Link a number you already control (Telnyx, carrier, etc.) as your shared business line.',
           ),
           value: 'own',
           groupValue: _formData.phoneStrategy,
@@ -946,11 +946,19 @@ class _CreateReceptionistScreenState extends State<CreateReceptionistScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      const Text('Give this number to your customers'),
+                      const Text('Your business line'),
                       const SizedBox(height: 8),
                       SelectableText(
                         _successPhone!,
                         style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Customers call this number; your assistant answers on your business’s behalf.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                        textAlign: TextAlign.center,
                       ),
                       if (!_isPhoneDevice)
                         const Padding(

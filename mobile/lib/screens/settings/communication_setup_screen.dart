@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
 import '../../widgets/constrained_scaffold_body.dart';
@@ -53,6 +54,28 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     }
   }
 
+  Future<void> _openHandoff(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null || !(uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https'))) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid handoff link')),
+      );
+      return;
+    }
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
+
   Future<void> _post(String path) async {
     try {
       final res = await ApiClient.post(path, body: const {});
@@ -65,9 +88,14 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
         return;
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved')),
-      );
+      final msg = body['message']?.toString();
+      if (msg != null && msg.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved')),
+        );
+      }
       await _load();
     } catch (e) {
       if (!mounted) return;
@@ -109,19 +137,9 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                 : ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                     children: [
-                      if (_setup != null) _businessHeader(context, _setup!),
+                      if (_setup != null) _businessLineHero(context, _setup!),
                       const SizedBox(height: 16),
                       if (_setup != null) _nextStepBanner(context, _setup!),
-                      const SizedBox(height: 12),
-                      _channelCard(
-                        context,
-                        title: 'Voice (business line)',
-                        badge: _setup?['voice_status']?.toString() ?? '—',
-                        description:
-                            'Calls to this number reach your EchoDesk assistant. This line belongs to your business.',
-                        detail: _setup?['phone_number_e164']?.toString(),
-                        actions: const [],
-                      ),
                       const SizedBox(height: 12),
                       _channelCard(
                         context,
@@ -130,6 +148,12 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                         description: _s(_setup, 'sms_setup_description'),
                         detail: _s(_setup, 'sms_failure_reason'),
                         help: _s(_setup, 'sms_help_text'),
+                        journey: _journeyTriplet(
+                          context,
+                          user: _s(_setup, 'sms_user_action_summary'),
+                          echoDesk: _s(_setup, 'sms_echo_desk_automation_summary'),
+                          waiting: _s(_setup, 'sms_provider_waiting_summary'),
+                        ),
                         actions: _smsActions(_setup),
                       ),
                       const SizedBox(height: 12),
@@ -142,6 +166,12 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                         description: _s(_setup, 'whatsapp_setup_description'),
                         detail: _s(_setup, 'whatsapp_failure_reason'),
                         help: _s(_setup, 'whatsapp_help_text'),
+                        journey: _journeyTriplet(
+                          context,
+                          user: _s(_setup, 'whatsapp_user_action_summary'),
+                          echoDesk: _s(_setup, 'whatsapp_echo_desk_automation_summary'),
+                          waiting: _s(_setup, 'whatsapp_provider_waiting_summary'),
+                        ),
                         actions: _waActions(_setup),
                       ),
                       const SizedBox(height: 24),
@@ -151,46 +181,82 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     );
   }
 
-  Widget _businessHeader(BuildContext context, Map<String, dynamic> s) {
-    final name = s['business_name']?.toString();
+  /// Business line is the visual hero; assistant is secondary context.
+  Widget _businessLineHero(BuildContext context, Map<String, dynamic> s) {
+    final scheme = Theme.of(context).colorScheme;
+    final bizName = s['business_name']?.toString();
     final isDefault = s['is_default_business'] == true;
+    final e164 = s['phone_number_e164']?.toString();
+    final voice = s['voice_status']?.toString() ?? '—';
     final assistant = s['primary_receptionist_name']?.toString();
+
     return Card(
+      elevation: 0,
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
               children: [
-                Icon(Icons.business, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 8),
+                Icon(Icons.phone_in_talk, color: scheme.primary, size: 28),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    (name != null && name.isNotEmpty) ? name : 'Your business',
+                    (bizName != null && bizName.isNotEmpty) ? bizName : 'Your business',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 if (isDefault)
                   Text(
                     'Default',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.secondary),
                   ),
               ],
             ),
-            if (assistant != null && assistant.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Primary assistant: $assistant',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            const SizedBox(height: 16),
+            Text(
+              'Business line',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
             const SizedBox(height: 4),
             Text(
-              'One number for voice, SMS, and WhatsApp where enabled.',
-              style: Theme.of(context).textTheme.bodySmall,
+              (e164 != null && e164.isNotEmpty) ? e164 : 'Provisioning…',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Voice calls · $voice',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            if (assistant != null && assistant.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Divider(color: scheme.outlineVariant),
+              const SizedBox(height: 12),
+              Text(
+                'Primary assistant',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                assistant,
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              Text(
+                'Answers calls on this shared business line.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Text(
+              'SMS and WhatsApp use this same business number where enabled.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -204,22 +270,28 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     String msg;
     switch (next) {
       case 'activate_sms':
-        msg = 'Next: activate SMS for this number.';
+        msg = 'Next: start SMS setup for this business line.';
         break;
       case 'submit_sms':
-        msg = 'Next: submit SMS registration for review.';
+        msg = 'Next: review and submit SMS registration.';
+        break;
+      case 'check_sms':
+        msg = 'SMS is awaiting carrier approval — pull to refresh or use Refresh status.';
         break;
       case 'retry_sms':
         msg = 'Next: fix SMS registration.';
         break;
       case 'connect_whatsapp':
-        msg = 'Next: connect WhatsApp.';
+        msg = 'Next: start WhatsApp setup.';
         break;
       case 'continue_whatsapp':
-        msg = 'Next: continue WhatsApp setup.';
+        msg = 'Next: finish Meta / Telnyx connection for WhatsApp.';
+        break;
+      case 'check_whatsapp':
+        msg = 'WhatsApp is in progress with your provider — refresh to check status.';
         break;
       case 'retry_whatsapp':
-        msg = 'Next: retry WhatsApp connection.';
+        msg = 'Next: retry WhatsApp setup.';
         break;
       default:
         msg = 'Next: $next';
@@ -235,27 +307,35 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
   List<Widget> _smsActions(Map<String, dynamic>? s) {
     if (s == null) return [];
     final st = s['sms_status']?.toString() ?? '';
-    final labelActivate = _s(s, 'sms_primary_action').isEmpty ? 'Activate SMS' : _s(s, 'sms_primary_action');
+    final primary = _s(s, 'sms_primary_action');
     final out = <Widget>[];
     if (st == 'not_started') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/sms/activate'),
-          child: Text(labelActivate),
+          child: Text(primary.isEmpty ? 'Start SMS setup' : primary),
         ),
       );
     } else if (st == 'needs_submission') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/sms/submit'),
-          child: Text(labelActivate.isEmpty ? 'Submit for review' : labelActivate),
+          child: Text(primary.isEmpty ? 'Review SMS details' : primary),
+        ),
+      );
+    } else if (st == 'pending_review') {
+      out.add(
+        OutlinedButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh, size: 18),
+          label: Text(primary.isEmpty ? 'Refresh status' : primary),
         ),
       );
     } else if (st == 'failed') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/sms/retry'),
-          child: const Text('Retry SMS setup'),
+          child: Text(primary.isEmpty ? 'Fix SMS setup' : primary),
         ),
       );
     }
@@ -265,32 +345,88 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
   List<Widget> _waActions(Map<String, dynamic>? s) {
     if (s == null) return [];
     final st = s['whatsapp_status']?.toString() ?? '';
-    final labelConnect =
-        _s(s, 'whatsapp_primary_action').isEmpty ? 'Connect WhatsApp' : _s(s, 'whatsapp_primary_action');
+    final primary = _s(s, 'whatsapp_primary_action');
+    final handoff = _s(s, 'whatsapp_handoff_url');
     final out = <Widget>[];
+    if (handoff.isNotEmpty && (st == 'needs_connection' || st == 'pending')) {
+      out.add(
+        OutlinedButton.icon(
+          onPressed: () => _openHandoff(handoff),
+          icon: const Icon(Icons.open_in_new, size: 18),
+          label: const Text('Open Telnyx / Meta'),
+        ),
+      );
+    }
     if (st == 'not_connected') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/whatsapp/connect'),
-          child: Text(labelConnect),
+          child: Text(primary.isEmpty ? 'Start WhatsApp setup' : primary),
         ),
       );
     } else if (st == 'needs_connection') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/whatsapp/continue'),
-          child: Text(labelConnect.isEmpty ? 'Continue setup' : labelConnect),
+          child: Text(primary.isEmpty ? 'Continue WhatsApp setup' : primary),
+        ),
+      );
+    } else if (st == 'pending') {
+      out.add(
+        OutlinedButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh, size: 18),
+          label: Text(primary.isEmpty ? 'Check status' : primary),
         ),
       );
     } else if (st == 'failed') {
       out.add(
         FilledButton(
           onPressed: () => _post('/api/mobile/communication/whatsapp/retry'),
-          child: const Text('Retry connection'),
+          child: Text(primary.isEmpty ? 'Retry WhatsApp setup' : primary),
         ),
       );
     }
     return out;
+  }
+
+  List<Widget>? _journeyTriplet(
+    BuildContext context, {
+    required String user,
+    required String echoDesk,
+    required String waiting,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final labelStyle = Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: scheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+        );
+    final bodyStyle = Theme.of(context).textTheme.bodySmall;
+    final blocks = <Widget>[];
+    void add(String heading, String text) {
+      if (text.isEmpty) return;
+      blocks.add(
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(heading, style: labelStyle),
+            const SizedBox(height: 2),
+            Text(text, style: bodyStyle),
+          ],
+        ),
+      );
+    }
+
+    add('What you need to do', user);
+    add('What EchoDesk does automatically', echoDesk);
+    add('Waiting on provider / Meta', waiting);
+    if (blocks.isEmpty) return null;
+    final spaced = <Widget>[];
+    for (var i = 0; i < blocks.length; i++) {
+      if (i > 0) spaced.add(const SizedBox(height: 10));
+      spaced.add(blocks[i]);
+    }
+    return spaced;
   }
 
   Widget _channelCard(
@@ -300,6 +436,7 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     required String description,
     String? detail,
     String? help,
+    List<Widget>? journey,
     required List<Widget> actions,
   }) {
     final scheme = Theme.of(context).colorScheme;
@@ -335,6 +472,10 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
             if (help != null && help.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(help, style: Theme.of(context).textTheme.bodySmall),
+            ],
+            if (journey != null && journey.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...journey,
             ],
             if (actions.isNotEmpty) ...[
               const SizedBox(height: 12),

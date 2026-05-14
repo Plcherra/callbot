@@ -69,8 +69,7 @@ GoRouter createAppRouter() {
                   .eq('id', user.id)
                   .maybeSingle();
               final completedAt = res?['onboarding_completed_at'] as String?;
-              final onboardingComplete =
-                  (completedAt ?? '').trim().isNotEmpty;
+              final onboardingComplete = (completedAt ?? '').trim().isNotEmpty;
               if (!onboardingComplete) {
                 return '/onboarding';
               }
@@ -104,7 +103,7 @@ GoRouter createAppRouter() {
       GoRoute(
         path: '/checkout',
         builder: (context, state) => CheckoutScreen(
-          planId: state.uri.queryParameters['plan'] ?? 'starter',
+          planId: state.uri.queryParameters['plan'],
         ),
       ),
       GoRoute(
@@ -115,7 +114,8 @@ GoRouter createAppRouter() {
         path: '/call/:callSid',
         builder: (context, state) {
           final callSid = state.pathParameters['callSid'] ?? '';
-          final receptionistId = state.uri.queryParameters['receptionist_id'] ?? '';
+          final receptionistId =
+              state.uri.queryParameters['receptionist_id'] ?? '';
           final caller = state.uri.queryParameters['caller'] ?? '';
           return ActiveCallScreen(
             callSid: callSid,
@@ -157,8 +157,7 @@ GoRouter createAppRouter() {
                     routes: [
                       GoRoute(
                         path: 'settings',
-                        builder: (context, state) =>
-                            ReceptionistSettingsScreen(
+                        builder: (context, state) => ReceptionistSettingsScreen(
                           receptionistId: state.pathParameters['id']!,
                         ),
                       ),
@@ -232,7 +231,8 @@ GoRouter createAppRouter() {
                   ),
                   GoRoute(
                     path: 'communication-setup',
-                    builder: (context, state) => const CommunicationSetupScreen(),
+                    builder: (context, state) =>
+                        const CommunicationSetupScreen(),
                   ),
                 ],
               ),

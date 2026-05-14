@@ -4,14 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../models/plan.dart';
 import '../../services/api_client.dart';
 import '../../strings.dart';
 
 /// Opens Stripe Checkout in WebView. User returns via deep link (echodesk://checkout?session_id=...).
 class CheckoutScreen extends StatefulWidget {
-  final String planId;
+  final String? planId;
 
-  const CheckoutScreen({super.key, this.planId = 'starter'});
+  const CheckoutScreen({super.key, this.planId});
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -20,19 +21,30 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   String? _checkoutUrl;
   String? _error;
+  String? _currentPlanId;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadCheckoutUrl();
+    if (widget.planId != null) {
+      _loadCheckoutUrl(widget.planId!);
+    } else {
+      _loading = false;
+    }
   }
 
-  Future<void> _loadCheckoutUrl() async {
+  Future<void> _loadCheckoutUrl(String planId) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _checkoutUrl = null;
+      _currentPlanId = planId;
+    });
     try {
       final res = await ApiClient.post(
         '/api/mobile/checkout',
-        body: {'plan_id': widget.planId, 'return_scheme': 'echodesk'},
+        body: {'plan_id': planId, 'return_scheme': 'echodesk'},
       );
       if (res.statusCode == 200) {
         final data = _parseJson(res.body);
@@ -98,7 +110,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                           _loading = true;
                           _error = null;
                         });
-                        _loadCheckoutUrl();
+                        _loadCheckoutUrl(
+                          _currentPlanId ?? widget.planId ?? 'starter',
+                        );
                       },
                       child: const Text('Retry'),
                     ),
@@ -112,6 +126,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               ],
             ),
           ),
+        ),
+      );
+    }
+    if (_checkoutUrl == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Choose a plan')),
+        body: ListView.separated(
+          padding: const EdgeInsets.all(24),
+          itemCount: Plan.subscriptionPlans.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final plan = Plan.subscriptionPlans[index];
+            return Card(
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                title: Text(plan.name),
+                subtitle: Text(
+                  plan.includedMinutes > 0
+                      ? '${plan.includedMinutes} included minutes'
+                      : 'Usage-based billing',
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      plan.priceLabel,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    const Icon(Icons.chevron_right, size: 20),
+                  ],
+                ),
+                onTap: () => _loadCheckoutUrl(plan.id),
+              ),
+            );
+          },
         ),
       );
     }

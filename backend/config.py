@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    stripe_billing_portal_configuration_id: str = ""
 
     # Mobile app
     mobile_redirect_scheme: str = "echodesk"

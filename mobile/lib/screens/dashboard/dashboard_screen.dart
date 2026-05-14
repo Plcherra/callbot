@@ -60,7 +60,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       Map<String, String> recNames = {};
       try {
         final aptData = await loadAppointments(limit: 30);
-        final allApts = List<Map<String, dynamic>>.from(aptData['appointments'] ?? []);
+        final allApts =
+            List<Map<String, dynamic>>.from(aptData['appointments'] ?? []);
         recNames = Map<String, String>.from(aptData['receptionists'] ?? {});
         final now = DateTime.now().toUtc();
         for (final a in allApts) {
@@ -169,7 +170,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 24),
               LoadingSkeleton(width: 140, height: 16),
               const SizedBox(height: 12),
-              ...List.generate(3, (_) => const SkeletonCard(showTrailing: false)),
+              ...List.generate(
+                  3, (_) => const SkeletonCard(showTrailing: false)),
             ],
           ),
         ),
@@ -238,24 +240,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
           onRefresh: _load,
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          children: [
-            if (!profile.onboardingComplete && isActive)
-              _buildOnboardingAlert(context),
-            if (isActive) _buildAppointmentsCard(context),
-            if (!isActive) ...[
-              _buildUpgradeCard(context),
-            ] else ...[
-              _buildStatsGrid(profile),
-              const SizedBox(height: 24),
-              _buildRecentCallsSection(context),
-              const SizedBox(height: 24),
-              _buildUpcomingAppointmentsSection(context),
-              const SizedBox(height: 24),
-              _buildRecentReceptionistsSection(context),
+            children: [
+              if (!profile.onboardingComplete && isActive)
+                _buildOnboardingAlert(context),
+              if (isActive) _buildAppointmentsCard(context),
+              if (!isActive) ...[
+                _buildUpgradeCard(context),
+              ] else ...[
+                _buildStatsGrid(profile),
+                const SizedBox(height: 24),
+                _buildRecentCallsSection(context),
+                const SizedBox(height: 24),
+                _buildUpcomingAppointmentsSection(context),
+                const SizedBox(height: 24),
+                _buildRecentReceptionistsSection(context),
+              ],
             ],
-          ],
+          ),
         ),
-      ),
       ),
     );
   }
@@ -265,7 +267,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: ListTile(
-        leading: Icon(Icons.event_available, color: Theme.of(context).colorScheme.primary),
+        leading: Icon(Icons.event_available,
+            color: Theme.of(context).colorScheme.primary),
         title: Row(
           children: [
             const Text('Appointments'),
@@ -279,7 +282,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 child: Text(
                   '$_needsReviewCount need review',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.orange.shade800),
+                  style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange.shade800),
                 ),
               ),
             ],
@@ -289,7 +295,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           'Review, confirm, or edit appointments booked by your AI.',
         ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => context.push(hasNeedsReview ? '/appointments?status=needs_review' : '/appointments'),
+        onTap: () => context.push(hasNeedsReview
+            ? '/appointments?status=needs_review'
+            : '/appointments'),
       ),
     );
   }
@@ -325,7 +333,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: () => context.push('/checkout?plan=starter'),
+              onPressed: () => context.push('/checkout'),
               child: const Text('Subscribe'),
             ),
           ],
@@ -396,9 +404,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               value: _includedMinutes != null
                   ? '$_totalUsageMinutes / $_includedMinutes'
                   : '$_totalUsageMinutes',
-              remainingSubtext: _remainingMinutes != null && _remainingMinutes! > 0
-                  ? '$_remainingMinutes min remaining'
-                  : null,
+              remainingSubtext:
+                  _remainingMinutes != null && _remainingMinutes! > 0
+                      ? '$_remainingMinutes min remaining'
+                      : null,
               overageSubtext:
                   _overageMinutes > 0 ? '$_overageMinutes overage' : null,
               overageWarning: _includedMinutes != null &&
@@ -424,7 +433,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _EmptySection(
             icon: Icons.phone_missed_outlined,
             title: 'No calls yet',
-            subtitle: "When customers call your AI receptionist, they'll appear here.",
+            subtitle:
+                "When customers call your AI receptionist, they'll appear here.",
           )
         else
           ..._recentCalls.take(5).map((call) {
@@ -432,7 +442,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? DateTime.tryParse(call['started_at'] as String)
                 : null;
             final dur = call['duration_seconds'] as int?;
-            final fromNum = call['from_number'] as String? ?? call['to_number'] as String? ?? '';
+            final fromNum = call['from_number'] as String? ??
+                call['to_number'] as String? ??
+                '';
             final recId = call['receptionist_id'] as String?;
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
@@ -468,7 +480,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Upcoming Appointments', style: Theme.of(context).textTheme.titleMedium),
+            Text('Upcoming Appointments',
+                style: Theme.of(context).textTheme.titleMedium),
             if (_upcomingAppointments.isNotEmpty)
               TextButton(
                 onPressed: () => context.push('/appointments'),
@@ -489,8 +502,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ? DateTime.tryParse(apt['start_time'] as String)
                 : null;
             final serviceName = (apt['service_name'] as String?)?.trim();
-            final displayService =
-                serviceName != null && serviceName.isNotEmpty ? serviceName : 'Generic appointment';
+            final displayService = serviceName != null && serviceName.isNotEmpty
+                ? serviceName
+                : 'Generic appointment';
             final recName = _receptionistNames[apt['receptionist_id']] ?? '—';
             return Card(
               margin: const EdgeInsets.only(bottom: 8),
@@ -521,7 +535,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Recent Receptionists', style: Theme.of(context).textTheme.titleMedium),
+            Text('Recent Receptionists',
+                style: Theme.of(context).textTheme.titleMedium),
             TextButton(
               onPressed: () => context.push('/receptionists'),
               child: const Text('View all'),
@@ -533,7 +548,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _EmptySection(
             icon: Icons.support_agent,
             title: 'No receptionists yet',
-            subtitle: 'Create your first AI receptionist to get a dedicated phone number.',
+            subtitle:
+                'Create your first AI receptionist to get a dedicated phone number.',
             action: TextButton(
               onPressed: () => context.push('/receptionists/create'),
               child: const Text('Add one'),
@@ -543,7 +559,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ..._receptionists.map((r) => Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  title: Text(r.name, style: Theme.of(context).textTheme.titleSmall),
+                  title: Text(r.name,
+                      style: Theme.of(context).textTheme.titleSmall),
                   subtitle: Text(
                     formatPhoneForDisplay(r.displayPhone),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(

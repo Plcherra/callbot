@@ -266,12 +266,18 @@ async def checkout(request: Request):
     except Exception:
         return JSONResponse({"error": "Invalid JSON"}, status_code=400)
     plan_id = body.get("plan_id", "starter")
+    public_checkout_plan_ids = {"starter", "pro", "business", "dev_test"}
+    if plan_id not in public_checkout_plan_ids:
+        return JSONResponse(
+            {"error": "Invalid plan. Choose starter, pro, business, or dev_test."},
+            status_code=400,
+        )
     return_scheme = body.get("return_scheme") or settings.mobile_redirect_scheme
 
-    price_id = get_price_id_for_plan_id(plan_id) or get_price_id_for_plan_id("starter")
+    price_id = get_price_id_for_plan_id(plan_id)
     if not price_id:
         return JSONResponse(
-            {"error": "Invalid plan. Choose starter, growth, pro, business, or payg (configure STRIPE_PRICE_* in env)."},
+            {"error": f"Stripe price for {plan_id} is not configured."},
             status_code=400,
         )
 
@@ -331,9 +337,15 @@ async def billing_portal(request: Request):
     return_url = f"{return_scheme}://settings" if return_scheme == "echodesk" else f"{app_url}/settings"
 
     try:
+        portal_kwargs = {
+            "customer": customer_id,
+            "return_url": return_url,
+        }
+        portal_config = (settings.stripe_billing_portal_configuration_id or "").strip()
+        if portal_config:
+            portal_kwargs["configuration"] = portal_config
         session = stripe.billing_portal.Session.create(
-            customer=customer_id,
-            return_url=return_url,
+            **portal_kwargs,
         )
         return {"url": session.url}
     except Exception as e:

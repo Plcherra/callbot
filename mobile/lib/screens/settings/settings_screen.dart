@@ -51,131 +51,138 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Stack(
       children: [
         Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings'),
-      ),
-      body: constrainedScaffoldBody(
-        child: ListView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          children: [
-          _SectionHeader(title: 'Business'),
-          const SizedBox(height: 4),
-          ListTile(
-            title: const Text('Business name & address'),
-            subtitle: const Text('Update in app or dashboard'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => context.push('/settings/business-edit'),
+          appBar: AppBar(
+            title: const Text('Settings'),
           ),
-          ListTile(
-            title: const Text('Communication setup'),
-            subtitle: const Text('Voice line, SMS approval, WhatsApp'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => context.push('/settings/communication-setup'),
-          ),
-          const SizedBox(height: 16),
-          _SectionHeader(title: 'Booking & follow-up'),
-          const SizedBox(height: 4),
-          ListTile(
-            title: const Text('Appointment confirmation'),
-            subtitle: const Text('Confirmation message templates per receptionist'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => _firstReceptionistId != null
-                ? context.push('/receptionists/$_firstReceptionistId/settings')
-                : context.push('/receptionists'),
-          ),
-          ListTile(
-            title: const Text('Payment link defaults'),
-            subtitle: const Text('Default payment links for services'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => _firstReceptionistId != null
-                ? context.push('/receptionists/$_firstReceptionistId/settings')
-                : context.push('/receptionists'),
-          ),
-          ListTile(
-            title: const Text('Booking instructions'),
-            subtitle: const Text('Templates for AI booking behavior'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => _firstReceptionistId != null
-                ? context.push('/receptionists/$_firstReceptionistId/settings')
-                : context.push('/receptionists'),
-          ),
-          const SizedBox(height: 24),
-          _SectionHeader(title: 'Billing'),
-          const SizedBox(height: 4),
-          ListTile(
-            title: const Text('Billing Portal'),
-            subtitle: const Text('Manage subscription and payment'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: _loadingBilling
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_right, size: 20),
-            onTap: _loadingBilling ? null : () => _openBillingPortal(context),
-          ),
-          ListTile(
-            title: const Text('Subscribe / Upgrade'),
-            subtitle: const Text('Starter, Pro, Business plans'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.chevron_right, size: 20),
-            onTap: () => context.push('/checkout?plan=starter'),
-          ),
-          const SizedBox(height: 24),
-          _SectionHeader(title: 'Integrations'),
-          const SizedBox(height: 4),
-          if (_calendarInfo != null) ...[
-            ListTile(
-              title: const Text('Google Calendar'),
-              subtitle: Text(
-                _calendarInfo!['connected_google_email'] != null
-                    ? 'Connected as ${_calendarInfo!['connected_google_email']}'
-                    : 'Not connected',
-              ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+          body: constrainedScaffoldBody(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              children: [
+                _SectionHeader(title: 'Business'),
+                const SizedBox(height: 4),
+                ListTile(
+                  title: const Text('Business name & address'),
+                  subtitle: const Text('Update in app or dashboard'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => context.push('/settings/business-edit'),
+                ),
+                ListTile(
+                  title: const Text('Communication setup'),
+                  subtitle: const Text('Voice line, SMS approval, WhatsApp'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => context.push('/settings/communication-setup'),
+                ),
+                const SizedBox(height: 16),
+                _SectionHeader(title: 'Booking & follow-up'),
+                const SizedBox(height: 4),
+                ListTile(
+                  title: const Text('Appointment confirmation'),
+                  subtitle: const Text(
+                      'Confirmation message templates per receptionist'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => _firstReceptionistId != null
+                      ? context
+                          .push('/receptionists/$_firstReceptionistId/settings')
+                      : context.push('/receptionists'),
+                ),
+                ListTile(
+                  title: const Text('Payment link defaults'),
+                  subtitle: const Text('Default payment links for services'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => _firstReceptionistId != null
+                      ? context
+                          .push('/receptionists/$_firstReceptionistId/settings')
+                      : context.push('/receptionists'),
+                ),
+                ListTile(
+                  title: const Text('Booking instructions'),
+                  subtitle: const Text('Templates for AI booking behavior'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => _firstReceptionistId != null
+                      ? context
+                          .push('/receptionists/$_firstReceptionistId/settings')
+                      : context.push('/receptionists'),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(title: 'Billing'),
+                const SizedBox(height: 4),
+                ListTile(
+                  title: const Text('Billing Portal'),
+                  subtitle: const Text('Manage subscription and payment'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: _loadingBilling
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right, size: 20),
+                  onTap: _loadingBilling
+                      ? null
+                      : () => _openBillingPortal(context),
+                ),
+                ListTile(
+                  title: const Text('Subscribe / Upgrade'),
+                  subtitle: const Text('Starter, Pro, Business, DEV test'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.chevron_right, size: 20),
+                  onTap: () => context.push('/checkout'),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(title: 'Integrations'),
+                const SizedBox(height: 4),
+                if (_calendarInfo != null) ...[
+                  ListTile(
+                    title: const Text('Google Calendar'),
+                    subtitle: Text(
+                      _calendarInfo!['connected_google_email'] != null
+                          ? 'Connected as ${_calendarInfo!['connected_google_email']}'
+                          : 'Not connected',
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  ),
+                  ListTile(
+                    title: const Text('Booking calendar'),
+                    subtitle: Text(
+                      _calendarInfo!['booking_calendar_label'] ??
+                          _calendarInfo!['booking_calendar_id'] ??
+                          'primary',
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  ),
+                ],
+                ListTile(
+                  title: const Text('Connect / change Google Calendar'),
+                  subtitle: const Text('Required for appointment booking'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: _loadingCalendar
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right, size: 20),
+                  onTap:
+                      _loadingCalendar ? null : () => _connectCalendar(context),
+                ),
+                const SizedBox(height: 24),
+                _SectionHeader(title: 'Account'),
+                const SizedBox(height: 4),
+                ListTile(
+                  title: const Text('Sign Out'),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 0),
+                  trailing: const Icon(Icons.logout, size: 20),
+                  onTap: () => Supabase.instance.client.auth.signOut(),
+                ),
+              ],
             ),
-            ListTile(
-              title: const Text('Booking calendar'),
-              subtitle: Text(
-                _calendarInfo!['booking_calendar_label'] ??
-                    _calendarInfo!['booking_calendar_id'] ??
-                    'primary',
-              ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            ),
-          ],
-          ListTile(
-            title: const Text('Connect / change Google Calendar'),
-            subtitle: const Text('Required for appointment booking'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: _loadingCalendar
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_right, size: 20),
-            onTap: _loadingCalendar ? null : () => _connectCalendar(context),
           ),
-          const SizedBox(height: 24),
-          _SectionHeader(title: 'Account'),
-          const SizedBox(height: 4),
-          ListTile(
-            title: const Text('Sign Out'),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 0),
-            trailing: const Icon(Icons.logout, size: 20),
-            onTap: () => Supabase.instance.client.auth.signOut(),
-          ),
-        ],
-      ),
-      ),
-    ),
+        ),
         if (_loadingBilling || _loadingCalendar)
           Container(
             color: Colors.black26,
@@ -223,7 +230,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? AppStrings.billingPortalStripeNotConfigured
                     : (apiErr ?? AppStrings.billingError)));
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(err)));
         }
       }
     } catch (_) {
@@ -254,18 +262,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (url == null || url.trim().isEmpty) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                  content: Text(AppStrings.calendarAuthUrlMissing)),
+              const SnackBar(content: Text(AppStrings.calendarAuthUrlMissing)),
             );
           }
         } else {
           final uri = Uri.tryParse(url);
-          if (uri == null ||
-              !await canLaunchUrl(uri)) {
+          if (uri == null || !await canLaunchUrl(uri)) {
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                    content: Text(AppStrings.calendarCannotOpenUrl)),
+                const SnackBar(content: Text(AppStrings.calendarCannotOpenUrl)),
               );
             }
           } else {
@@ -273,7 +278,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                    content: Text('Opening browser to connect Google Calendar...')),
+                    content:
+                        Text('Opening browser to connect Google Calendar...')),
               );
             }
           }
@@ -320,10 +326,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() {
         _calendarInfo = {
-          'connected_google_email': (res?['calendar_id'] as String?) ??
-              (res?['email'] as String?),
-          'booking_calendar_id':
-              (res?['calendar_id'] as String?) ?? 'primary',
+          'connected_google_email':
+              (res?['calendar_id'] as String?) ?? (res?['email'] as String?),
+          'booking_calendar_id': (res?['calendar_id'] as String?) ?? 'primary',
           'booking_calendar_label':
               (res?['calendar_id'] as String?) ?? 'primary',
         };

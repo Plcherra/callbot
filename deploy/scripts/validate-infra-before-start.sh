@@ -2,8 +2,8 @@
 # Pre-start infrastructure validation for callbot (Python FastAPI backend + static landing).
 # Run from project root: ./deploy/scripts/validate-infra-before-start.sh
 #
-# Checks: Cloudflare Tunnel, nginx, Telnyx config, env vars, PM2/ports.
-# Flags: --fix (attempt auto-corrections), --ci (machine-readable), --pre-start (skip PM2/ports)
+# Checks: Cloudflare Tunnel, nginx, Telnyx config, env vars, systemd/PM2, ports.
+# Flags: --fix (attempt auto-corrections), --ci (machine-readable), --pre-start (skip service/port checks)
 #
 # Exit: 0 = pass, 1 = fail
 
@@ -29,7 +29,7 @@ for arg in "$@"; do
       echo "Usage: $0 [--fix] [--ci] [--pre-start]"
       echo "  --fix       Attempt auto-corrections (e.g. fix-nginx-voice.sh)"
       echo "  --ci        Machine-readable output for GitHub Actions"
-      echo "  --pre-start Skip PM2 and port checks (env/nginx/Telnyx only)"
+      echo "  --pre-start Skip service and port checks (env/nginx/Telnyx only)"
       exit 0
       ;;
   esac
@@ -274,39 +274,50 @@ check_env() {
   return 0
 }
 
-# ========== 5. Service health (PM2, ports) ==========
+# ========== 5. Service health (systemd or legacy PM2, ports) ==========
 check_services() {
   if [ "$PRE_START" = true ]; then
-    ok "Skipping PM2/port checks (--pre-start)"
+    ok "Skipping service/port checks (--pre-start)"
     return 0
   fi
 
-  if ! command -v pm2 &>/dev/null; then
-    fail "pm2_installed" "pm2 not found" "Install: npm install -g pm2"
+  SERVICE_LABEL=""
+  if systemctl list-unit-files echodesk-backend.service &>/dev/null; then
+    if ! systemctl is-active echodesk-backend &>/dev/null 2>/dev/null; then
+      fail "systemd_echodesk_backend" "echodesk-backend systemd service is not active" \
+        "Start: sudo systemctl enable --now echodesk-backend"
+      return 1
+    fi
+    SERVICE_LABEL="echodesk-backend"
+    ok "systemd: echodesk-backend is active"
+  elif command -v pm2 &>/dev/null; then
+    if ! pm2 list 2>/dev/null | grep -E "callbot-voice.*online" &>/dev/null; then
+      fail "pm2_callbot_voice" "callbot-voice is not online" "Start: pm2 start ecosystem.config.cjs"
+      return 1
+    fi
+    SERVICE_LABEL="callbot-voice"
+    ok "PM2: callbot-voice is online"
+  else
+    fail "backend_service" "No backend service manager found" \
+      "Install systemd unit: sudo cp deploy/systemd/echodesk-backend.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now echodesk-backend"
     return 1
   fi
-
-  if ! pm2 list 2>/dev/null | grep -E "callbot-voice.*online" &>/dev/null; then
-    fail "pm2_callbot_voice" "callbot-voice is not online" "Start: pm2 start ecosystem.config.cjs"
-    return 1
-  fi
-  ok "PM2: callbot-voice is online"
 
   # Port 8000
   if command -v ss &>/dev/null; then
     if ! ss -tlnp 2>/dev/null | grep -q ':8000 '; then
-      fail "port_8000" "Port 8000 not listening (callbot-voice)" \
-        "pm2 restart callbot-voice"
+      fail "port_8000" "Port 8000 not listening ($SERVICE_LABEL)" \
+        "Restart backend: sudo systemctl restart echodesk-backend || pm2 restart callbot-voice"
       return 1
     fi
   else
     if ! netstat -tlnp 2>/dev/null | grep -q ':8000 '; then
-      fail "port_8000" "Port 8000 not listening (callbot-voice)" \
-        "pm2 restart callbot-voice"
+      fail "port_8000" "Port 8000 not listening ($SERVICE_LABEL)" \
+        "Restart backend: sudo systemctl restart echodesk-backend || pm2 restart callbot-voice"
       return 1
     fi
   fi
-  ok "Port 8000 listening (callbot-voice)"
+  ok "Port 8000 listening ($SERVICE_LABEL)"
   return 0
 }
 

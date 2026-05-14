@@ -5,7 +5,7 @@
 # Required for GitHub Actions deploy (SSH runs deploy.sh which runs sync-nginx-config.sh).
 
 set -e
-DEPLOY_USER="${1:-adam}"  # User that runs deploy (SSH user)
+DEPLOY_USER="${1:-echodesk}"  # User that runs deploy (SSH user)
 
 echo "Setting up passwordless sudo for $DEPLOY_USER (nginx deploy commands)..."
 

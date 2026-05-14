@@ -1,5 +1,5 @@
 # Callbot nginx config template
-# Domain: echodesk.us (main site via Cloudflare Tunnel)
+# Domain: echodesk.us (main site)
 # Stream: stream.echodesk.us (Telnyx media stream - direct to VPS, DNS-only)
 #
 # Ports:
@@ -25,12 +25,11 @@
 # IMPORTANT about LANDING_ROOT:
 #   {{LANDING_ROOT}} must be replaced with a REAL absolute path on the VPS.
 #   Do not leave the literal placeholder in the live nginx file.
-#   Prefer a path readable by nginx/www-data, e.g. /var/www/echodesk-landing 
-#   rather than a path under /home/adam unless permissions are opened correctly.
+#   Prefer a path readable by nginx/www-data, e.g. /var/www/echodesk-landing.
 #
 # Quick deploy example:
 #   sudo mkdir -p /var/www/echodesk-landing
-#   sudo rsync -a /home/adam/apps/callbot/landing/dist/ /var/www/echodesk-landing/
+#   sudo rsync -a /opt/echodesk/app/landing/dist/ /var/www/echodesk-landing/
 #   sed "s|{{LANDING_ROOT}}|/var/www/echodesk-landing|g" deploy/nginx/callbot.conf.template | sudo tee /etc/nginx/sites-available/callbot >/dev/null
 
 server {

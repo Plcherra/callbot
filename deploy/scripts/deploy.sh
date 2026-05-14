@@ -1,5 +1,5 @@
 #!/bin/bash
-# Manual deploy script for callbot on Hetzner VPS
+# Legacy PM2 deploy script for Echodesk on a VPS.
 # Run from project root on VPS: ./deploy/scripts/deploy.sh
 #
 # Architecture: Python FastAPI (voice + mobile API) + static landing. No Next.js.

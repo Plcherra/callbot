@@ -2,7 +2,14 @@ import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:flutter/foundation.dart' show FlutterError, PlatformDispatcher, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show
+        FlutterError,
+        PlatformDispatcher,
+        TargetPlatform,
+        debugPrint,
+        defaultTargetPlatform,
+        kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -13,23 +20,42 @@ import 'services/push_service.dart';
 import 'services/call_service.dart';
 
 void main() async {
+  var firebaseReady = false;
+
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await Env.loadLocalOverrides();
     if (Env.supabaseUrl.isEmpty || Env.supabaseAnonKey.isEmpty) {
       throw StateError(
         'SUPABASE_URL and SUPABASE_ANON_KEY must be set via --dart-define. '
-        'Example: flutter run --dart-define=SUPABASE_URL=https://xxx.supabase.co '
-        '--dart-define=SUPABASE_ANON_KEY=your_anon_key',
+        'For local desktop dev, add NEXT_PUBLIC_SUPABASE_URL and '
+        'NEXT_PUBLIC_SUPABASE_ANON_KEY to ../.env.local or run ./run.sh macos.',
       );
     }
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    try {
+      await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform);
+      firebaseReady = true;
+    } catch (error, stack) {
+      firebaseReady = false;
+      if (kDebugMode) {
+        debugPrint('[Firebase] init skipped: $error');
+      }
+      FlutterError.dumpErrorToConsole(
+        FlutterErrorDetails(exception: error, stack: stack),
+      );
+    }
 
     FlutterError.onError = (details) {
       FlutterError.presentError(details);
-      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      if (firebaseReady) {
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      }
     };
     PlatformDispatcher.instance.onError = (error, stack) {
-      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      if (firebaseReady) {
+        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      }
       return true;
     };
     await Supabase.initialize(
@@ -43,6 +69,12 @@ void main() async {
     }
     runApp(const EchodeskApp());
   }, (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+    if (firebaseReady) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: false);
+    } else {
+      FlutterError.dumpErrorToConsole(
+        FlutterErrorDetails(exception: error, stack: stack),
+      );
+    }
   });
 }

@@ -20,9 +20,17 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Validate SSH configuration
+        run: |
+          test -n "${{ secrets.SSH_HOST }}" || { echo "SSH_HOST secret is empty"; exit 1; }
+          test -n "${{ secrets.SSH_USER }}" || { echo "SSH_USER secret is empty"; exit 1; }
+          test -n "${{ secrets.APP_PATH }}" || { echo "APP_PATH secret is empty"; exit 1; }
+
       - name: Add known hosts
         run: |
-          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          ssh-keyscan -T 30 -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: Deploy to VPS
         env:
@@ -34,7 +42,7 @@ jobs:
           ENABLE_VALIDATE_INFRA: ${{ vars.ENABLE_VALIDATE_INFRA || '' }}
           ENABLE_GOOGLE_TTS_VALIDATION: ${{ vars.ENABLE_GOOGLE_TTS_VALIDATION || '' }}
         run: |
-          ssh -o StrictHostKeyChecking=no ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} "
+          ssh "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" "
             export ENABLE_NGINX_SYNC='$ENABLE_NGINX_SYNC'
             export ENABLE_VALIDATE_INFRA='$ENABLE_VALIDATE_INFRA'
             export ENABLE_GOOGLE_TTS_VALIDATION='$ENABLE_GOOGLE_TTS_VALIDATION'
@@ -48,6 +56,10 @@ jobs:
             [ \"\$ENABLE_NGINX_SYNC\" != 'true' ] && export SKIP_NGINX_SYNC=1 || true
             [ \"\$ENABLE_VALIDATE_INFRA\" != 'true' ] && export SKIP_VALIDATE_INFRA=1 || true
             [ \"\$ENABLE_GOOGLE_TTS_VALIDATION\" != 'true' ] && export SKIP_GOOGLE_TTS_VALIDATION=1 || true
-            ./deploy/scripts/deploy.sh || { echo 'Deploy failed'; exit 1; }
+            if [ -x ./deploy/scripts/deploy-systemd.sh ]; then
+              bash ./deploy/scripts/deploy-systemd.sh || { echo 'Deploy failed'; exit 1; }
+            else
+              ./deploy/scripts/deploy.sh || { echo 'Deploy failed'; exit 1; }
+            fi
             echo '=== Deployment completed ==='
           "

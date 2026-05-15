@@ -32,15 +32,15 @@ Thanks for testing our AI receptionist app. Follow these steps to get up and run
 
 1. Tap **Finish setup** or go to **Settings** from the dashboard
 2. **Connect Google Calendar** – Required for appointment booking. Use the account that holds your appointment calendar.
-3. **Add default phone** – Go to Settings and add your business phone. This is used when creating receptionists.
-4. **Create your first receptionist** – Tap **My Receptionists** → **Create Receptionist**, fill in the wizard. Each receptionist gets a dedicated phone number.
+3. **Create your first receptionist** – Tap **My Receptionists** → **Create Receptionist**, fill in the wizard, and provision or attach your shared business line.
+4. **Confirm communication setup** – Go to **Settings** → **Communication setup** to review voice, SMS, and WhatsApp status for the business line.
 
 ---
 
 ## 5. Test a call
 
 1. Go to **My Receptionists** → select your receptionist
-2. Your **business number** is shown – give this to customers so they can call and book
+2. Your **business line** is shown – give this number to customers so they can call and book
 3. Call this number from another phone to hear your AI receptionist in action
 4. On mobile, you’ll get a push alert when calls come in
 

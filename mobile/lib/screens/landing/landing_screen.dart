@@ -299,7 +299,7 @@ class _PricingSection extends StatelessWidget {
                         const SizedBox(height: 24),
                         _checkItem('AI answers 24/7'),
                         _checkItem('Books into Google Calendar'),
-                        _checkItem('Your business phone number'),
+                        _checkItem('Shared business line'),
                         _checkItem('Cancel anytime'),
                         const SizedBox(height: 24),
                         FilledButton(

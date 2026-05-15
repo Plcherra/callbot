@@ -44,7 +44,7 @@ def upsert_canonical_business_phone(
     elif e164 or tid:
         status = "provisioning"
     else:
-        status = "failed"
+        status = "not_started"
 
     payload = {
         "business_id": business_id,
@@ -59,6 +59,25 @@ def upsert_canonical_business_phone(
 
 def mark_business_phone_line_failed(supabase: Any, business_id: str) -> None:
     """No active assistants / line invalid — canonical row reflects failed (clears stale IDs)."""
+    supabase.table("business_phone_numbers").upsert(
+        {
+            "business_id": business_id,
+            "provider": "telnyx",
+            "phone_number_e164": None,
+            "telnyx_number_id": None,
+            "status": "failed",
+            "updated_at": _now_iso(),
+        },
+        on_conflict="business_id",
+    ).execute()
+
+
+def ensure_business_phone_not_started(supabase: Any, business_id: str) -> None:
+    """Create a clean first-time phone row without masking real provisioning failures."""
+    res = supabase.table("business_phone_numbers").select("*").eq("business_id", business_id).limit(1).execute()
+    row = (res.data or [None])[0]
+    if row and (row.get("status") or "").strip() == "failed":
+        return
     upsert_canonical_business_phone(
         supabase,
         business_id,
@@ -206,7 +225,7 @@ def ensure_business_communication(supabase: Any, business_id: str) -> dict[str, 
         supabase.table("businesses").update(
             {"primary_receptionist_id": None, "updated_at": now}
         ).eq("id", business_id).execute()
-        mark_business_phone_line_failed(supabase, business_id)
+        ensure_business_phone_not_started(supabase, business_id)
         _ensure_child_rows(supabase, business_id)
         return {**business, "primary_receptionist_id": None}
 

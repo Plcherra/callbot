@@ -127,7 +127,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('Welcome to Echodesk'),
         content: const Text(
-          'Create your first receptionist to answer your business number. '
+          'Create your first receptionist to answer on your business line. '
           'Your AI will answer calls and book appointments into your calendar.',
         ),
         actions: [
@@ -306,7 +306,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListTile(
         title: const Text('Finish setup'),
         subtitle: const Text(
-          'Connect calendar, add phone, and create your first receptionist.',
+          'Connect calendar and create your first receptionist to set up your business line.',
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () => context.push('/onboarding'),
@@ -547,7 +547,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icons.support_agent,
             title: 'No receptionists yet',
             subtitle:
-                'Create your first AI receptionist to answer your business number.',
+                'Create your first AI receptionist to answer on your business line.',
             action: TextButton(
               onPressed: () => context.push('/receptionists/create'),
               child: const Text('Add one'),

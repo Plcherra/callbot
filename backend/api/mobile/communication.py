@@ -31,7 +31,16 @@ def _query_business_id(request: Request) -> str | None:
 
 
 def _resolve_business(request: Request, supabase, user_id: str):
-    return resolve_business_for_communication(supabase, user_id, _query_business_id(request))
+    query_business_id = _query_business_id(request)
+    biz, is_default = resolve_business_for_communication(supabase, user_id, query_business_id)
+    if biz or query_business_id:
+        return biz, is_default
+    try:
+        biz = resolve_target_business_for_new_receptionist(supabase, user_id, None)
+        ensure_business_communication(supabase, str(biz["id"]))
+        return resolve_business_for_communication(supabase, user_id, None)
+    except Exception:
+        return None, True
 
 
 @router.get("/communication/setup")
@@ -42,15 +51,10 @@ async def get_communication_setup(request: Request):
 
     biz, is_default = _resolve_business(request, supabase, user["id"])
     if not biz:
-        try:
-            biz = resolve_target_business_for_new_receptionist(supabase, user["id"], None)
-            ensure_business_communication(supabase, str(biz["id"]))
-            biz, is_default = _resolve_business(request, supabase, user["id"])
-        except Exception:
-            return JSONResponse(
-                {"error": "No business record yet. Complete assistant setup first."},
-                status_code=404,
-            )
+        return JSONResponse(
+            {"error": "No business record yet. Complete assistant setup first."},
+            status_code=404,
+        )
 
     bid = biz["id"]
     phone = (

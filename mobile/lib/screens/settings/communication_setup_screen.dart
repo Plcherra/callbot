@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/api_client.dart';
@@ -11,7 +12,8 @@ class CommunicationSetupScreen extends StatefulWidget {
   const CommunicationSetupScreen({super.key});
 
   @override
-  State<CommunicationSetupScreen> createState() => _CommunicationSetupScreenState();
+  State<CommunicationSetupScreen> createState() =>
+      _CommunicationSetupScreenState();
 }
 
 class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
@@ -56,7 +58,8 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
 
   Future<void> _openHandoff(String url) async {
     final uri = Uri.tryParse(url);
-    if (uri == null || !(uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https'))) {
+    if (uri == null ||
+        !(uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https'))) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Invalid handoff link')),
@@ -83,14 +86,16 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
       if (res.statusCode != 200) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(body['error']?.toString() ?? 'Request failed')),
+          SnackBar(
+              content: Text(body['error']?.toString() ?? 'Request failed')),
         );
         return;
       }
       if (!mounted) return;
       final msg = body['message']?.toString();
       if (msg != null && msg.isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(msg)));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Saved')),
@@ -103,7 +108,14 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     }
   }
 
-  String _s(Map<String, dynamic>? m, String key) => m?[key]?.toString().trim() ?? '';
+  String _s(Map<String, dynamic>? m, String key) =>
+      m?[key]?.toString().trim() ?? '';
+
+  Future<void> _openReceptionistCreate() async {
+    await context.push('/receptionists/create');
+    if (!mounted) return;
+    await _load();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,13 +141,15 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                         children: [
                           Text(_error!, textAlign: TextAlign.center),
                           const SizedBox(height: 16),
-                          FilledButton(onPressed: _load, child: const Text('Retry')),
+                          FilledButton(
+                              onPressed: _load, child: const Text('Retry')),
                         ],
                       ),
                     ),
                   )
                 : ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 16),
                     children: [
                       if (_setup != null) _businessLineHero(context, _setup!),
                       const SizedBox(height: 16),
@@ -143,7 +157,9 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                       const SizedBox(height: 12),
                       _channelCard(
                         context,
-                        title: _s(_setup, 'sms_setup_title').isEmpty ? 'SMS' : _s(_setup, 'sms_setup_title'),
+                        title: _s(_setup, 'sms_setup_title').isEmpty
+                            ? 'SMS'
+                            : _s(_setup, 'sms_setup_title'),
                         badge: _setup?['sms_status']?.toString() ?? '—',
                         description: _s(_setup, 'sms_setup_description'),
                         detail: _s(_setup, 'sms_failure_reason'),
@@ -151,7 +167,8 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                         journey: _journeyTriplet(
                           context,
                           user: _s(_setup, 'sms_user_action_summary'),
-                          echoDesk: _s(_setup, 'sms_echo_desk_automation_summary'),
+                          echoDesk:
+                              _s(_setup, 'sms_echo_desk_automation_summary'),
                           waiting: _s(_setup, 'sms_provider_waiting_summary'),
                         ),
                         actions: _smsActions(_setup),
@@ -169,8 +186,10 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                         journey: _journeyTriplet(
                           context,
                           user: _s(_setup, 'whatsapp_user_action_summary'),
-                          echoDesk: _s(_setup, 'whatsapp_echo_desk_automation_summary'),
-                          waiting: _s(_setup, 'whatsapp_provider_waiting_summary'),
+                          echoDesk: _s(
+                              _setup, 'whatsapp_echo_desk_automation_summary'),
+                          waiting:
+                              _s(_setup, 'whatsapp_provider_waiting_summary'),
                         ),
                         actions: _waActions(_setup),
                       ),
@@ -188,7 +207,18 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     final isDefault = s['is_default_business'] == true;
     final e164 = s['phone_number_e164']?.toString();
     final voice = s['voice_status']?.toString() ?? '—';
+    final voiceTitle = _s(s, 'voice_setup_title');
+    final voiceDescription = _s(s, 'voice_setup_description');
+    final voiceHelp = _s(s, 'voice_help_text');
+    final voiceAction = _s(s, 'voice_primary_action');
     final assistant = s['primary_receptionist_name']?.toString();
+    final lineText = (e164 != null && e164.isNotEmpty)
+        ? e164
+        : (voice == 'failed'
+            ? 'Phone setup failed'
+            : voice == 'provisioning'
+                ? 'Provisioning...'
+                : 'No number yet');
 
     return Card(
       elevation: 0,
@@ -204,14 +234,19 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    (bizName != null && bizName.isNotEmpty) ? bizName : 'Your business',
+                    (bizName != null && bizName.isNotEmpty)
+                        ? bizName
+                        : 'Your business',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
                 if (isDefault)
                   Text(
                     'Default',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: scheme.secondary),
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: scheme.secondary),
                   ),
               ],
             ),
@@ -225,23 +260,67 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              (e164 != null && e164.isNotEmpty) ? e164 : 'Provisioning…',
+              lineText,
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
             const SizedBox(height: 6),
             Text(
-              'Voice calls · $voice',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              voiceTitle.isNotEmpty
+                  ? '$voiceTitle · $voice'
+                  : 'Voice calls · $voice',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
+            if (voiceDescription.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                voiceDescription,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+            if (voiceHelp.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                voiceHelp,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.error),
+              ),
+            ],
+            if (voiceAction.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: voice == 'provisioning'
+                    ? OutlinedButton.icon(
+                        onPressed: _load,
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: Text(voiceAction),
+                      )
+                    : FilledButton(
+                        onPressed: _openReceptionistCreate,
+                        child: Text(voiceAction),
+                      ),
+              ),
+            ],
             if (assistant != null && assistant.isNotEmpty) ...[
               const SizedBox(height: 16),
               Divider(color: scheme.outlineVariant),
               const SizedBox(height: 12),
               Text(
                 'Primary assistant',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
               const SizedBox(height: 2),
               Text(
@@ -250,13 +329,19 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
               ),
               Text(
                 'Answers calls on this shared business line.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ],
             const SizedBox(height: 8),
             Text(
               'SMS and WhatsApp use this same business number where enabled.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -269,6 +354,13 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
     if (next.isEmpty || next == 'none') return const SizedBox.shrink();
     String msg;
     switch (next) {
+      case 'create_receptionist':
+        msg =
+            'Next: create your first receptionist to set up the business line.';
+        break;
+      case 'check_voice':
+        msg = 'Voice line setup is in progress — refresh to check status.';
+        break;
       case 'activate_sms':
         msg = 'Next: start SMS setup for this business line.';
         break;
@@ -276,7 +368,8 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
         msg = 'Next: review and submit SMS registration.';
         break;
       case 'check_sms':
-        msg = 'SMS is awaiting carrier approval — pull to refresh or use Refresh status.';
+        msg =
+            'SMS is awaiting carrier approval — pull to refresh or use Refresh status.';
         break;
       case 'retry_sms':
         msg = 'Next: fix SMS registration.';
@@ -288,7 +381,8 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
         msg = 'Next: finish Meta / Telnyx connection for WhatsApp.';
         break;
       case 'check_whatsapp':
-        msg = 'WhatsApp is in progress with your provider — refresh to check status.';
+        msg =
+            'WhatsApp is in progress with your provider — refresh to check status.';
         break;
       case 'retry_whatsapp':
         msg = 'Next: retry WhatsApp setup.';
@@ -449,15 +543,19 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium)),
+                Expanded(
+                    child: Text(title,
+                        style: Theme.of(context).textTheme.titleMedium)),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: scheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(badge, style: Theme.of(context).textTheme.labelSmall),
+                  child: Text(badge,
+                      style: Theme.of(context).textTheme.labelSmall),
                 ),
               ],
             ),
@@ -467,7 +565,11 @@ class _CommunicationSetupScreenState extends State<CommunicationSetupScreen> {
             ],
             if (detail != null && detail.isNotEmpty) ...[
               const SizedBox(height: 6),
-              Text(detail, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.error)),
+              Text(detail,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: scheme.error)),
             ],
             if (help != null && help.isNotEmpty) ...[
               const SizedBox(height: 6),

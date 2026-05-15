@@ -33,7 +33,7 @@ class HelpScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Complete onboarding: connect Google Calendar, choose a plan, then create your first receptionist from My Receptionists. Your receptionist answers calls on your business number.',
+                  'Complete onboarding: connect Google Calendar, choose a plan, then create your first receptionist. Your assistant answers calls on your business line.',
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 8),

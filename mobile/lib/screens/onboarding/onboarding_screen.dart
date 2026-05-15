@@ -101,17 +101,31 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   Future<void> _completeOnboarding() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
-    await Supabase.instance.client
-        .from('users')
-        .update({
-          'onboarding_completed_at': DateTime.now().toIso8601String(),
-          'updated_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', user.id)
-        .isFilter('onboarding_completed_at', null);
-    if (mounted) context.go('/dashboard');
+    try {
+      final res = await ApiClient.post(
+        '/api/mobile/onboarding/complete',
+        body: const {},
+      );
+      final data = _parseJson(res.body);
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        final missing = (data['missing'] as List?)
+                ?.map((item) => item.toString())
+                .join(', ') ??
+            '';
+        throw Exception(
+          missing.isEmpty
+              ? data['error'] as String? ?? 'Setup is not complete yet.'
+              : 'Finish setup first: $missing',
+        );
+      }
+      if (mounted) context.go('/dashboard');
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+      await _load();
+    }
   }
 
   @override
@@ -187,10 +201,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           if (currentStep == 3) _buildStep4(context),
           if (currentStep == 4) _buildStep4(context),
           const SizedBox(height: 24),
-          TextButton(
-            onPressed: _completeOnboarding,
-            child: const Text("I'll do this later"),
-          ),
         ],
       ),
     );
@@ -270,7 +280,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const Text('2. Create your first receptionist'),
             const SizedBox(height: 8),
             const Text(
-              'Set up the assistant that will answer your business number.',
+              'Set up the assistant that will answer on your business line.',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -325,7 +335,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               Column(
                 children: [
                   const Text(
-                    'Your business number — give this to customers so they can call and book.',
+                    'Your business line — give this number to customers so they can call and book.',
                   ),
                   const SizedBox(height: 8),
                   Text(

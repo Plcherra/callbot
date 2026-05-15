@@ -200,6 +200,8 @@ Implemented files:
 
 ## Phase 6 - Business and Communication Setup
 
+Status: implemented locally. Needs migration deployment and live first-account verification.
+
 Goal: every subscribed user can create a receptionist and reach communication setup without missing-record errors.
 
 Tasks:
@@ -219,7 +221,19 @@ Acceptance checks:
 - New account can create the first receptionist.
 - Failed Telnyx provisioning shows a useful recovery action.
 
+Implemented files:
+
+- [backend/communication/ensure.py](../../backend/communication/ensure.py): first-time business phone rows now use `not_started`; real failed provisioning remains `failed`.
+- [backend/api/mobile/communication.py](../../backend/api/mobile/communication.py): communication endpoints now repair/create the default business when no explicit business ID is requested.
+- [backend/api/mobile_routes.py](../../backend/api/mobile_routes.py): failed Telnyx provisioning now marks the business phone setup as failed for the recovery UI.
+- [backend/communication/setup_summary.py](../../backend/communication/setup_summary.py): setup guidance now prioritizes voice-line setup before SMS/WhatsApp and returns clear voice states/actions.
+- [mobile/lib/screens/settings/communication_setup_screen.dart](../../mobile/lib/screens/settings/communication_setup_screen.dart): displays no-number, provisioning, active, and failed voice states with create/retry/refresh actions.
+- [supabase/migrations/042_business_phone_not_started_status.sql](../../supabase/migrations/042_business_phone_not_started_status.sql): adds `not_started` to `business_phone_numbers.status`.
+- [backend/tests/test_communication_setup_summary.py](../../backend/tests/test_communication_setup_summary.py): covers voice-first communication setup guidance.
+
 ## Phase 7 - Receptionist Creation and Onboarding Completion
+
+Status: implemented locally. Needs live verification after deploying Phase 6 and 7 backend changes.
 
 Goal: onboarding completion should reflect a real setup milestone, not a skipped flow.
 
@@ -246,15 +260,25 @@ Acceptance checks:
 - “Done” from create receptionist does not trap the user on the wrong route.
 - Onboarding is not marked complete for a user who skipped all setup.
 
+Implemented files:
+
+- [backend/api/mobile_routes.py](../../backend/api/mobile_routes.py): added `POST /api/mobile/onboarding/complete`, which verifies calendar, valid subscription, active receptionist, and business phone number before writing `onboarding_completed_at`.
+- [backend/api/mobile_routes.py](../../backend/api/mobile_routes.py): receptionist creation no longer marks onboarding complete immediately.
+- [mobile/lib/screens/onboarding/onboarding_screen.dart](../../mobile/lib/screens/onboarding/onboarding_screen.dart): removed the skip-completes-onboarding path and now calls the backend completion endpoint from the final dashboard action.
+- [mobile/lib/app_router.dart](../../mobile/lib/app_router.dart): route guard allowlist remains in place for onboarding, receptionist creation, settings, checkout, help, and calls.
+- [mobile/lib/screens/receptionists/create_receptionist_screen.dart](../../mobile/lib/screens/receptionists/create_receptionist_screen.dart): `Done` still returns `context.pop(true)` when opened from onboarding.
+
 ## Phase 8 - Copy, Screens, and User Trust
+
+Status: implemented locally. Needs visual smoke test in the mobile app and landing page.
 
 Goal: app text should match the current shared business-number architecture.
 
 Tasks:
 
 - Avoid old language:
-  - “default phone”
-  - “each receptionist gets a dedicated phone number”
+  - separate setup-phone wording
+  - per-receptionist phone-number promises
 - Use current language:
   - “business number”
   - “assistant answers on your business line”
@@ -266,10 +290,21 @@ Tasks:
 
 Acceptance checks:
 
-- No references remain to default phone setup.
-- No screen promises a dedicated number per receptionist unless the backend actually provisions that.
+- No references remain to separate setup-phone copy.
+- No screen promises a separate number per receptionist unless the backend actually provisions that.
+
+Implemented files:
+
+- [mobile/lib/screens/onboarding/onboarding_screen.dart](../../mobile/lib/screens/onboarding/onboarding_screen.dart): uses business-line language for receptionist setup and test call.
+- [mobile/lib/screens/dashboard/dashboard_screen.dart](../../mobile/lib/screens/dashboard/dashboard_screen.dart): setup and empty-state copy no longer tells users to add a phone separately.
+- [mobile/lib/screens/help/help_screen.dart](../../mobile/lib/screens/help/help_screen.dart): getting-started copy now says the assistant answers on the business line.
+- [mobile/lib/screens/landing/landing_screen.dart](../../mobile/lib/screens/landing/landing_screen.dart): plan feature copy now says shared business line.
+- [mobile/BETA_ONBOARDING_GUIDE.md](../../mobile/BETA_ONBOARDING_GUIDE.md), [mobile/BETA_LAUNCH_CHECKLIST.md](../../mobile/BETA_LAUNCH_CHECKLIST.md), and [mobile/BETA_BUILD.md](../../mobile/BETA_BUILD.md): beta docs now match the shared business-line architecture.
+- [landing/dist/index.html](../../landing/dist/index.html): landing page plan copy no longer promises a separate number per receptionist.
 
 ## Phase 9 - QA Script Before Release
+
+Status: local QA completed on 2026-05-15. Production API is healthy, but the VPS is not yet running the full current onboarding backend changes.
 
 Run these checks before treating onboarding as fixed.
 
@@ -277,10 +312,14 @@ Local static checks:
 
 ```bash
 cd "/Users/pedromartins/Documents/AI Call handle/backend"
-python3 -m py_compile api/mobile_routes.py api/stripe_routes.py stripe_plans.py api/mobile/communication.py
+../venv/bin/python -m py_compile api/mobile_routes.py api/stripe_routes.py stripe_plans.py api/mobile/communication.py communication/ensure.py communication/setup_summary.py
 
 cd "/Users/pedromartins/Documents/AI Call handle/mobile"
 flutter analyze
+flutter test
+
+cd "/Users/pedromartins/Documents/AI Call handle"
+./venv/bin/pytest -q backend/tests
 ```
 
 Manual test matrix:
@@ -304,8 +343,23 @@ Production checks:
 ssh root@209.126.87.50
 systemctl status echodesk-backend --no-pager
 journalctl -u echodesk-backend -n 100 --no-pager
-curl -fsS https://echodesk.us/health
+curl -fsS https://echodesk.us/api/health
 ```
+
+Completed QA results:
+
+- Python compile check passed for the touched backend modules.
+- `flutter analyze` passed with no issues.
+- `flutter test` passed: 9 tests.
+- `./venv/bin/pytest -q backend/tests` passed: 153 tests, 34 existing warnings.
+- Stale-copy search passed for old setup-phone / per-receptionist-number language across mobile app code, beta docs, landing HTML, docs, and backend code.
+- Production `echodesk-backend` service is active.
+- Production `https://echodesk.us/api/health` returns `{"status":"ok","supabase":"ok","tts_provider":"google","tts_google":"configured"}`.
+- Production `https://echodesk.us/health` currently returns static HTML from the landing site, so use `/api/health` for backend health unless the Caddy/Nginx routing is changed.
+
+Remaining Phase 9 blocker before live release:
+
+- The VPS deployment is not yet fully synced with the local Phase 7 code. `/opt/echodesk/app/backend/api/mobile_routes.py` on the server does not contain `POST /api/mobile/onboarding/complete`, and server logs showed `404` responses for `/api/mobile/profile/ensure` and `/api/mobile/onboarding-status`. Deploy the current backend, run migrations `041` and `042`, then restart `echodesk-backend` before running the live manual matrix.
 
 ## Phase 10 - Deployment Checklist
 
@@ -336,7 +390,7 @@ cd /opt/echodesk/app
 git pull
 systemctl restart echodesk-backend
 systemctl status echodesk-backend --no-pager
-curl -fsS https://echodesk.us/health
+curl -fsS https://echodesk.us/api/health
 ```
 
 Then run one complete real signup-to-test-call flow.

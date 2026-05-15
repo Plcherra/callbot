@@ -110,8 +110,8 @@ Create a short guide (PDF or Notion/Google Doc) for testers:
 1. **Get the app** – TestFlight invite (iOS) or APK link (Android)
 2. **Create account** – Sign up with email or Google
 3. **Subscribe** – Choose a plan and complete Stripe Checkout (use test cards in Stripe test mode)
-4. **Finish setup** – Connect Google Calendar, add default phone in Settings, create first receptionist
-5. **Test a call** – Call your receptionist’s number from another phone
+4. **Finish setup** – Connect Google Calendar, create the first receptionist, and confirm the shared business line
+5. **Test a call** – Call the business line from another phone
 6. **What to test** – Incoming call alerts, dashboard minutes, call history, billing portal
 7. **Feedback** – How to report bugs (email, form, etc.)
 

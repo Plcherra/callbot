@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any, Literal
 
 NextRecommendedAction = Literal[
+    "create_receptionist",
+    "check_voice",
     "activate_sms",
     "submit_sms",
     "check_sms",
@@ -15,6 +17,47 @@ NextRecommendedAction = Literal[
     "retry_whatsapp",
     "none",
 ]
+
+
+def _effective_voice_status(phone: dict[str, Any], e164: str | None) -> str:
+    st = (phone.get("status") or "not_started").strip()
+    if st == "active" and e164:
+        return "active"
+    if st == "failed":
+        return "failed"
+    if st == "provisioning":
+        return "provisioning"
+    return "not_started"
+
+
+def _voice_guidance(status: str) -> dict[str, str | None]:
+    if status == "active":
+        return {
+            "voice_setup_title": "Business line active",
+            "voice_setup_description": "Voice calls are ready on this business number.",
+            "voice_primary_action": "",
+            "voice_help_text": None,
+        }
+    if status == "provisioning":
+        return {
+            "voice_setup_title": "Business line provisioning",
+            "voice_setup_description": "EchoDesk is setting up the Telnyx voice line for this business.",
+            "voice_primary_action": "Refresh status",
+            "voice_help_text": "This usually takes a few seconds after receptionist creation.",
+        }
+    if status == "failed":
+        return {
+            "voice_setup_title": "Phone setup needs attention",
+            "voice_setup_description": "The business line was not provisioned successfully.",
+            "voice_primary_action": "Retry phone setup",
+            "voice_help_text": "Create or retry your first receptionist to provision the shared business line.",
+        }
+    return {
+        "voice_setup_title": "No business number yet",
+        "voice_setup_description": "Create your first receptionist to provision or attach the shared business line.",
+        "voice_primary_action": "Create receptionist",
+        "voice_help_text": None,
+    }
 
 
 def _effective_whatsapp_status(wa: dict[str, Any]) -> str:
@@ -33,7 +76,17 @@ def _effective_whatsapp_status(wa: dict[str, Any]) -> str:
     return "needs_connection"
 
 
-def compute_next_recommended_action(sms_status: str, whatsapp_status: str) -> NextRecommendedAction:
+def compute_next_recommended_action(
+    voice_status: str,
+    sms_status: str,
+    whatsapp_status: str,
+) -> NextRecommendedAction:
+    if voice_status == "failed":
+        return "create_receptionist"
+    if voice_status == "not_started":
+        return "create_receptionist"
+    if voice_status == "provisioning":
+        return "check_voice"
     if sms_status == "failed":
         return "retry_sms"
     if whatsapp_status == "failed":
@@ -275,15 +328,14 @@ def build_setup_summary(
     sms = sms or {"status": "not_started", "failure_reason": None}
     wa_raw = wa or {"status": "not_connected", "failure_reason": None}
 
-    phone_status = (phone.get("status") or "provisioning").strip()
     e164 = (phone.get("phone_number_e164") or "").strip() or None
-
-    voice_status = "active" if phone_status == "active" and e164 else phone_status
+    voice_status = _effective_voice_status(phone, e164)
 
     sms_status = (sms.get("status") or "not_started").strip()
     wa_status = _effective_whatsapp_status(wa_raw)
 
-    next_action = compute_next_recommended_action(sms_status, wa_status)
+    next_action = compute_next_recommended_action(voice_status, sms_status, wa_status)
+    voice_g = _voice_guidance(voice_status)
     sms_g = _sms_guidance(sms_status, sms.get("failure_reason"))
     wa_g = _wa_guidance(wa_status, wa_raw.get("failure_reason"))
     sms_j = _sms_journey(sms, sms_status)
@@ -298,6 +350,7 @@ def build_setup_summary(
         "phone_number_e164": e164,
         "telnyx_number_id": phone.get("telnyx_number_id"),
         "voice_status": voice_status,
+        **voice_g,
         "sms_status": sms_status,
         "sms_failure_reason": sms.get("failure_reason"),
         "sms_brand_id": sms.get("brand_id"),

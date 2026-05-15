@@ -46,6 +46,7 @@ from communication.ensure import (
     ensure_communication_for_user_after_receptionist_change,
     get_default_business_for_owner,
     list_active_receptionists_for_business,
+    mark_business_phone_line_failed,
     refresh_business_after_primary_receptionist_removed,
     resolve_target_business_for_new_receptionist,
     upsert_canonical_business_phone,
@@ -339,6 +340,114 @@ async def onboarding_status(request: Request):
         }
     except Exception as e:
         logger.exception("[onboarding-status] %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+def _compute_onboarding_completion_state(supabase, user: dict) -> dict[str, Any]:
+    """Authoritative completion check before marking onboarding complete."""
+    profile_result = _ensure_user_profile(supabase, user)
+    profile = profile_result["profile"] or {}
+    profile_row = (
+        supabase.table("users")
+        .select(
+            "id, email, calendar_id, phone, subscription_status, "
+            "billing_plan, onboarding_completed_at, active_business_id"
+        )
+        .eq("id", user["id"])
+        .limit(1)
+        .execute()
+    )
+    if profile_row.data:
+        profile = profile_row.data[0]
+
+    calendar_id = (profile.get("calendar_id") or "").strip()
+    billing_state = get_billing_access_state(supabase, user["id"], profile=profile)
+
+    try:
+        business = resolve_target_business_for_new_receptionist(supabase, user["id"], None)
+        business_id = str(business["id"]) if business and business.get("id") else None
+    except Exception:
+        business_id = None
+
+    phone = None
+    if business_id:
+        try:
+            ensure_business_communication(supabase, business_id)
+        except Exception as e:
+            logger.warning("[onboarding/complete] communication repair failed: %s", e)
+        phone_res = (
+            supabase.table("business_phone_numbers")
+            .select("phone_number_e164, status, telnyx_number_id")
+            .eq("business_id", business_id)
+            .limit(1)
+            .execute()
+        )
+        phone_row = (phone_res.data or [None])[0]
+        if phone_row:
+            phone = (phone_row.get("phone_number_e164") or "").strip() or None
+
+    recs_res = (
+        supabase.table("receptionists")
+        .select("id")
+        .eq("user_id", user["id"])
+        .eq("status", "active")
+        .eq("active", True)
+        .is_("deleted_at", "null")
+        .limit(1)
+        .execute()
+    )
+    receptionist_id = (recs_res.data or [{}])[0].get("id") if recs_res.data else None
+
+    missing: list[str] = []
+    if not calendar_id:
+        missing.append("calendar")
+    if not billing_state["has_active_subscription"]:
+        missing.append("subscription")
+    if not receptionist_id:
+        missing.append("receptionist")
+    if not phone:
+        missing.append("business_phone_number")
+
+    return {
+        "ready": not missing,
+        "missing": missing,
+        "calendarId": calendar_id or None,
+        "hasActiveSubscription": bool(billing_state["has_active_subscription"]),
+        "subscriptionStatus": billing_state.get("status"),
+        "businessId": business_id,
+        "receptionistId": receptionist_id,
+        "phoneNumber": phone,
+    }
+
+
+@router.post("/onboarding/complete")
+async def complete_onboarding(request: Request):
+    user, supabase = _require_auth(request)
+    if not user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    try:
+        state = _compute_onboarding_completion_state(supabase, user)
+        if not state["ready"]:
+            return JSONResponse(
+                {
+                    "completed": False,
+                    "error": "Onboarding is not complete yet.",
+                    "missing": state["missing"],
+                },
+                status_code=400,
+            )
+
+        now = datetime.utcnow().isoformat() + "Z"
+        supabase.table("users").update(
+            {
+                "onboarding_completed_at": now,
+                "updated_at": now,
+            }
+        ).eq("id", user["id"]).is_("onboarding_completed_at", "null").execute()
+        return {"completed": True, **state}
+    except Exception as e:
+        logger.exception("[onboarding/complete] %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
@@ -769,6 +878,10 @@ async def create_receptionist(request: Request):
             telnyx_provision.configure_voice_url(telnyx_id, f"{webhook_base}/api/telnyx/voice")
             provisioned_new_number = True
         except Exception as ex:
+            try:
+                mark_business_phone_line_failed(supabase, target_business_id)
+            except Exception:
+                pass
             return JSONResponse({"error": str(ex)}, status_code=400)
         inbound_number = telnyx_phone
 
@@ -923,11 +1036,6 @@ async def create_receptionist(request: Request):
         if promotions:
             supabase.table("promos").insert({"receptionist_id": rec_id, "description": promotions, "code": "WIZARD"}).execute()
             promos_done = True
-
-        supabase.table("users").update({
-            "onboarding_completed_at": datetime.utcnow().isoformat() + "Z",
-            "updated_at": datetime.utcnow().isoformat() + "Z",
-        }).eq("id", user["id"]).is_("onboarding_completed_at", "null").execute()
 
         try:
             ensure_business_communication(supabase, target_business_id)

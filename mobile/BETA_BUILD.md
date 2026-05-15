@@ -80,8 +80,8 @@ Before sharing with testers, run through the full flow:
 | 2 | Sign up with email | Account created, redirect to dashboard |
 | 3 | Dashboard shows "Upgrade" (if not subscribed) | Upgrade CTA visible |
 | 4 | Tap Subscribe → Complete Stripe Checkout | Redirect back to app, subscription synced |
-| 5 | Finish onboarding: Connect Calendar, add phone | Onboarding complete |
-| 6 | Create receptionist (wizard) | Receptionist created with phone number |
+| 5 | Finish onboarding: Connect Calendar, create receptionist, confirm business line | Onboarding complete |
+| 6 | Create receptionist (wizard) | Receptionist created and attached to the business line |
 | 7 | Receptionist detail → Start outbound call | Call initiated, "Call initiated" snackbar |
 | 8 | Dashboard → Minutes this period | Shows usage (e.g. 0 / 300) |
 | 9 | Settings → Billing | Opens Stripe portal in browser |
